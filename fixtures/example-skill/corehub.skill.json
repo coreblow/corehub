@@ -1,0 +1,6 @@
+{
+  "schema": "https://coreblow.com/schemas/corehub.skill.json",
+  "id": "example-corehub-skill",
+  "version": "0.1.0",
+  "entrypoint": "SKILL.md"
+}

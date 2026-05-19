@@ -1,12 +1,12 @@
 # CoreHub
 
-Skill and plugin directory for CoreBlow.
+CoreHub is the CoreBlow skill and plugin directory.
 
 ## Overview
 
-CoreHub is part of the CoreBlow public repository family. Public directory for CoreBlow skills, plugins, and ecosystem metadata.
+CoreHub is part of the CoreBlow public repository family. It stores the public directory contract for CoreBlow skills, plugins, providers, channels, review metadata, and compatibility information.
 
-This repository follows the same ecosystem split that CoreBlow uses to keep release surfaces small, auditable, and independently governed.
+The current implementation is a local-first directory core: catalog validation, deterministic search, skill folder inspection, and format documentation. Hosted web/API surfaces can build on the same model without changing the directory contract.
 
 ## Repository Role
 
@@ -18,22 +18,31 @@ This repository follows the same ecosystem split that CoreBlow uses to keep rele
 
 ## Scope
 
-- Catalog entries.
-- Directory validation.
+- Catalog entries for skills, plugins, providers, and channels.
+- Directory validation and duplicate detection.
+- Deterministic local search.
+- Skill folder inspection and fingerprinting.
 - Compatibility metadata for CoreBlow releases.
+- Review state metadata for verified and deprecated entries.
 
 ## Out of Scope
 
 - Bundled plugin source code.
 - A package registry mirror.
+- A paid marketplace.
 - A replacement for `coreblow/coreblow` `extensions/*`.
 
 ## Key Files
 
 - `.gitignore`
 - `catalog.json`
+- `docs/skill-format.md`
+- `docs/plugin-format.md`
+- `docs/directory-api.md`
 - `package.json`
 - `src/catalog.mjs`
+- `src/cli.mjs`
+- `src/corehub.mjs`
 - `test/catalog.test.mjs`
 - `.github/CODEOWNERS`
 - `.github/dependabot.yml`
@@ -46,6 +55,34 @@ This repository follows the same ecosystem split that CoreBlow uses to keep rele
 ```sh
 npm test
 ```
+
+### CLI
+
+```sh
+npm run corehub -- validate
+npm run corehub -- list
+npm run corehub -- list --kind skill
+npm run corehub -- search plugin
+npm run corehub -- inspect fixtures/example-skill
+```
+
+## Directory Model
+
+CoreHub entries use these kinds:
+
+- `skill`
+- `plugin`
+- `provider`
+- `channel`
+
+Review states:
+
+- `draft`
+- `review`
+- `verified`
+- `deprecated`
+
+See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), and [Directory API](docs/directory-api.md).
 
 ## Release Policy
 

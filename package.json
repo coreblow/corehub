@@ -6,10 +6,14 @@
   "license": "MIT",
   "author": "Febrinanda and CoreBlow contributors",
   "type": "module",
+  "bin": {
+    "corehub": "src/cli.mjs"
+  },
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
+    "corehub": "node src/cli.mjs",
     "test": "node test/catalog.test.mjs"
   }
 }
