@@ -92,6 +92,10 @@ CoreHub is published under the main CoreBlow website:
 https://coreblow.com/corehub
 ```
 
+## Catalog Source of Truth
+
+`catalog.json` is the canonical CoreHub directory source. The `coreblow.com` repository serves a generated copy at `https://coreblow.com/corehub/catalog.json` and checks for drift in CI.
+
 ## Release Policy
 
 Do not publish packages, tags, installers, or release artifacts from this repository without explicit CoreBlow release approval.

@@ -12,6 +12,16 @@ npm run corehub -- search plugin
 npm run corehub -- inspect fixtures/example-skill
 ```
 
+## Canonical Catalog
+
+`catalog.json` in this repository is the canonical directory source. The public website serves a generated copy at:
+
+```text
+https://coreblow.com/corehub/catalog.json
+```
+
+The `coreblow.com` CI checks that its generated copy matches this catalog.
+
 ## Public Record
 
 Directory records expose:
