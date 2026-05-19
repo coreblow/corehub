@@ -22,6 +22,20 @@ https://coreblow.com/corehub/catalog.json
 
 The `coreblow.com` CI checks that its generated copy matches this catalog.
 
+## Public Schema
+
+The catalog contract is described by:
+
+```text
+schemas/corehub.catalog.schema.json
+```
+
+Validate the catalog against the schema with:
+
+```sh
+npm run validate:schema
+```
+
 ## Public Record
 
 Directory records expose:

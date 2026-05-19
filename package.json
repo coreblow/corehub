@@ -15,6 +15,7 @@
   },
   "scripts": {
     "corehub": "node src/cli.mjs",
-    "test": "node test/catalog.test.mjs"
+    "test": "node test/catalog.test.mjs",
+    "validate:schema": "node scripts/validate-catalog-schema.mjs"
   }
 }

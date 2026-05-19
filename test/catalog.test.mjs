@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
+import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
 
 const entries = JSON.parse(await readFile(new URL("../catalog.json", import.meta.url), "utf-8"));
+const schema = JSON.parse(
+  await readFile(new URL("../schemas/corehub.catalog.schema.json", import.meta.url), "utf-8"),
+);
 const errors = validateCatalog(entries);
 
 assert.deepEqual(errors, []);
+assert.deepEqual(new CoreHubCatalogSchemaValidator(schema).validate(entries), []);
 assert.equal(entries[0].id, "coreblow");
 
 const catalog = new CoreHubCatalog(entries);

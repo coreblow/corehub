@@ -56,6 +56,12 @@ The current implementation is a local-first directory core: catalog validation, 
 npm test
 ```
 
+### Validate Schema
+
+```sh
+npm run validate:schema
+```
+
 ### CLI
 
 ```sh
@@ -95,6 +101,8 @@ https://coreblow.com/corehub
 ## Catalog Source of Truth
 
 `catalog.json` is the canonical CoreHub directory source. The `coreblow.com` repository serves a generated copy at `https://coreblow.com/corehub/catalog.json` and checks for drift in CI.
+
+`schemas/corehub.catalog.schema.json` is the public catalog schema.
 
 ## Release Policy
 
