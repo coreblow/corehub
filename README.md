@@ -84,6 +84,14 @@ Review states:
 
 See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), and [Directory API](docs/directory-api.md).
 
+## Public Web Surface
+
+CoreHub is published under the main CoreBlow website:
+
+```text
+https://coreblow.com/corehub
+```
+
 ## Release Policy
 
 Do not publish packages, tags, installers, or release artifacts from this repository without explicit CoreBlow release approval.
@@ -93,6 +101,7 @@ Version changes must follow the coordinated CoreBlow release plan.
 ## Links
 
 - [CoreBlow](https://github.com/coreblow/coreblow)
+- [CoreHub Web](https://coreblow.com/corehub)
 - [Documentation](https://docs.coreblow.com)
 - [Website](https://coreblow.com)
 - [Security Policy](SECURITY.md)
