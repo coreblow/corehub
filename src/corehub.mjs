@@ -291,6 +291,7 @@ export class CoreHubCatalogValidator {
     if (typeof artifact.downloadEnabled !== "boolean") {
       errors.push(`${prefix}.artifact.downloadEnabled must be a boolean`);
     }
+    this.validateStorage(errors, artifact.storage, artifact.downloadEnabled, prefix);
     this.validateProvenance(errors, artifact.provenance, prefix);
     if (!Array.isArray(artifact.files)) {
       errors.push(`${prefix}.artifact.files must be an array`);
@@ -299,6 +300,25 @@ export class CoreHubCatalogValidator {
     for (const [index, file] of artifact.files.entries()) {
       this.validateArtifactFile(errors, file, `${prefix}.artifact.files[${index}]`);
     }
+  }
+
+  validateStorage(errors, storage, downloadEnabled, prefix) {
+    if (storage === undefined) {
+      if (downloadEnabled) {
+        errors.push(`${prefix}.artifact.storage is required when downloads are enabled`);
+      }
+      return;
+    }
+    if (!storage || typeof storage !== "object" || Array.isArray(storage)) {
+      errors.push(`${prefix}.artifact.storage must be an object`);
+      return;
+    }
+    if (!["github-raw", "r2", "s3"].includes(storage.provider)) {
+      errors.push(`${prefix}.artifact.storage.provider must be one of github-raw, r2, s3`);
+    }
+    requireText(errors, storage.key, `${prefix}.artifact.storage.key`);
+    optionalText(errors, storage.region, `${prefix}.artifact.storage.region`);
+    optionalUrl(errors, storage.url, `${prefix}.artifact.storage.url`);
   }
 
   validateProvenance(errors, provenance, prefix) {

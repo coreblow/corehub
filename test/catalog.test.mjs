@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
@@ -21,11 +22,26 @@ const catalog = new CoreHubCatalog(entries);
 assert.equal(catalog.findById("plugin-lab").kind, "plugin");
 assert.equal(catalog.findById("plugin-lab").publisher.handle, "coreblow");
 assert.equal(catalog.listVersions("plugin-lab")[0].publisher.handle, "coreblow");
-assert.equal(catalog.findVersion("plugin-lab", "latest").artifact.downloadEnabled, false);
+assert.equal(catalog.findVersion("plugin-lab", "latest").status, "available");
+assert.equal(catalog.findVersion("plugin-lab", "latest").artifact.downloadEnabled, true);
 assert.equal(
   catalog.findVersion("plugin-lab", "0.1.0").artifact.name,
   "plugin-lab-0.1.0.corehub-manifest.json",
 );
+assert.equal(
+  catalog.findVersion("plugin-lab", "0.1.0").artifact.storage.key,
+  "artifacts/plugin-lab-0.1.0.corehub-manifest.json",
+);
+
+for (const entry of entries) {
+  for (const version of entry.versions ?? []) {
+    const artifact = version.artifact;
+    if (artifact?.storage?.provider !== "github-raw") continue;
+    const bytes = await readFile(new URL(`../${artifact.storage.key}`, import.meta.url));
+    assert.equal(bytes.byteLength, artifact.size);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), artifact.sha256);
+  }
+}
 assert.equal(catalog.list({ kind: "skill" }).length, 1);
 assert.equal(catalog.list({ verifiedOnly: true }).length, entries.length);
 assert.equal(catalog.listPublishers().length, 1);
@@ -62,6 +78,7 @@ const invalid = validateCatalog([
           size: -1,
           sha256: "bad",
           downloadEnabled: "yes",
+          storage: { provider: "unknown", key: "", url: "not-url" },
           provenance: { source: "https://example.com/not-github", reviewState: "unknown" },
           files: [{ path: "", size: -1, sha256: "bad" }],
         },
@@ -80,6 +97,7 @@ assert.ok(invalid.some((error) => error.includes("publisher.handle")));
 assert.ok(invalid.some((error) => error.includes("publisher.verified")));
 assert.ok(invalid.some((error) => error.includes("versions[0].publisher.handle")));
 assert.ok(invalid.some((error) => error.includes("versions[0].artifact.sha256")));
+assert.ok(invalid.some((error) => error.includes("versions[0].artifact.storage.provider")));
 assert.ok(invalid.some((error) => error.includes("coreblow.requiresEnv")));
 
 const inspected = await new CoreHubSkillInspector().inspectFolder(
@@ -108,7 +126,7 @@ const packageVersions = await execFileAsync(process.execPath, [
   "versions",
   "plugin-lab",
 ]);
-assert.match(packageVersions.stdout, /plugin-lab\tlatest\t0\.1\.0\tmetadata-only/);
+assert.match(packageVersions.stdout, /plugin-lab\tlatest\t0\.1\.0\tavailable/);
 assert.match(packageVersions.stdout, /publisher=coreblow/);
 
 const packageArtifact = await execFileAsync(process.execPath, [
@@ -117,7 +135,7 @@ const packageArtifact = await execFileAsync(process.execPath, [
   "artifact",
   "plugin-lab",
 ]);
-assert.equal(JSON.parse(packageArtifact.stdout).artifact.downloadEnabled, false);
+assert.equal(JSON.parse(packageArtifact.stdout).artifact.downloadEnabled, true);
 
 const packageFiles = await execFileAsync(process.execPath, [
   cliPath,
@@ -126,6 +144,14 @@ const packageFiles = await execFileAsync(process.execPath, [
   "plugin-lab",
 ]);
 assert.equal(JSON.parse(packageFiles.stdout).artifact.name, "plugin-lab-0.1.0.corehub-manifest.json");
+
+const packageDownload = await execFileAsync(process.execPath, [
+  cliPath,
+  "package",
+  "download",
+  "plugin-lab",
+]);
+assert.equal(JSON.parse(packageDownload.stdout).download.available, true);
 
 const publisherList = await execFileAsync(process.execPath, [cliPath, "publishers", "list"]);
 assert.equal(JSON.parse(publisherList.stdout)[0].handle, "coreblow");
@@ -206,7 +232,24 @@ const registryServer = createServer((request, response) => {
           publisher: { handle: "coreblow" },
           artifact: entries[2].versions[0].artifact,
           files: [],
-          download: { available: false, reason: "not enabled" },
+          download: { available: true, url: entries[2].versions[0].artifact.storage.url },
+        },
+        meta: { count: 1 },
+      }),
+    );
+    return;
+  }
+
+  if (url.pathname === "/corehub/api/v1/packages/plugin-lab/download") {
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: {
+          package: { id: "plugin-lab", kind: "plugin", name: "Plugin Lab" },
+          version: "0.1.0",
+          publisher: { handle: "coreblow" },
+          artifact: entries[2].versions[0].artifact,
+          download: { available: true, url: entries[2].versions[0].artifact.storage.url },
         },
         meta: { count: 1 },
       }),
@@ -278,7 +321,7 @@ try {
     "--registry",
     registryUrl,
   ]);
-  assert.match(remoteVersions.stdout, /plugin-lab\tlatest\t0\.1\.0\tmetadata-only/);
+  assert.match(remoteVersions.stdout, /plugin-lab\tlatest\t0\.1\.0\tavailable/);
 
   const remoteArtifact = await execFileAsync(process.execPath, [
     cliPath,
@@ -288,7 +331,17 @@ try {
     "--registry",
     registryUrl,
   ]);
-  assert.equal(JSON.parse(remoteArtifact.stdout).artifact.downloadEnabled, false);
+  assert.equal(JSON.parse(remoteArtifact.stdout).artifact.downloadEnabled, true);
+
+  const remoteDownload = await execFileAsync(process.execPath, [
+    cliPath,
+    "package",
+    "download",
+    "plugin-lab",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.equal(JSON.parse(remoteDownload.stdout).download.available, true);
 
   const remotePublishers = await execFileAsync(process.execPath, [
     cliPath,

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "corehub.artifact.v1",
+  "package": {
+    "id": "corehub-directory",
+    "version": "0.1.0"
+  },
+  "publisher": {
+    "handle": "coreblow"
+  },
+  "source": "https://github.com/coreblow/corehub",
+  "files": []
+}

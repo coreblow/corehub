@@ -137,6 +137,9 @@
         "downloadEnabled": {
           "type": "boolean"
         },
+        "storage": {
+          "$ref": "#/$defs/storage"
+        },
         "provenance": {
           "$ref": "#/$defs/provenance"
         },
@@ -145,6 +148,29 @@
           "items": {
             "$ref": "#/$defs/artifactFile"
           }
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "key", "url"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["github-raw", "r2", "s3"]
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "region": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://"
         }
       }
     },

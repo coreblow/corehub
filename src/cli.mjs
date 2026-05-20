@@ -273,6 +273,20 @@ async function readPackageDownload(id, options = {}) {
   }
 
   const artifact = await readPackageArtifact(id, options);
+  if (artifact.artifact?.downloadEnabled && artifact.artifact.storage?.url) {
+    return {
+      package: artifact.package,
+      version: artifact.version,
+      publisher: artifact.publisher ?? null,
+      artifact: artifact.artifact,
+      download: {
+        available: true,
+        url: artifact.artifact.storage.url,
+        redirect: "storage",
+      },
+    };
+  }
+
   return {
     error: "not_implemented",
     message: "CoreHub file downloads require storage-backed artifacts and download policy enforcement.",
@@ -390,9 +404,9 @@ class CoreHubRegistryClient {
   }
 
   async download(id) {
-    return this.readData(this.apiUrl(`/packages/${encodeURIComponent(id)}/download`), {
-      allowStatuses: new Set([501]),
-    });
+    const url = this.apiUrl(`/packages/${encodeURIComponent(id)}/download`);
+    url.searchParams.set("redirect", "false");
+    return this.readData(url, { allowStatuses: new Set([501]) });
   }
 
   async publishers() {
