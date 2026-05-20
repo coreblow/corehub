@@ -14,6 +14,9 @@ npm run corehub -- package explore
 npm run corehub -- package search plugin
 npm run corehub -- package inspect plugin-lab
 npm run corehub -- package versions plugin-lab
+npm run corehub -- package files plugin-lab
+npm run corehub -- package artifact plugin-lab
+npm run corehub -- package download plugin-lab
 npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
@@ -25,6 +28,9 @@ npm run corehub -- explore --registry https://coreblow.com/corehub
 npm run corehub -- search plugin --registry https://coreblow.com/corehub
 npm run corehub -- package inspect plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package versions plugin-lab --registry https://coreblow.com/corehub
+npm run corehub -- package files plugin-lab --registry https://coreblow.com/corehub
+npm run corehub -- package artifact plugin-lab --registry https://coreblow.com/corehub
+npm run corehub -- package download plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- registry info --registry https://coreblow.com/corehub
 ```
 
@@ -91,6 +97,10 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 | `GET` | `/corehub/api/v1/packages/search?q=<query>` | ClawHub-style package search alias. |
 | `GET` | `/corehub/api/v1/packages/:id` | Inspect one package-compatible entry. |
 | `GET` | `/corehub/api/v1/packages/:id/versions` | Return the current static version as `latest`. |
+| `GET` | `/corehub/api/v1/packages/:id/files` | Return file metadata for a package version. Currently empty until artifact storage lands. |
+| `GET` | `/corehub/api/v1/packages/:id/artifact` | Return artifact metadata for a package version. Currently reports no artifact. |
+| `GET` | `/corehub/api/v1/packages/:id/download` | Download a package artifact. Currently returns `501 not_implemented`. |
+| `GET` | `/corehub/api/v1/download?id=<id>` | Top-level download alias. Currently returns `501 not_implemented`. |
 
 ### Response Shape
 
@@ -107,6 +117,8 @@ All v1 responses return:
 ```
 
 The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
+
+Download endpoints are intentionally present before binary storage. They return structured metadata now so CLI clients can detect the contract, while write-side publishing, publisher identity, artifact integrity, and file storage are added later.
 
 ## Search
 

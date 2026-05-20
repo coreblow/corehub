@@ -62,6 +62,27 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "files") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package files requires an entry id");
+    console.log(JSON.stringify(await readPackageFiles(id, { registry }), null, 2));
+    return;
+  }
+
+  if (subcommand === "artifact") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package artifact requires an entry id");
+    console.log(JSON.stringify(await readPackageArtifact(id, { registry }), null, 2));
+    return;
+  }
+
+  if (subcommand === "download") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package download requires an entry id");
+    console.log(JSON.stringify(await readPackageDownload(id, { registry }), null, 2));
+    return;
+  }
+
   if (subcommand === "search") {
     const query = positionalArgs(args).join(" ").trim();
     if (!query) throw new Error("package search requires a query");
@@ -172,6 +193,57 @@ async function readPackageVersions(id, options = {}) {
   ];
 }
 
+async function readPackageFiles(id, options = {}) {
+  if (options.registry) {
+    return new CoreHubRegistryClient(options.registry).files(id);
+  }
+
+  const catalog = await readCatalog();
+  const record = catalog.findById(id);
+  if (!record) throw new Error(`CoreHub package not found: ${id}`);
+  return {
+    package: { id: record.id, kind: record.kind, name: record.name },
+    version: record.version ?? null,
+    files: [],
+    artifact: null,
+  };
+}
+
+async function readPackageArtifact(id, options = {}) {
+  if (options.registry) {
+    return new CoreHubRegistryClient(options.registry).artifact(id);
+  }
+
+  const catalog = await readCatalog();
+  const record = catalog.findById(id);
+  if (!record) throw new Error(`CoreHub package not found: ${id}`);
+  return {
+    package: { id: record.id, kind: record.kind, name: record.name },
+    version: record.version ?? null,
+    artifact: null,
+    files: [],
+    download: {
+      available: false,
+      reason: "CoreHub static catalog entries do not include downloadable artifacts yet.",
+    },
+  };
+}
+
+async function readPackageDownload(id, options = {}) {
+  if (options.registry) {
+    return new CoreHubRegistryClient(options.registry).download(id);
+  }
+
+  const artifact = await readPackageArtifact(id, options);
+  return {
+    error: "not_implemented",
+    message: "CoreHub file downloads require version artifact storage, integrity metadata, and publisher identity.",
+    package: artifact.package,
+    version: artifact.version,
+    artifact: null,
+  };
+}
+
 function printCatalogRecord(catalog, id) {
   const record = catalog.findById(id);
   if (!record) throw new Error(`CoreHub entry not found: ${id}`);
@@ -257,15 +329,30 @@ class CoreHubRegistryClient {
     return this.readData(this.apiUrl(`/packages/${encodeURIComponent(id)}/versions`));
   }
 
+  async files(id) {
+    return this.readData(this.apiUrl(`/packages/${encodeURIComponent(id)}/files`));
+  }
+
+  async artifact(id) {
+    return this.readData(this.apiUrl(`/packages/${encodeURIComponent(id)}/artifact`));
+  }
+
+  async download(id) {
+    return this.readData(this.apiUrl(`/packages/${encodeURIComponent(id)}/download`), {
+      allowStatuses: new Set([501]),
+    });
+  }
+
   apiUrl(path) {
     return new URL(`${this.registry}/api/v1${path}`);
   }
 
-  async readData(url) {
+  async readData(url, options = {}) {
     const response = await fetch(url, {
       headers: { Accept: "application/json", "User-Agent": "corehub-cli" },
     });
-    if (!response.ok) {
+    const allowedStatuses = options.allowStatuses ?? new Set();
+    if (!response.ok && !allowedStatuses.has(response.status)) {
       throw new Error(`CoreHub registry request failed: ${response.status} ${response.statusText}`);
     }
     const payload = await response.json();
@@ -299,6 +386,9 @@ Usage:
   corehub package search <query> [--registry https://coreblow.com/corehub]
   corehub package inspect <entry-id> [--registry https://coreblow.com/corehub]
   corehub package versions <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package files <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package download <entry-id> [--registry https://coreblow.com/corehub]
   corehub package publish <source>
   corehub registry info --registry https://coreblow.com/corehub
 `);
@@ -312,6 +402,9 @@ Usage:
   corehub package search <query> [--registry https://coreblow.com/corehub]
   corehub package inspect <entry-id> [--registry https://coreblow.com/corehub]
   corehub package versions <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package files <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package download <entry-id> [--registry https://coreblow.com/corehub]
   corehub package publish <source>
 `);
 }
