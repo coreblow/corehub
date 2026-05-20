@@ -19,6 +19,7 @@ npm run corehub -- package versions plugin-lab
 npm run corehub -- package files plugin-lab
 npm run corehub -- package artifact plugin-lab
 npm run corehub -- package download plugin-lab
+npm run corehub -- package download plugin-lab --output plugin-lab.corehub-manifest.json
 npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
@@ -35,6 +36,7 @@ npm run corehub -- package versions plugin-lab --registry https://coreblow.com/c
 npm run corehub -- package files plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package artifact plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package download plugin-lab --registry https://coreblow.com/corehub
+npm run corehub -- package download plugin-lab --output plugin-lab.corehub-manifest.json --registry https://coreblow.com/corehub
 npm run corehub -- registry info --registry https://coreblow.com/corehub
 ```
 
@@ -111,11 +113,11 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 | `GET` | `/corehub/api/v1/publishers` | List publishers represented in the catalog. |
 | `GET` | `/corehub/api/v1/publishers/:handle` | Inspect one publisher and its catalog entries. |
 | `GET` | `/corehub/api/v1/packages/:id` | Inspect one package-compatible entry. |
-| `GET` | `/corehub/api/v1/packages/:id/versions` | Return the current static version as `latest`. |
-| `GET` | `/corehub/api/v1/packages/:id/files` | Return file metadata for a package version. Currently empty until artifact storage lands. |
-| `GET` | `/corehub/api/v1/packages/:id/artifact` | Return artifact metadata for a package version. Currently reports no artifact. |
-| `GET` | `/corehub/api/v1/packages/:id/download` | Download a package artifact. Currently returns `501 not_implemented`. |
-| `GET` | `/corehub/api/v1/download?id=<id>` | Top-level download alias. Currently returns `501 not_implemented`. |
+| `GET` | `/corehub/api/v1/packages/:id/versions` | Return publisher-owned version metadata. |
+| `GET` | `/corehub/api/v1/packages/:id/files` | Return file metadata from the artifact manifest. |
+| `GET` | `/corehub/api/v1/packages/:id/artifact` | Return artifact manifest metadata, checksum, provenance, storage locator, and download policy. |
+| `GET` | `/corehub/api/v1/packages/:id/download` | Return a signed storage redirect, or signed download metadata with `redirect=false`. |
+| `GET` | `/corehub/api/v1/download?id=<id>` | Top-level signed download alias. |
 
 ### Response Shape
 
@@ -133,7 +135,9 @@ All v1 responses return:
 
 The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
 
-Download endpoints are intentionally present before binary storage. They return structured metadata now so CLI clients can detect the contract, while write-side publishing, artifact integrity, and file storage are added later. Publisher identity is the first ownership layer; real artifact downloads should require publisher ownership, provenance, and moderation checks.
+Download endpoints support storage-backed signed redirects. The default response is a `302` to the artifact storage URL; CLI clients use `redirect=false` to inspect the signed contract before fetching bytes.
+
+The CLI can perform a verified artifact fetch with `corehub package download <id> --output <path>`. Verified downloads write the artifact only after checking byte size and SHA-256 against the artifact manifest.
 
 ## Search
 
@@ -153,6 +157,6 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package publish <source>`
 - `corehub registry info`
 
-Commands that need a hosted registry currently report or perform local dry-run behavior. They must not publish remote artifacts until CoreHub Registry API v1 is available and release approval is explicit.
+Write commands currently report or perform local dry-run behavior. They must not publish remote artifacts until publisher write flows are available and release approval is explicit.
 
 Read commands can use the hosted API with `--registry https://coreblow.com/corehub` or `COREHUB_REGISTRY=https://coreblow.com/corehub`.

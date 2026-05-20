@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { CoreHubSkillInspector, readCatalog } from "./corehub.mjs";
 
 const command = process.argv[2] ?? "help";
@@ -101,7 +103,13 @@ async function runPackageCommand(values) {
   if (subcommand === "download") {
     const id = positionalArgs(args)[0];
     if (!id) throw new Error("package download requires an entry id");
-    console.log(JSON.stringify(await readPackageDownload(id, { registry }), null, 2));
+    const output = readOption(args, "--output");
+    const download = await readPackageDownload(id, { registry });
+    if (output) {
+      console.log(JSON.stringify(await writeVerifiedDownload(download, output), null, 2));
+    } else {
+      console.log(JSON.stringify(download, null, 2));
+    }
     return;
   }
 
@@ -297,6 +305,47 @@ async function readPackageDownload(id, options = {}) {
   };
 }
 
+async function writeVerifiedDownload(download, outputPath) {
+  const artifact = download.artifact;
+  const url = download.download?.url ?? artifact?.storage?.url;
+  if (!download.download?.available || !artifact || !url) {
+    throw new Error("CoreHub package download is not available for this artifact");
+  }
+
+  const response = await fetch(url, {
+    headers: { Accept: artifact.mediaType ?? "*/*", "User-Agent": "corehub-cli" },
+  });
+  if (!response.ok) {
+    throw new Error(`CoreHub artifact download failed: ${response.status} ${response.statusText}`);
+  }
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (Number.isInteger(artifact.size) && bytes.byteLength !== artifact.size) {
+    throw new Error(
+      `CoreHub artifact size mismatch: expected ${artifact.size}, received ${bytes.byteLength}`,
+    );
+  }
+
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (artifact.sha256 && digest !== artifact.sha256) {
+    throw new Error(`CoreHub artifact checksum mismatch: expected ${artifact.sha256}, received ${digest}`);
+  }
+
+  const path = resolve(outputPath);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, bytes);
+
+  return {
+    ...download,
+    output: {
+      path,
+      bytes: bytes.byteLength,
+      sha256: digest,
+      verified: true,
+    },
+  };
+}
+
 function readCatalogPackageVersion(catalog, id, requested) {
   const record = catalog.findById(id);
   if (!record) throw new Error(`CoreHub package not found: ${id}`);
@@ -464,7 +513,7 @@ Usage:
   corehub package versions <entry-id> [--registry https://coreblow.com/corehub]
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
-  corehub package download <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package publish <source>
   corehub registry info --registry https://coreblow.com/corehub
 `);
@@ -480,7 +529,7 @@ Usage:
   corehub package versions <entry-id> [--registry https://coreblow.com/corehub]
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
-  corehub package download <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package publish <source>
 `);
 }

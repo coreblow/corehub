@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
@@ -13,6 +15,17 @@ const schema = JSON.parse(
   await readFile(new URL("../schemas/corehub.catalog.schema.json", import.meta.url), "utf-8"),
 );
 const errors = validateCatalog(entries);
+const pluginLabArtifactBytes = await readFile(
+  new URL("../artifacts/plugin-lab-0.1.0.corehub-manifest.json", import.meta.url),
+);
+const pluginLabArtifactUrl = "/artifacts/plugin-lab-0.1.0.corehub-manifest.json";
+const pluginLabRemoteArtifact = {
+  ...entries[2].versions[0].artifact,
+  storage: {
+    ...entries[2].versions[0].artifact.storage,
+    url: pluginLabArtifactUrl,
+  },
+};
 
 assert.deepEqual(errors, []);
 assert.deepEqual(new CoreHubCatalogSchemaValidator(schema).validate(entries), []);
@@ -230,9 +243,9 @@ const registryServer = createServer((request, response) => {
           package: { id: "plugin-lab", kind: "plugin", name: "Plugin Lab" },
           version: "0.1.0",
           publisher: { handle: "coreblow" },
-          artifact: entries[2].versions[0].artifact,
+          artifact: pluginLabRemoteArtifact,
           files: [],
-          download: { available: true, url: entries[2].versions[0].artifact.storage.url },
+          download: { available: true, url: new URL(pluginLabArtifactUrl, `http://${request.headers.host}`) },
         },
         meta: { count: 1 },
       }),
@@ -248,12 +261,21 @@ const registryServer = createServer((request, response) => {
           package: { id: "plugin-lab", kind: "plugin", name: "Plugin Lab" },
           version: "0.1.0",
           publisher: { handle: "coreblow" },
-          artifact: entries[2].versions[0].artifact,
-          download: { available: true, url: entries[2].versions[0].artifact.storage.url },
+          artifact: pluginLabRemoteArtifact,
+          download: {
+            available: true,
+            url: new URL(pluginLabArtifactUrl, `http://${request.headers.host}`),
+          },
         },
         meta: { count: 1 },
       }),
     );
+    return;
+  }
+
+  if (url.pathname === pluginLabArtifactUrl) {
+    response.setHeader("Content-Type", "application/vnd.coreblow.corehub.manifest+json");
+    response.end(pluginLabArtifactBytes);
     return;
   }
 
@@ -342,6 +364,31 @@ try {
     registryUrl,
   ]);
   assert.equal(JSON.parse(remoteDownload.stdout).download.available, true);
+
+  const downloadDir = await mkdtemp(join(tmpdir(), "corehub-download-"));
+  try {
+    const downloadPath = join(downloadDir, "plugin-lab.corehub-manifest.json");
+    const remoteVerifiedDownload = await execFileAsync(process.execPath, [
+      cliPath,
+      "package",
+      "download",
+      "plugin-lab",
+      "--output",
+      downloadPath,
+      "--registry",
+      registryUrl,
+    ]);
+    const verified = JSON.parse(remoteVerifiedDownload.stdout);
+    assert.equal(verified.output.verified, true);
+    assert.equal(verified.output.bytes, entries[2].versions[0].artifact.size);
+    assert.equal(verified.output.sha256, entries[2].versions[0].artifact.sha256);
+    assert.deepEqual(
+      JSON.parse(await readFile(downloadPath, "utf-8")),
+      JSON.parse(pluginLabArtifactBytes.toString("utf-8")),
+    );
+  } finally {
+    await rm(downloadDir, { recursive: true, force: true });
+  }
 
   const remotePublishers = await execFileAsync(process.execPath, [
     cliPath,
