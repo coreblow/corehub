@@ -27,6 +27,8 @@ async function main() {
     printRecords(await searchRecords(query, { registry }));
   } else if (command === "package") {
     await runPackageCommand(args);
+  } else if (command === "registry") {
+    await runRegistryCommand(args);
   } else if (command === "skill") {
     await runSkillCommand(args);
   } else if (command === "inspect") {
@@ -53,6 +55,13 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "versions") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package versions requires an entry id");
+    printVersions(await readPackageVersions(id, { registry }));
+    return;
+  }
+
   if (subcommand === "search") {
     const query = positionalArgs(args).join(" ").trim();
     if (!query) throw new Error("package search requires a query");
@@ -66,6 +75,20 @@ async function runPackageCommand(values) {
   }
 
   printPackageHelp();
+}
+
+async function runRegistryCommand(values) {
+  const subcommand = values[0] ?? "info";
+  const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
+  if (!registry) throw new Error("registry info requires --registry or COREHUB_REGISTRY");
+
+  if (subcommand === "info") {
+    console.log(JSON.stringify(await new CoreHubRegistryClient(registry).info(), null, 2));
+    return;
+  }
+
+  printRegistryHelp();
 }
 
 async function runSkillCommand(values) {
@@ -130,6 +153,25 @@ async function printRecord(id, options = {}) {
   printCatalogRecord(catalog, id);
 }
 
+async function readPackageVersions(id, options = {}) {
+  if (options.registry) {
+    return new CoreHubRegistryClient(options.registry).versions(id);
+  }
+
+  const catalog = await readCatalog();
+  const record = catalog.findById(id);
+  if (!record) throw new Error(`CoreHub package not found: ${id}`);
+  return [
+    {
+      id: record.id,
+      version: record.version ?? null,
+      tag: "latest",
+      review: record.review ?? null,
+      source: record.source,
+    },
+  ];
+}
+
 function printCatalogRecord(catalog, id) {
   const record = catalog.findById(id);
   if (!record) throw new Error(`CoreHub entry not found: ${id}`);
@@ -177,6 +219,13 @@ function printRecords(records) {
   }
 }
 
+function printVersions(versions) {
+  for (const version of versions) {
+    console.log(`${version.id}\t${version.tag ?? "version"}\t${version.version ?? "unversioned"}`);
+    if (version.source) console.log(`  ${version.source}`);
+  }
+}
+
 class CoreHubRegistryClient {
   constructor(registry) {
     this.registry = normalizeRegistry(registry);
@@ -186,6 +235,10 @@ class CoreHubRegistryClient {
     const url = this.apiUrl("/entries");
     if (options.kind) url.searchParams.set("kind", options.kind);
     return this.readData(url);
+  }
+
+  async info() {
+    return this.readData(this.apiUrl(""));
   }
 
   async search(query, options = {}) {
@@ -198,6 +251,10 @@ class CoreHubRegistryClient {
   async inspect(id, options = {}) {
     const path = options.packageRoute ? `/packages/${encodeURIComponent(id)}` : `/entries/${encodeURIComponent(id)}`;
     return this.readData(this.apiUrl(path));
+  }
+
+  async versions(id) {
+    return this.readData(this.apiUrl(`/packages/${encodeURIComponent(id)}/versions`));
   }
 
   apiUrl(path) {
@@ -241,7 +298,9 @@ Usage:
   corehub package explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub package search <query> [--registry https://coreblow.com/corehub]
   corehub package inspect <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package versions <entry-id> [--registry https://coreblow.com/corehub]
   corehub package publish <source>
+  corehub registry info --registry https://coreblow.com/corehub
 `);
 }
 
@@ -252,7 +311,16 @@ Usage:
   corehub package explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub package search <query> [--registry https://coreblow.com/corehub]
   corehub package inspect <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package versions <entry-id> [--registry https://coreblow.com/corehub]
   corehub package publish <source>
+`);
+}
+
+function printRegistryHelp() {
+  console.log(`CoreHub registry commands
+
+Usage:
+  corehub registry info --registry https://coreblow.com/corehub
 `);
 }
 

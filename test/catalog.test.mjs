@@ -65,6 +65,14 @@ const packageInspect = await execFileAsync(process.execPath, [
 ]);
 assert.equal(JSON.parse(packageInspect.stdout).id, "plugin-lab");
 
+const packageVersions = await execFileAsync(process.execPath, [
+  cliPath,
+  "package",
+  "versions",
+  "plugin-lab",
+]);
+assert.match(packageVersions.stdout, /plugin-lab\tlatest\t0\.1\.0/);
+
 const skillPublish = await execFileAsync(process.execPath, [
   cliPath,
   "skill",
@@ -82,6 +90,20 @@ const registryServer = createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === "/corehub/api/v1") {
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: {
+          name: "CoreHub Registry API",
+          entries: "/corehub/api/v1/entries",
+        },
+        meta: { count: 1 },
+      }),
+    );
+    return;
+  }
+
   if (url.pathname === "/corehub/api/v1/search") {
     response.end(
       JSON.stringify({
@@ -95,6 +117,17 @@ const registryServer = createServer((request, response) => {
 
   if (url.pathname === "/corehub/api/v1/packages/plugin-lab") {
     response.end(JSON.stringify({ apiVersion: "v1", data: entries[2], meta: { count: 1 } }));
+    return;
+  }
+
+  if (url.pathname === "/corehub/api/v1/packages/plugin-lab/versions") {
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: [{ id: "plugin-lab", version: "0.1.0", tag: "latest", source: entries[2].source }],
+        meta: { count: 1 },
+      }),
+    );
     return;
   }
 
@@ -131,6 +164,25 @@ try {
     registryUrl,
   ]);
   assert.equal(JSON.parse(remoteInspect.stdout).id, "plugin-lab");
+
+  const remoteVersions = await execFileAsync(process.execPath, [
+    cliPath,
+    "package",
+    "versions",
+    "plugin-lab",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.match(remoteVersions.stdout, /plugin-lab\tlatest\t0\.1\.0/);
+
+  const remoteInfo = await execFileAsync(process.execPath, [
+    cliPath,
+    "registry",
+    "info",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.equal(JSON.parse(remoteInfo.stdout).name, "CoreHub Registry API");
 } finally {
   await new Promise((resolve) => registryServer.close(resolve));
 }

@@ -73,6 +73,7 @@ npm run corehub -- list --kind skill
 npm run corehub -- search plugin
 npm run corehub -- package explore
 npm run corehub -- package inspect plugin-lab
+npm run corehub -- package versions plugin-lab
 npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
@@ -81,6 +82,7 @@ Use production Registry API v1:
 
 ```sh
 npm run corehub -- search plugin --registry https://coreblow.com/corehub
+npm run corehub -- registry info --registry https://coreblow.com/corehub
 ```
 
 ## Directory Model
