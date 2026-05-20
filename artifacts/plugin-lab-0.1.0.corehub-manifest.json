@@ -2,11 +2,44 @@
   "schemaVersion": "corehub.artifact.v1",
   "package": {
     "id": "plugin-lab",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "kind": "plugin"
   },
   "publisher": {
     "handle": "coreblow"
   },
   "source": "https://github.com/coreblow/plugin-lab",
-  "files": []
+  "artifact": {
+    "name": "plugin-lab-0.1.0.coreblow-plugin.tgz",
+    "mediaType": "application/vnd.coreblow.plugin-archive+gzip",
+    "size": 736,
+    "sha256": "4de3b0826298645b080a471904b5bfb7731aaed67a6b6da2bad26402e91a6c90",
+    "files": [
+      {
+        "path": "coreblow.plugin.json",
+        "size": 337,
+        "sha256": "726d9d5ef53490c05d40f33982e25f5e084538b0589e1d3b460ddd947179051f"
+      },
+      {
+        "path": "corehub.artifact.json",
+        "size": 317,
+        "sha256": "bac3f563399ae127442545d08f20c0c178e89723f00fec50d6fb8b89b1165bbc"
+      },
+      {
+        "path": "index.js",
+        "size": 78,
+        "sha256": "c8c32710010c476a058bd11d43e81c773f6a96700684c3abccaba82cdcdb369d"
+      },
+      {
+        "path": "package.json",
+        "size": 434,
+        "sha256": "72de8ecd9700d93d772d792e2015c9c3574df25579719e54c39d6dcc52e02475"
+      },
+      {
+        "path": "README.md",
+        "size": 101,
+        "sha256": "6b4a496fecadafe2fedbb327fe0f1ab955ab40bacb311af7339e0bebb8314243"
+      }
+    ]
+  }
 }

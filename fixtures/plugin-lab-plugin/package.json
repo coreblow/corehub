@@ -1,10 +1,21 @@
 {
   "name": "plugin-lab",
   "version": "0.1.0",
+  "description": "CoreHub installable plugin archive fixture for CoreBlow.",
   "type": "module",
+  "main": "index.js",
+  "exports": "./index.js",
+  "license": "MIT",
+  "files": [
+    "README.md",
+    "coreblow.plugin.json",
+    "corehub.artifact.json",
+    "index.js"
+  ],
   "coreblow": {
-    "extensions": [
-      "./index.js"
-    ]
+    "extensions": ["./index.js"],
+    "install": {
+      "minHostVersion": ">=1.0.0"
+    }
   }
 }

@@ -35,3 +35,15 @@ Plugin source code may live in `coreblow/coreblow` under `extensions/*` or in an
 - Keep `extensions/*` as an internal source path when referring to bundled plugins.
 - Do not publish package versions or release artifacts from CoreHub without explicit release approval.
 - Do not list private sources, secrets, private paths, phone numbers, or live hostnames.
+
+## Installable Archive Template
+
+Installable plugin archives should include:
+
+- `package.json` with `coreblow.extensions` and `coreblow.install.minHostVersion`.
+- `coreblow.plugin.json` with `id`, `name`, `version`, `entry`, and `configSchema`.
+- The declared entry file, for example `index.js`.
+- `corehub.artifact.json` with package, publisher, and install locator metadata.
+- A README with safe setup notes.
+
+CoreHub stores a sidecar `*.corehub-manifest.json` beside the archive. The sidecar records the archive checksum and per-file checksums so clients and registry APIs can compare artifact metadata without unpacking untrusted code first.

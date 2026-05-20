@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "corehub.plugin-artifact.v1",
+  "package": {
+    "id": "plugin-lab",
+    "version": "0.1.0",
+    "kind": "plugin"
+  },
+  "publisher": {
+    "handle": "coreblow"
+  },
+  "install": {
+    "packageManifest": "package.json",
+    "pluginManifest": "coreblow.plugin.json",
+    "entry": "index.js"
+  }
+}

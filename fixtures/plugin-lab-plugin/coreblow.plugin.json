@@ -2,6 +2,7 @@
   "id": "plugin-lab",
   "name": "Plugin Lab",
   "version": "0.1.0",
+  "description": "Minimal CoreHub plugin archive used to verify signed download and CoreBlow install flows.",
   "entry": "index.js",
   "configSchema": {
     "type": "object",

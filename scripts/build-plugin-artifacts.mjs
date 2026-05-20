@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sourceRoot = join(repoRoot, "fixtures/plugin-lab-plugin");
 const outputPath = join(repoRoot, "artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz");
+const manifestOutputPath = join(repoRoot, "artifacts/plugin-lab-0.1.0.corehub-manifest.json");
 
 const files = await listFiles(sourceRoot);
 const entries = [];
@@ -33,7 +34,24 @@ const output = {
   files: entries.map(({ path, size, sha256 }) => ({ path, size, sha256 })),
 };
 
+await writeFile(manifestOutputPath, `${JSON.stringify(buildCoreHubManifest(output), null, 2)}\n`);
 console.log(JSON.stringify(output, null, 2));
+
+function buildCoreHubManifest(artifact) {
+  return {
+    schemaVersion: "corehub.artifact.v1",
+    package: {
+      id: "plugin-lab",
+      version: "0.1.0",
+      kind: "plugin",
+    },
+    publisher: {
+      handle: "coreblow",
+    },
+    source: "https://github.com/coreblow/plugin-lab",
+    artifact,
+  };
+}
 
 async function listFiles(root) {
   const result = [];

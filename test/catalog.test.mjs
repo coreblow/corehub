@@ -18,6 +18,12 @@ const errors = validateCatalog(entries);
 const pluginLabArtifactBytes = await readFile(
   new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url),
 );
+const pluginLabArtifactManifest = JSON.parse(
+  await readFile(
+    new URL("../artifacts/plugin-lab-0.1.0.corehub-manifest.json", import.meta.url),
+    "utf-8",
+  ),
+);
 const pluginLabArtifactUrl = "/artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz";
 const pluginLabRemoteArtifact = {
   ...entries[2].versions[0].artifact,
@@ -45,7 +51,22 @@ assert.equal(
   catalog.findVersion("plugin-lab", "0.1.0").artifact.storage.key,
   "artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz",
 );
-assert.equal(catalog.findVersion("plugin-lab", "0.1.0").artifact.files.length, 4);
+assert.equal(catalog.findVersion("plugin-lab", "0.1.0").artifact.files.length, 5);
+assert.ok(
+  catalog
+    .findVersion("plugin-lab", "0.1.0")
+    .artifact.files.some((file) => file.path === "corehub.artifact.json"),
+);
+assert.equal(pluginLabArtifactManifest.schemaVersion, "corehub.artifact.v1");
+assert.equal(pluginLabArtifactManifest.package.id, "plugin-lab");
+assert.deepEqual(
+  pluginLabArtifactManifest.artifact.files,
+  catalog.findVersion("plugin-lab", "0.1.0").artifact.files,
+);
+assert.equal(
+  pluginLabArtifactManifest.artifact.sha256,
+  catalog.findVersion("plugin-lab", "0.1.0").artifact.sha256,
+);
 
 for (const entry of entries) {
   for (const version of entry.versions ?? []) {
