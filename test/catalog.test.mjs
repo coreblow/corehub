@@ -45,7 +45,7 @@ assert.equal(
   catalog.findVersion("plugin-lab", "0.1.0").artifact.storage.key,
   "artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz",
 );
-assert.equal(catalog.findVersion("plugin-lab", "0.1.0").artifact.files.length, 3);
+assert.equal(catalog.findVersion("plugin-lab", "0.1.0").artifact.files.length, 4);
 
 for (const entry of entries) {
   for (const version of entry.versions ?? []) {
