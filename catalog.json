@@ -9,6 +9,13 @@
     "version": "1.0.0",
     "tags": ["bundled", "runtime", "plugins"],
     "capabilities": ["plugin loading", "channel integrations", "provider integrations"],
+    "publisher": {
+      "handle": "coreblow",
+      "displayName": "CoreBlow",
+      "url": "https://github.com/coreblow",
+      "verified": true,
+      "contact": "https://github.com/coreblow/coreblow/security/policy"
+    },
     "review": {
       "state": "verified",
       "checkedAt": "2026-05-19",
@@ -29,6 +36,13 @@
     "version": "0.1.0",
     "tags": ["directory", "metadata", "review"],
     "capabilities": ["skill validation", "directory search", "review metadata"],
+    "publisher": {
+      "handle": "coreblow",
+      "displayName": "CoreBlow",
+      "url": "https://github.com/coreblow",
+      "verified": true,
+      "contact": "https://github.com/coreblow/corehub/security/policy"
+    },
     "review": {
       "state": "verified",
       "checkedAt": "2026-05-19",
@@ -49,6 +63,13 @@
     "version": "0.1.0",
     "tags": ["testing", "compatibility", "plugins"],
     "capabilities": ["plugin fixtures", "compatibility checks", "contract validation"],
+    "publisher": {
+      "handle": "coreblow",
+      "displayName": "CoreBlow",
+      "url": "https://github.com/coreblow",
+      "verified": true,
+      "contact": "https://github.com/coreblow/plugin-lab/security/policy"
+    },
     "review": {
       "state": "verified",
       "checkedAt": "2026-05-19",

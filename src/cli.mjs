@@ -27,6 +27,8 @@ async function main() {
     printRecords(await searchRecords(query, { registry }));
   } else if (command === "package") {
     await runPackageCommand(args);
+  } else if (command === "publishers" || command === "publisher") {
+    await runPublisherCommand(args);
   } else if (command === "registry") {
     await runRegistryCommand(args);
   } else if (command === "skill") {
@@ -36,6 +38,26 @@ async function main() {
   } else {
     printHelp();
   }
+}
+
+async function runPublisherCommand(values) {
+  const subcommand = values[0] ?? "list";
+  const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
+
+  if (subcommand === "list") {
+    console.log(JSON.stringify(await listPublishers({ registry }), null, 2));
+    return;
+  }
+
+  if (subcommand === "inspect") {
+    const handle = positionalArgs(args)[0];
+    if (!handle) throw new Error("publisher inspect requires a handle");
+    console.log(JSON.stringify(await inspectPublisher(handle, { registry }), null, 2));
+    return;
+  }
+
+  printPublisherHelp();
 }
 
 async function runPackageCommand(values) {
@@ -148,6 +170,26 @@ async function listRecords(options = {}) {
 
   const catalog = await readCatalog();
   return catalog.list({ kind: options.kind });
+}
+
+async function listPublishers(options = {}) {
+  if (options.registry) {
+    return new CoreHubRegistryClient(options.registry).publishers();
+  }
+
+  const catalog = await readCatalog();
+  return catalog.listPublishers();
+}
+
+async function inspectPublisher(handle, options = {}) {
+  if (options.registry) {
+    return new CoreHubRegistryClient(options.registry).publisher(handle);
+  }
+
+  const catalog = await readCatalog();
+  const publisher = catalog.findPublisher(handle);
+  if (!publisher) throw new Error(`CoreHub publisher not found: ${handle}`);
+  return publisher;
 }
 
 async function searchRecords(query, options = {}) {
@@ -343,6 +385,14 @@ class CoreHubRegistryClient {
     });
   }
 
+  async publishers() {
+    return this.readData(this.apiUrl("/publishers"));
+  }
+
+  async publisher(handle) {
+    return this.readData(this.apiUrl(`/publishers/${encodeURIComponent(handle)}`));
+  }
+
   apiUrl(path) {
     return new URL(`${this.registry}/api/v1${path}`);
   }
@@ -381,6 +431,8 @@ Usage:
   corehub list [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub search <query> [--registry https://coreblow.com/corehub]
   corehub inspect <entry-id|skill-folder> [--registry https://coreblow.com/corehub]
+  corehub publishers list [--registry https://coreblow.com/corehub]
+  corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub skill publish <skill-folder>
   corehub package explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub package search <query> [--registry https://coreblow.com/corehub]
@@ -414,6 +466,15 @@ function printRegistryHelp() {
 
 Usage:
   corehub registry info --registry https://coreblow.com/corehub
+`);
+}
+
+function printPublisherHelp() {
+  console.log(`CoreHub publisher commands
+
+Usage:
+  corehub publishers list [--registry https://coreblow.com/corehub]
+  corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
 `);
 }
 

@@ -75,7 +75,16 @@ export class CoreHubEntry {
     const capabilities = Array.isArray(this.raw.capabilities)
       ? this.raw.capabilities.join(" ")
       : "";
-    return [this.id, this.kind, this.name, this.summary, tags, capabilities]
+    return [
+      this.id,
+      this.kind,
+      this.name,
+      this.summary,
+      tags,
+      capabilities,
+      this.raw.publisher?.handle,
+      this.raw.publisher?.displayName,
+    ]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -92,6 +101,7 @@ export class CoreHubEntry {
       version: this.raw.version,
       tags: this.raw.tags ?? [],
       capabilities: this.raw.capabilities ?? [],
+      publisher: this.raw.publisher ?? null,
       review: this.raw.review,
       coreblow: this.raw.coreblow,
     };
@@ -123,6 +133,29 @@ export class CoreHubCatalog {
 
   findById(id) {
     return this.entries.find((entry) => entry.id === id)?.toPublicRecord() ?? null;
+  }
+
+  listPublishers() {
+    const publishers = new Map();
+    for (const entry of this.entries) {
+      const publisher = entry.raw.publisher;
+      if (!publisher?.handle) continue;
+      const existing = publishers.get(publisher.handle) ?? {
+        ...publisher,
+        entries: [],
+      };
+      existing.entries.push({
+        id: entry.id,
+        kind: entry.kind,
+        name: entry.name,
+      });
+      publishers.set(publisher.handle, existing);
+    }
+    return [...publishers.values()].sort((a, b) => a.handle.localeCompare(b.handle));
+  }
+
+  findPublisher(handle) {
+    return this.listPublishers().find((publisher) => publisher.handle === handle) ?? null;
   }
 
   search(query, options = {}) {
@@ -170,9 +203,25 @@ export class CoreHubCatalogValidator {
     optionalSemver(errors, entry.version, "version");
     requireStringArray(errors, entry.tags, "tags", { optional: true, slugItems: true });
     requireStringArray(errors, entry.capabilities, "capabilities", { optional: true });
+    this.validatePublisher(errors, entry.publisher);
     this.validateReview(errors, entry.review);
     this.validateCoreBlowMetadata(errors, entry.coreblow);
     return errors;
+  }
+
+  validatePublisher(errors, publisher) {
+    if (publisher === undefined) return;
+    if (!publisher || typeof publisher !== "object" || Array.isArray(publisher)) {
+      errors.push("publisher must be an object");
+      return;
+    }
+    requireSlug(errors, publisher.handle, "publisher.handle");
+    requireText(errors, publisher.displayName, "publisher.displayName");
+    optionalUrl(errors, publisher.url, "publisher.url");
+    if (publisher.verified !== undefined && typeof publisher.verified !== "boolean") {
+      errors.push("publisher.verified must be a boolean");
+    }
+    optionalUrl(errors, publisher.contact, "publisher.contact");
   }
 
   validateReview(errors, review) {

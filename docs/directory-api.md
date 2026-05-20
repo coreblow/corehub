@@ -10,6 +10,8 @@ npm run corehub -- explore
 npm run corehub -- list
 npm run corehub -- list --kind skill
 npm run corehub -- search plugin
+npm run corehub -- publishers list
+npm run corehub -- publishers inspect coreblow
 npm run corehub -- package explore
 npm run corehub -- package search plugin
 npm run corehub -- package inspect plugin-lab
@@ -26,6 +28,8 @@ Use the hosted Registry API v1 by passing `--registry`:
 ```sh
 npm run corehub -- explore --registry https://coreblow.com/corehub
 npm run corehub -- search plugin --registry https://coreblow.com/corehub
+npm run corehub -- publishers list --registry https://coreblow.com/corehub
+npm run corehub -- publishers inspect coreblow --registry https://coreblow.com/corehub
 npm run corehub -- package inspect plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package versions plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package files plugin-lab --registry https://coreblow.com/corehub
@@ -73,6 +77,15 @@ Directory records expose:
 - `capabilities`
 - `review`
 - `coreblow`
+- `publisher`
+
+Publisher records expose:
+
+- `handle`
+- `displayName`
+- `url`
+- `verified`
+- `contact`
 
 ## Registry API v1
 
@@ -95,6 +108,8 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 | `GET` | `/corehub/api/v1/search?q=<query>` | Search entries by id, kind, name, summary, tags, capabilities, platforms, and review state. |
 | `GET` | `/corehub/api/v1/packages` | ClawHub-style package list alias over the catalog. |
 | `GET` | `/corehub/api/v1/packages/search?q=<query>` | ClawHub-style package search alias. |
+| `GET` | `/corehub/api/v1/publishers` | List publishers represented in the catalog. |
+| `GET` | `/corehub/api/v1/publishers/:handle` | Inspect one publisher and its catalog entries. |
 | `GET` | `/corehub/api/v1/packages/:id` | Inspect one package-compatible entry. |
 | `GET` | `/corehub/api/v1/packages/:id/versions` | Return the current static version as `latest`. |
 | `GET` | `/corehub/api/v1/packages/:id/files` | Return file metadata for a package version. Currently empty until artifact storage lands. |
@@ -118,7 +133,7 @@ All v1 responses return:
 
 The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
 
-Download endpoints are intentionally present before binary storage. They return structured metadata now so CLI clients can detect the contract, while write-side publishing, publisher identity, artifact integrity, and file storage are added later.
+Download endpoints are intentionally present before binary storage. They return structured metadata now so CLI clients can detect the contract, while write-side publishing, artifact integrity, and file storage are added later. Publisher identity is the first ownership layer; real artifact downloads should require publisher ownership, provenance, and moderation checks.
 
 ## Search
 

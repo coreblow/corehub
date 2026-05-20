@@ -19,10 +19,13 @@ assert.equal(entries[0].id, "coreblow");
 
 const catalog = new CoreHubCatalog(entries);
 assert.equal(catalog.findById("plugin-lab").kind, "plugin");
+assert.equal(catalog.findById("plugin-lab").publisher.handle, "coreblow");
 assert.equal(catalog.list({ kind: "skill" }).length, 1);
 assert.equal(catalog.list({ verifiedOnly: true }).length, entries.length);
+assert.equal(catalog.listPublishers().length, 1);
+assert.equal(catalog.findPublisher("coreblow").entries.length, entries.length);
 
-const searchResults = catalog.search("plugin compatibility");
+const searchResults = catalog.search("compatibility lab fixtures");
 assert.equal(searchResults[0].id, "plugin-lab");
 assert.ok(searchResults[0].score > 0);
 
@@ -34,6 +37,12 @@ const invalid = validateCatalog([
     summary: "",
     source: "https://example.com/not-github",
     tags: ["Not Kebab"],
+    publisher: {
+      handle: "Bad Publisher",
+      displayName: "",
+      url: "not-url",
+      verified: "yes",
+    },
     coreblow: {
       minCoreblowVersion: "v1",
       requiresEnv: ["bad-env"],
@@ -43,6 +52,8 @@ const invalid = validateCatalog([
 assert.ok(invalid.some((error) => error.includes("id must be kebab-case")));
 assert.ok(invalid.some((error) => error.includes("kind must be one of")));
 assert.ok(invalid.some((error) => error.includes("source must be a GitHub URL")));
+assert.ok(invalid.some((error) => error.includes("publisher.handle")));
+assert.ok(invalid.some((error) => error.includes("publisher.verified")));
 assert.ok(invalid.some((error) => error.includes("coreblow.requiresEnv")));
 
 const inspected = await new CoreHubSkillInspector().inspectFolder(
@@ -72,6 +83,17 @@ const packageVersions = await execFileAsync(process.execPath, [
   "plugin-lab",
 ]);
 assert.match(packageVersions.stdout, /plugin-lab\tlatest\t0\.1\.0/);
+
+const publisherList = await execFileAsync(process.execPath, [cliPath, "publishers", "list"]);
+assert.equal(JSON.parse(publisherList.stdout)[0].handle, "coreblow");
+
+const publisherInspect = await execFileAsync(process.execPath, [
+  cliPath,
+  "publishers",
+  "inspect",
+  "coreblow",
+]);
+assert.equal(JSON.parse(publisherInspect.stdout).entries.length, entries.length);
 
 const skillPublish = await execFileAsync(process.execPath, [
   cliPath,
@@ -131,6 +153,28 @@ const registryServer = createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === "/corehub/api/v1/publishers") {
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: [{ handle: "coreblow", displayName: "CoreBlow", entries: [entries[2]] }],
+        meta: { count: 1 },
+      }),
+    );
+    return;
+  }
+
+  if (url.pathname === "/corehub/api/v1/publishers/coreblow") {
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: { handle: "coreblow", displayName: "CoreBlow", entries: [entries[2]] },
+        meta: { count: 1 },
+      }),
+    );
+    return;
+  }
+
   response.statusCode = 404;
   response.end(JSON.stringify({ apiVersion: "v1", data: null, meta: { count: 0 } }));
 });
@@ -174,6 +218,25 @@ try {
     registryUrl,
   ]);
   assert.match(remoteVersions.stdout, /plugin-lab\tlatest\t0\.1\.0/);
+
+  const remotePublishers = await execFileAsync(process.execPath, [
+    cliPath,
+    "publishers",
+    "list",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.equal(JSON.parse(remotePublishers.stdout)[0].handle, "coreblow");
+
+  const remotePublisher = await execFileAsync(process.execPath, [
+    cliPath,
+    "publishers",
+    "inspect",
+    "coreblow",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.equal(JSON.parse(remotePublisher.stdout).handle, "coreblow");
 
   const remoteInfo = await execFileAsync(process.execPath, [
     cliPath,
