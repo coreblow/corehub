@@ -57,6 +57,46 @@ Directory records expose:
 - `review`
 - `coreblow`
 
+## Registry API v1
+
+CoreHub exposes the first public read API under:
+
+```text
+https://coreblow.com/corehub/api/v1
+```
+
+The v1 API is static-catalog backed. It is intentionally read-only until publisher identity, version storage, moderation, and write-side registry flows land.
+
+### Endpoints
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/corehub/api/v1` | API discovery document. |
+| `GET` | `/corehub/api/v1/catalog` | Full catalog records. |
+| `GET` | `/corehub/api/v1/entries` | Entry list, optionally filtered by `kind`. |
+| `GET` | `/corehub/api/v1/entries/:id` | Inspect one catalog entry. |
+| `GET` | `/corehub/api/v1/search?q=<query>` | Search entries by id, kind, name, summary, tags, capabilities, platforms, and review state. |
+| `GET` | `/corehub/api/v1/packages` | ClawHub-style package list alias over the catalog. |
+| `GET` | `/corehub/api/v1/packages/search?q=<query>` | ClawHub-style package search alias. |
+| `GET` | `/corehub/api/v1/packages/:id` | Inspect one package-compatible entry. |
+| `GET` | `/corehub/api/v1/packages/:id/versions` | Return the current static version as `latest`. |
+
+### Response Shape
+
+All v1 responses return:
+
+```json
+{
+  "apiVersion": "v1",
+  "data": [],
+  "meta": {
+    "count": 0
+  }
+}
+```
+
+The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
+
 ## Search
 
 The local search index scores matches across id, kind, name, summary, tags, and capabilities. This is intentionally deterministic so CI can validate catalog behavior before a hosted search service exists.

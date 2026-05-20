@@ -41,10 +41,32 @@ Status: active.
 
 ### Phase 2: Registry API
 
+Status: active.
+
 - Add a hosted API under `https://coreblow.com/corehub/api/v1`.
 - Expose list, search, inspect, versions, file, and download endpoints.
 - Keep response shapes stable enough for the CoreBlow CLI to consume.
 - Keep static catalog generation as the fallback source of truth until the backend is promoted.
+
+Implemented v1 read endpoints:
+
+- `GET /corehub/api/v1`
+- `GET /corehub/api/v1/catalog`
+- `GET /corehub/api/v1/entries`
+- `GET /corehub/api/v1/entries/:id`
+- `GET /corehub/api/v1/search?q=<query>`
+- `GET /corehub/api/v1/packages`
+- `GET /corehub/api/v1/packages/search?q=<query>`
+- `GET /corehub/api/v1/packages/:id`
+- `GET /corehub/api/v1/packages/:id/versions`
+
+Still pending for full ClawHub parity:
+
+- file and download endpoints
+- auth and publisher identity
+- write-side publish APIs
+- moderation queues and audit logs
+- install/sync telemetry
 
 ### Phase 3: Publisher Identity
 
