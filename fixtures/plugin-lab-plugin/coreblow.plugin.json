@@ -3,8 +3,11 @@
   "name": "Plugin Lab",
   "version": "0.1.0",
   "entry": "index.js",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  },
   "coreblow": {
     "compatibility": ">=1.0.0"
   }
 }
-
