@@ -1,12 +1,12 @@
 # CoreHub
 
-CoreHub is the CoreBlow skill and plugin directory.
+CoreHub is the public skill and plugin registry for CoreBlow.
 
 ## Overview
 
-CoreHub is part of the CoreBlow public repository family. It stores the public directory contract for CoreBlow skills, plugins, providers, channels, review metadata, and compatibility information.
+CoreHub is part of the CoreBlow public repository family. It is the CoreBlow counterpart to ClawHub: publish, version, search, inspect, and review CoreBlow skills, plugins, providers, channels, and compatibility metadata.
 
-The current implementation is a local-first directory core: catalog validation, deterministic search, skill folder inspection, and format documentation. Hosted web/API surfaces can build on the same model without changing the directory contract.
+The current implementation is the registry foundation: catalog validation, deterministic search, skill folder inspection, command-shape parity, and a hosted public directory at `https://coreblow.com/corehub`. The next implementation phases add the backend registry API, publisher identity, versioning, moderation, and install/update flows.
 
 ## Repository Role
 
@@ -18,17 +18,18 @@ The current implementation is a local-first directory core: catalog validation, 
 
 ## Scope
 
-- Catalog entries for skills, plugins, providers, and channels.
-- Directory validation and duplicate detection.
-- Deterministic local search.
-- Skill folder inspection and fingerprinting.
-- Compatibility metadata for CoreBlow releases.
-- Review state metadata for verified and deprecated entries.
+- Browse skills and plugins with CoreBlow compatibility metadata.
+- Publish and version skill entries with changelogs and latest tags.
+- Publish code-plugin and bundle-plugin packages through registry APIs.
+- Search skills and packages through CLI-friendly and web-friendly APIs.
+- Inspect entries, files, versions, review status, and compatibility data.
+- Manage local install/update flows from the CoreBlow CLI.
+- Support publisher identity, ownership, transfer, moderation, and review flows.
+- Track safe aggregate install/download metadata.
 
 ## Out of Scope
 
 - Bundled plugin source code.
-- A package registry mirror.
 - A paid marketplace.
 - A replacement for `coreblow/coreblow` `extensions/*`.
 
@@ -66,10 +67,14 @@ npm run validate:schema
 
 ```sh
 npm run corehub -- validate
+npm run corehub -- explore
 npm run corehub -- list
 npm run corehub -- list --kind skill
 npm run corehub -- search plugin
+npm run corehub -- package explore
+npm run corehub -- package inspect plugin-lab
 npm run corehub -- inspect fixtures/example-skill
+npm run corehub -- skill publish fixtures/example-skill
 ```
 
 ## Directory Model
@@ -88,7 +93,7 @@ Review states:
 - `verified`
 - `deprecated`
 
-See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), and [Directory API](docs/directory-api.md).
+See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), and [ClawHub Parity](docs/clawhub-parity.md).
 
 ## Public Web Surface
 

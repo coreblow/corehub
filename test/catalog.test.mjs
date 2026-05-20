@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
 
+const execFileAsync = promisify(execFile);
 const entries = JSON.parse(await readFile(new URL("../catalog.json", import.meta.url), "utf-8"));
 const schema = JSON.parse(
   await readFile(new URL("../schemas/corehub.catalog.schema.json", import.meta.url), "utf-8"),
@@ -48,3 +51,23 @@ assert.equal(inspected.hasSkillFile, true);
 assert.equal(inspected.hasManifest, true);
 assert.ok(inspected.fingerprint);
 assert.ok(inspected.files.some((file) => file.path === "SKILL.md"));
+
+const cliPath = new URL("../src/cli.mjs", import.meta.url).pathname;
+const explore = await execFileAsync(process.execPath, [cliPath, "explore"]);
+assert.match(explore.stdout, /corehub-directory\tskill\tCoreHub Directory Metadata/);
+
+const packageInspect = await execFileAsync(process.execPath, [
+  cliPath,
+  "package",
+  "inspect",
+  "plugin-lab",
+]);
+assert.equal(JSON.parse(packageInspect.stdout).id, "plugin-lab");
+
+const skillPublish = await execFileAsync(process.execPath, [
+  cliPath,
+  "skill",
+  "publish",
+  new URL("../fixtures/example-skill", import.meta.url).pathname,
+]);
+assert.equal(JSON.parse(skillPublish.stdout).dryRun, true);
