@@ -4,6 +4,7 @@ import { join, relative, resolve, sep } from "node:path";
 
 export const ENTRY_KINDS = new Set(["skill", "plugin", "provider", "channel"]);
 export const REVIEW_STATES = new Set(["draft", "review", "verified", "deprecated"]);
+export const VERSION_STATES = new Set(["metadata-only", "available", "deprecated", "blocked"]);
 export const TEXT_FILE_EXTENSIONS = new Set([
   "md",
   "mdx",
@@ -102,6 +103,7 @@ export class CoreHubEntry {
       tags: this.raw.tags ?? [],
       capabilities: this.raw.capabilities ?? [],
       publisher: this.raw.publisher ?? null,
+      versions: this.raw.versions ?? [],
       review: this.raw.review,
       coreblow: this.raw.coreblow,
     };
@@ -158,6 +160,22 @@ export class CoreHubCatalog {
     return this.listPublishers().find((publisher) => publisher.handle === handle) ?? null;
   }
 
+  listVersions(id) {
+    const entry = this.entries.find((item) => item.id === id);
+    if (!entry) return null;
+    return normalizeVersions(entry.toPublicRecord());
+  }
+
+  findVersion(id, requested) {
+    const versions = this.listVersions(id);
+    if (!versions) return null;
+    const target = requested?.trim();
+    if (!target || target === "latest") {
+      return versions.find((version) => version.tag === "latest") ?? versions[0] ?? null;
+    }
+    return versions.find((version) => version.version === target || version.tag === target) ?? null;
+  }
+
   search(query, options = {}) {
     return new CoreHubSearchIndex(this.entries).search(query, options);
   }
@@ -204,6 +222,7 @@ export class CoreHubCatalogValidator {
     requireStringArray(errors, entry.tags, "tags", { optional: true, slugItems: true });
     requireStringArray(errors, entry.capabilities, "capabilities", { optional: true });
     this.validatePublisher(errors, entry.publisher);
+    this.validateVersions(errors, entry);
     this.validateReview(errors, entry.review);
     this.validateCoreBlowMetadata(errors, entry.coreblow);
     return errors;
@@ -222,6 +241,87 @@ export class CoreHubCatalogValidator {
       errors.push("publisher.verified must be a boolean");
     }
     optionalUrl(errors, publisher.contact, "publisher.contact");
+  }
+
+  validateVersions(errors, entry) {
+    if (entry.versions === undefined) return;
+    if (!Array.isArray(entry.versions)) {
+      errors.push("versions must be an array");
+      return;
+    }
+    for (const [index, version] of entry.versions.entries()) {
+      const prefix = `versions[${index}]`;
+      if (!version || typeof version !== "object" || Array.isArray(version)) {
+        errors.push(`${prefix} must be an object`);
+        continue;
+      }
+      optionalSemver(errors, version.version, `${prefix}.version`);
+      optionalText(errors, version.publishedAt, `${prefix}.publishedAt`);
+      if (version.tag !== undefined && !SLUG_PATTERN.test(version.tag)) {
+        errors.push(`${prefix}.tag must be kebab-case`);
+      }
+      if (!VERSION_STATES.has(version.status)) {
+        errors.push(`${prefix}.status must be one of ${[...VERSION_STATES].join(", ")}`);
+      }
+      this.validateVersionPublisher(errors, version.publisher, entry.publisher, prefix);
+      this.validateArtifact(errors, version.artifact, prefix);
+    }
+  }
+
+  validateVersionPublisher(errors, publisher, entryPublisher, prefix) {
+    if (!publisher || typeof publisher !== "object" || Array.isArray(publisher)) {
+      errors.push(`${prefix}.publisher must be an object`);
+      return;
+    }
+    requireSlug(errors, publisher.handle, `${prefix}.publisher.handle`);
+    if (entryPublisher?.handle && publisher.handle !== entryPublisher.handle) {
+      errors.push(`${prefix}.publisher.handle must match publisher.handle`);
+    }
+  }
+
+  validateArtifact(errors, artifact, prefix) {
+    if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) {
+      errors.push(`${prefix}.artifact must be an object`);
+      return;
+    }
+    requireText(errors, artifact.name, `${prefix}.artifact.name`);
+    requireText(errors, artifact.mediaType, `${prefix}.artifact.mediaType`);
+    requireNonNegativeInteger(errors, artifact.size, `${prefix}.artifact.size`);
+    requireSha256(errors, artifact.sha256, `${prefix}.artifact.sha256`);
+    if (typeof artifact.downloadEnabled !== "boolean") {
+      errors.push(`${prefix}.artifact.downloadEnabled must be a boolean`);
+    }
+    this.validateProvenance(errors, artifact.provenance, prefix);
+    if (!Array.isArray(artifact.files)) {
+      errors.push(`${prefix}.artifact.files must be an array`);
+      return;
+    }
+    for (const [index, file] of artifact.files.entries()) {
+      this.validateArtifactFile(errors, file, `${prefix}.artifact.files[${index}]`);
+    }
+  }
+
+  validateProvenance(errors, provenance, prefix) {
+    if (!provenance || typeof provenance !== "object" || Array.isArray(provenance)) {
+      errors.push(`${prefix}.artifact.provenance must be an object`);
+      return;
+    }
+    requireGithubUrl(errors, provenance.source, `${prefix}.artifact.provenance.source`);
+    if (!REVIEW_STATES.has(provenance.reviewState)) {
+      errors.push(
+        `${prefix}.artifact.provenance.reviewState must be one of ${[...REVIEW_STATES].join(", ")}`,
+      );
+    }
+  }
+
+  validateArtifactFile(errors, file, prefix) {
+    if (!file || typeof file !== "object" || Array.isArray(file)) {
+      errors.push(`${prefix} must be an object`);
+      return;
+    }
+    requireText(errors, file.path, `${prefix}.path`);
+    requireNonNegativeInteger(errors, file.size, `${prefix}.size`);
+    requireSha256(errors, file.sha256, `${prefix}.sha256`);
   }
 
   validateReview(errors, review) {
@@ -399,6 +499,48 @@ function requireStringArray(errors, value, field, options = {}) {
       errors.push(`${field}[${index}] must be an environment variable name`);
     }
   }
+}
+
+function requireNonNegativeInteger(errors, value, field) {
+  if (!Number.isInteger(value) || value < 0) {
+    errors.push(`${field} must be a non-negative integer`);
+  }
+}
+
+function requireSha256(errors, value, field) {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    errors.push(`${field} must be a sha256 hex digest`);
+  }
+}
+
+function normalizeVersions(record) {
+  if (Array.isArray(record.versions) && record.versions.length > 0) {
+    return record.versions.map((version) => ({
+      id: record.id,
+      version: version.version,
+      tag: version.tag,
+      publishedAt: version.publishedAt,
+      publisher: version.publisher,
+      status: version.status,
+      artifact: version.artifact,
+      review: record.review ?? null,
+      source: record.source,
+    }));
+  }
+
+  return [
+    {
+      id: record.id,
+      version: record.version ?? null,
+      tag: "latest",
+      publishedAt: null,
+      publisher: record.publisher ? { handle: record.publisher.handle } : null,
+      status: "metadata-only",
+      artifact: null,
+      review: record.review ?? null,
+      source: record.source,
+    },
+  ];
 }
 
 async function walk(dir, onFile) {

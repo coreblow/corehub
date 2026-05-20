@@ -224,15 +224,7 @@ async function readPackageVersions(id, options = {}) {
   const catalog = await readCatalog();
   const record = catalog.findById(id);
   if (!record) throw new Error(`CoreHub package not found: ${id}`);
-  return [
-    {
-      id: record.id,
-      version: record.version ?? null,
-      tag: "latest",
-      review: record.review ?? null,
-      source: record.source,
-    },
-  ];
+  return catalog.listVersions(id);
 }
 
 async function readPackageFiles(id, options = {}) {
@@ -241,13 +233,14 @@ async function readPackageFiles(id, options = {}) {
   }
 
   const catalog = await readCatalog();
+  const version = readCatalogPackageVersion(catalog, id);
   const record = catalog.findById(id);
-  if (!record) throw new Error(`CoreHub package not found: ${id}`);
   return {
     package: { id: record.id, kind: record.kind, name: record.name },
-    version: record.version ?? null,
-    files: [],
-    artifact: null,
+    version: version.version ?? null,
+    publisher: version.publisher ?? null,
+    files: version.artifact?.files ?? [],
+    artifact: version.artifact ?? null,
   };
 }
 
@@ -257,16 +250,19 @@ async function readPackageArtifact(id, options = {}) {
   }
 
   const catalog = await readCatalog();
+  const version = readCatalogPackageVersion(catalog, id);
   const record = catalog.findById(id);
-  if (!record) throw new Error(`CoreHub package not found: ${id}`);
   return {
     package: { id: record.id, kind: record.kind, name: record.name },
-    version: record.version ?? null,
-    artifact: null,
-    files: [],
+    version: version.version ?? null,
+    publisher: version.publisher ?? null,
+    artifact: version.artifact ?? null,
+    files: version.artifact?.files ?? [],
     download: {
-      available: false,
-      reason: "CoreHub static catalog entries do not include downloadable artifacts yet.",
+      available: Boolean(version.artifact?.downloadEnabled),
+      reason: version.artifact?.downloadEnabled
+        ? null
+        : "CoreHub artifact manifests are available, but binary downloads are not enabled yet.",
     },
   };
 }
@@ -279,11 +275,20 @@ async function readPackageDownload(id, options = {}) {
   const artifact = await readPackageArtifact(id, options);
   return {
     error: "not_implemented",
-    message: "CoreHub file downloads require version artifact storage, integrity metadata, and publisher identity.",
+    message: "CoreHub file downloads require storage-backed artifacts and download policy enforcement.",
     package: artifact.package,
     version: artifact.version,
-    artifact: null,
+    publisher: artifact.publisher ?? null,
+    artifact: artifact.artifact ?? null,
   };
+}
+
+function readCatalogPackageVersion(catalog, id, requested) {
+  const record = catalog.findById(id);
+  if (!record) throw new Error(`CoreHub package not found: ${id}`);
+  const version = catalog.findVersion(id, requested);
+  if (!version) throw new Error(`CoreHub package version not found: ${id}`);
+  return version;
 }
 
 function printCatalogRecord(catalog, id) {
@@ -335,7 +340,12 @@ function printRecords(records) {
 
 function printVersions(versions) {
   for (const version of versions) {
-    console.log(`${version.id}\t${version.tag ?? "version"}\t${version.version ?? "unversioned"}`);
+    const status = version.status ? `\t${version.status}` : "";
+    console.log(
+      `${version.id}\t${version.tag ?? "version"}\t${version.version ?? "unversioned"}${status}`,
+    );
+    if (version.publisher?.handle) console.log(`  publisher=${version.publisher.handle}`);
+    if (version.artifact?.name) console.log(`  artifact=${version.artifact.name}`);
     if (version.source) console.log(`  ${version.source}`);
   }
 }

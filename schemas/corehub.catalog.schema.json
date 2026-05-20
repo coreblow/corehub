@@ -59,11 +59,126 @@
         "publisher": {
           "$ref": "#/$defs/publisher"
         },
+        "versions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/version"
+          }
+        },
         "review": {
           "$ref": "#/$defs/review"
         },
         "coreblow": {
           "$ref": "#/$defs/coreblow"
+        }
+      }
+    },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "publishedAt", "publisher", "status", "artifact"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$"
+        },
+        "tag": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "publishedAt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "publisher": {
+          "$ref": "#/$defs/versionPublisher"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["metadata-only", "available", "deprecated", "blocked"]
+        },
+        "artifact": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "versionPublisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["handle"],
+      "properties": {
+        "handle": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "mediaType", "size", "sha256", "downloadEnabled", "provenance", "files"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "downloadEnabled": {
+          "type": "boolean"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactFile"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "reviewState"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^https://github\\.com/"
+        },
+        "reviewState": {
+          "type": "string",
+          "enum": ["draft", "review", "verified", "deprecated"]
+        }
+      }
+    },
+    "artifactFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
         }
       }
     },
