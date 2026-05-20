@@ -113,6 +113,14 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "install") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package install requires an entry id");
+    const output = readOption(args, "--output");
+    console.log(JSON.stringify(await createPackageInstallPlan(id, { output, registry }), null, 2));
+    return;
+  }
+
   if (subcommand === "search") {
     const query = positionalArgs(args).join(" ").trim();
     if (!query) throw new Error("package search requires a query");
@@ -346,6 +354,61 @@ async function writeVerifiedDownload(download, outputPath) {
   };
 }
 
+async function createPackageInstallPlan(id, options = {}) {
+  const download = await readPackageDownload(id, { registry: options.registry });
+  const artifact = download.artifact ?? null;
+  const output = options.output ? await writeVerifiedDownload(download, options.output) : null;
+  const verified = output?.output ?? null;
+
+  return {
+    dryRun: true,
+    install: {
+      status: "planned",
+      action: "install-plugin",
+      writesCoreblowState: false,
+      message: "CoreHub install planning is dry-run only until CoreBlow plugin install wiring lands.",
+    },
+    package: download.package ?? { id },
+    version: download.version ?? null,
+    publisher: download.publisher ?? null,
+    artifact,
+    download: {
+      available: Boolean(download.download?.available),
+      verified: Boolean(verified?.verified),
+      output: verified,
+      nextStep: verified
+        ? "Pass the verified artifact to the CoreBlow plugin installer once installer wiring is available."
+        : "Run with --output <path> to fetch and verify the artifact before install.",
+    },
+    plan: [
+      {
+        step: "resolve-package",
+        status: download.package ? "ready" : "blocked",
+        detail: download.package ? `Resolved ${download.package.id}` : `Package ${id} was not resolved`,
+      },
+      {
+        step: "verify-publisher",
+        status: download.publisher?.handle ? "ready" : "blocked",
+        detail: download.publisher?.handle
+          ? `Publisher ${download.publisher.handle} is attached to this version`
+          : "Publisher metadata is missing",
+      },
+      {
+        step: "fetch-artifact",
+        status: verified?.verified ? "complete" : "ready",
+        detail: verified?.verified
+          ? `Verified ${verified.bytes} bytes with SHA-256 ${verified.sha256}`
+          : "Artifact metadata is available; no output path was provided",
+      },
+      {
+        step: "install-plugin",
+        status: "planned",
+        detail: "CoreBlow plugin installation is intentionally not executed by this dry-run plan.",
+      },
+    ],
+  };
+}
+
 function readCatalogPackageVersion(catalog, id, requested) {
   const record = catalog.findById(id);
   if (!record) throw new Error(`CoreHub package not found: ${id}`);
@@ -514,6 +577,7 @@ Usage:
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package install <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package publish <source>
   corehub registry info --registry https://coreblow.com/corehub
 `);
@@ -530,6 +594,7 @@ Usage:
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package install <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package publish <source>
 `);
 }

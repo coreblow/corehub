@@ -20,6 +20,8 @@ npm run corehub -- package files plugin-lab
 npm run corehub -- package artifact plugin-lab
 npm run corehub -- package download plugin-lab
 npm run corehub -- package download plugin-lab --output plugin-lab.corehub-manifest.json
+npm run corehub -- package install plugin-lab
+npm run corehub -- package install plugin-lab --output plugin-lab.corehub-manifest.json
 npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
@@ -37,6 +39,8 @@ npm run corehub -- package files plugin-lab --registry https://coreblow.com/core
 npm run corehub -- package artifact plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package download plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package download plugin-lab --output plugin-lab.corehub-manifest.json --registry https://coreblow.com/corehub
+npm run corehub -- package install plugin-lab --registry https://coreblow.com/corehub
+npm run corehub -- package install plugin-lab --output plugin-lab.corehub-manifest.json --registry https://coreblow.com/corehub
 npm run corehub -- registry info --registry https://coreblow.com/corehub
 ```
 
@@ -139,6 +143,8 @@ Download endpoints support storage-backed signed redirects. The default response
 
 The CLI can perform a verified artifact fetch with `corehub package download <id> --output <path>`. Verified downloads write the artifact only after checking byte size and SHA-256 against the artifact manifest.
 
+The CLI can also produce a dry-run installer plan with `corehub package install <id>`. Passing `--output <path>` wires the same verified download into the install plan without modifying CoreBlow plugin state.
+
 ## Search
 
 The local search index scores matches across id, kind, name, summary, tags, and capabilities. This is intentionally deterministic so CI can validate catalog behavior before a hosted search service exists.
@@ -154,6 +160,7 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package search <query>`
 - `corehub package inspect <entry-id>`
 - `corehub package versions <entry-id>`
+- `corehub package install <entry-id>`
 - `corehub package publish <source>`
 - `corehub registry info`
 

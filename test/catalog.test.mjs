@@ -166,6 +166,18 @@ const packageDownload = await execFileAsync(process.execPath, [
 ]);
 assert.equal(JSON.parse(packageDownload.stdout).download.available, true);
 
+const packageInstall = await execFileAsync(process.execPath, [
+  cliPath,
+  "package",
+  "install",
+  "plugin-lab",
+]);
+const installPlan = JSON.parse(packageInstall.stdout);
+assert.equal(installPlan.dryRun, true);
+assert.equal(installPlan.install.status, "planned");
+assert.equal(installPlan.download.verified, false);
+assert.equal(installPlan.plan.at(-1).step, "install-plugin");
+
 const publisherList = await execFileAsync(process.execPath, [cliPath, "publishers", "list"]);
 assert.equal(JSON.parse(publisherList.stdout)[0].handle, "coreblow");
 
@@ -388,6 +400,33 @@ try {
     );
   } finally {
     await rm(downloadDir, { recursive: true, force: true });
+  }
+
+  const installDir = await mkdtemp(join(tmpdir(), "corehub-install-"));
+  try {
+    const installPath = join(installDir, "plugin-lab.corehub-manifest.json");
+    const remoteInstall = await execFileAsync(process.execPath, [
+      cliPath,
+      "package",
+      "install",
+      "plugin-lab",
+      "--output",
+      installPath,
+      "--registry",
+      registryUrl,
+    ]);
+    const plan = JSON.parse(remoteInstall.stdout);
+    assert.equal(plan.dryRun, true);
+    assert.equal(plan.download.verified, true);
+    assert.equal(plan.download.output.bytes, entries[2].versions[0].artifact.size);
+    assert.equal(plan.download.output.sha256, entries[2].versions[0].artifact.sha256);
+    assert.equal(plan.plan.find((step) => step.step === "fetch-artifact").status, "complete");
+    assert.deepEqual(
+      JSON.parse(await readFile(installPath, "utf-8")),
+      JSON.parse(pluginLabArtifactBytes.toString("utf-8")),
+    );
+  } finally {
+    await rm(installDir, { recursive: true, force: true });
   }
 
   const remotePublishers = await execFileAsync(process.execPath, [
