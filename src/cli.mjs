@@ -27,6 +27,8 @@ async function main() {
     const query = positionalArgs(args).join(" ").trim();
     if (!query) throw new Error("search requires a query");
     printRecords(await searchRecords(query, { registry }));
+  } else if (command === "install") {
+    await runInstallCommand(args);
   } else if (command === "package") {
     await runPackageCommand(args);
   } else if (command === "publishers" || command === "publisher") {
@@ -39,6 +41,21 @@ async function main() {
     await runInspect(args);
   } else {
     printHelp();
+  }
+}
+
+async function runInstallCommand(values) {
+  const registry = readOption(values, "--registry") ?? defaultRegistry;
+  const id = positionalArgs(values)[0];
+  if (!id) throw new Error("install requires a package id");
+  const output = readOption(values, "--output");
+  const dryRun = hasFlag(values, "--dry-run");
+  const json = hasFlag(values, "--json");
+  const result = await createPackageInstallPlan(id, { output, registry, dryRun });
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    printInstallResult(result);
   }
 }
 
@@ -117,7 +134,8 @@ async function runPackageCommand(values) {
     const id = positionalArgs(args)[0];
     if (!id) throw new Error("package install requires an entry id");
     const output = readOption(args, "--output");
-    console.log(JSON.stringify(await createPackageInstallPlan(id, { output, registry }), null, 2));
+    const dryRun = hasFlag(args, "--dry-run");
+    console.log(JSON.stringify(await createPackageInstallPlan(id, { output, registry, dryRun }), null, 2));
     return;
   }
 
@@ -359,14 +377,21 @@ async function createPackageInstallPlan(id, options = {}) {
   const artifact = download.artifact ?? null;
   const output = options.output ? await writeVerifiedDownload(download, options.output) : null;
   const verified = output?.output ?? null;
+  const dryRun = Boolean(options.dryRun);
+  const applyBlockedReason =
+    artifact?.mediaType === "application/vnd.coreblow.corehub.manifest+json"
+      ? "CoreHub resolved a registry manifest, but this version does not yet provide an installable CoreBlow plugin archive."
+      : "CoreHub install apply is blocked until the CoreBlow plugin installer boundary is wired.";
 
   return {
-    dryRun: true,
+    dryRun,
     install: {
-      status: "planned",
+      status: dryRun ? "planned" : "blocked",
       action: "install-plugin",
       writesCoreblowState: false,
-      message: "CoreHub install planning is dry-run only until CoreBlow plugin install wiring lands.",
+      message: dryRun
+        ? "CoreHub install preview only. Re-run without --dry-run when installable plugin artifacts are available."
+        : applyBlockedReason,
     },
     package: download.package ?? { id },
     version: download.version ?? null,
@@ -402,8 +427,10 @@ async function createPackageInstallPlan(id, options = {}) {
       },
       {
         step: "install-plugin",
-        status: "planned",
-        detail: "CoreBlow plugin installation is intentionally not executed by this dry-run plan.",
+        status: dryRun ? "planned" : "blocked",
+        detail: dryRun
+          ? "CoreBlow plugin installation is previewed only because --dry-run was provided."
+          : applyBlockedReason,
       },
     ],
   };
@@ -442,17 +469,25 @@ function readOption(values, name) {
   return values[index + 1];
 }
 
+function hasFlag(values, name) {
+  return values.includes(name);
+}
+
 function positionalArgs(values) {
   const result = [];
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
     if (value.startsWith("--")) {
-      index += 1;
+      if (optionTakesValue(value)) index += 1;
       continue;
     }
     result.push(value);
   }
   return result;
+}
+
+function optionTakesValue(name) {
+  return new Set(["--kind", "--registry", "--output", "--version"]).has(name);
 }
 
 function printRecords(records) {
@@ -474,6 +509,21 @@ function printVersions(versions) {
     if (version.artifact?.name) console.log(`  artifact=${version.artifact.name}`);
     if (version.source) console.log(`  ${version.source}`);
   }
+}
+
+function printInstallResult(result) {
+  const name = result.package?.name ?? result.package?.id ?? "unknown";
+  const id = result.package?.id ?? "unknown";
+  const version = result.version ?? "unknown";
+  const publisher = result.publisher?.handle ?? "unknown";
+  const verified = result.download?.verified ? "yes" : "not yet";
+  console.log(`${result.dryRun ? "Install preview" : "Install"}: ${name}`);
+  console.log(`Package: ${id}`);
+  console.log(`Version: ${version}`);
+  console.log(`Publisher: ${publisher}`);
+  console.log(`Verified artifact: ${verified}`);
+  console.log(`Status: ${result.install.status}`);
+  console.log(result.install.message);
 }
 
 class CoreHubRegistryClient {
@@ -566,6 +616,7 @@ Usage:
   corehub explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub list [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub search <query> [--registry https://coreblow.com/corehub]
+  corehub install <entry-id> [--dry-run] [--output artifact.json] [--json] [--registry https://coreblow.com/corehub]
   corehub inspect <entry-id|skill-folder> [--registry https://coreblow.com/corehub]
   corehub publishers list [--registry https://coreblow.com/corehub]
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
@@ -577,7 +628,7 @@ Usage:
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
-  corehub package install <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package publish <source>
   corehub registry info --registry https://coreblow.com/corehub
 `);
@@ -594,7 +645,7 @@ Usage:
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
-  corehub package install <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package publish <source>
 `);
 }

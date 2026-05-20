@@ -10,6 +10,8 @@ npm run corehub -- explore
 npm run corehub -- list
 npm run corehub -- list --kind skill
 npm run corehub -- search plugin
+npm run corehub -- install plugin-lab
+npm run corehub -- install plugin-lab --dry-run
 npm run corehub -- publishers list
 npm run corehub -- publishers inspect coreblow
 npm run corehub -- package explore
@@ -31,6 +33,8 @@ Use the hosted Registry API v1 by passing `--registry`:
 ```sh
 npm run corehub -- explore --registry https://coreblow.com/corehub
 npm run corehub -- search plugin --registry https://coreblow.com/corehub
+npm run corehub -- install plugin-lab --registry https://coreblow.com/corehub
+npm run corehub -- install plugin-lab --dry-run --registry https://coreblow.com/corehub
 npm run corehub -- publishers list --registry https://coreblow.com/corehub
 npm run corehub -- publishers inspect coreblow --registry https://coreblow.com/corehub
 npm run corehub -- package inspect plugin-lab --registry https://coreblow.com/corehub
@@ -143,7 +147,7 @@ Download endpoints support storage-backed signed redirects. The default response
 
 The CLI can perform a verified artifact fetch with `corehub package download <id> --output <path>`. Verified downloads write the artifact only after checking byte size and SHA-256 against the artifact manifest.
 
-The CLI can also produce a dry-run installer plan with `corehub package install <id>`. Passing `--output <path>` wires the same verified download into the install plan without modifying CoreBlow plugin state.
+The OpenClaw-style user command is `corehub install <id>`. It is the intended install entrypoint, while `corehub package install <id> --dry-run` remains the technical planner. Until CoreHub publishes installable CoreBlow plugin archives, install apply resolves and verifies metadata but reports the install step as blocked instead of modifying CoreBlow plugin state.
 
 ## Search
 
@@ -154,6 +158,7 @@ The local search index scores matches across id, kind, name, summary, tags, and 
 CoreHub keeps a ClawHub-style command shape so future backend work can attach to stable CLI habits:
 
 - `corehub explore`
+- `corehub install <entry-id>`
 - `corehub inspect <entry-id|skill-folder>`
 - `corehub skill publish <skill-folder>`
 - `corehub package explore`

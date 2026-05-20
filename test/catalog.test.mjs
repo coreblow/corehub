@@ -173,10 +173,21 @@ const packageInstall = await execFileAsync(process.execPath, [
   "plugin-lab",
 ]);
 const installPlan = JSON.parse(packageInstall.stdout);
-assert.equal(installPlan.dryRun, true);
-assert.equal(installPlan.install.status, "planned");
+assert.equal(installPlan.dryRun, false);
+assert.equal(installPlan.install.status, "blocked");
 assert.equal(installPlan.download.verified, false);
 assert.equal(installPlan.plan.at(-1).step, "install-plugin");
+
+const topLevelInstallPreview = await execFileAsync(process.execPath, [
+  cliPath,
+  "install",
+  "--dry-run",
+  "plugin-lab",
+  "--json",
+]);
+const previewPlan = JSON.parse(topLevelInstallPreview.stdout);
+assert.equal(previewPlan.dryRun, true);
+assert.equal(previewPlan.install.status, "planned");
 
 const publisherList = await execFileAsync(process.execPath, [cliPath, "publishers", "list"]);
 assert.equal(JSON.parse(publisherList.stdout)[0].handle, "coreblow");
@@ -416,7 +427,8 @@ try {
       registryUrl,
     ]);
     const plan = JSON.parse(remoteInstall.stdout);
-    assert.equal(plan.dryRun, true);
+    assert.equal(plan.dryRun, false);
+    assert.equal(plan.install.status, "blocked");
     assert.equal(plan.download.verified, true);
     assert.equal(plan.download.output.bytes, entries[2].versions[0].artifact.size);
     assert.equal(plan.download.output.sha256, entries[2].versions[0].artifact.sha256);
@@ -428,6 +440,19 @@ try {
   } finally {
     await rm(installDir, { recursive: true, force: true });
   }
+
+  const remoteTopLevelPreview = await execFileAsync(process.execPath, [
+    cliPath,
+    "install",
+    "plugin-lab",
+    "--dry-run",
+    "--json",
+    "--registry",
+    registryUrl,
+  ]);
+  const remotePreview = JSON.parse(remoteTopLevelPreview.stdout);
+  assert.equal(remotePreview.dryRun, true);
+  assert.equal(remotePreview.install.status, "planned");
 
   const remotePublishers = await execFileAsync(process.execPath, [
     cliPath,
