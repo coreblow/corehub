@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { promisify } from "node:util";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
@@ -71,3 +72,65 @@ const skillPublish = await execFileAsync(process.execPath, [
   new URL("../fixtures/example-skill", import.meta.url).pathname,
 ]);
 assert.equal(JSON.parse(skillPublish.stdout).dryRun, true);
+
+const registryServer = createServer((request, response) => {
+  const url = new URL(request.url, "http://127.0.0.1");
+  response.setHeader("Content-Type", "application/json;charset=UTF-8");
+
+  if (url.pathname === "/corehub/api/v1/entries") {
+    response.end(JSON.stringify({ apiVersion: "v1", data: [entries[1]], meta: { count: 1 } }));
+    return;
+  }
+
+  if (url.pathname === "/corehub/api/v1/search") {
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: [{ ...entries[2], score: 8 }],
+        meta: { count: 1, query: url.searchParams.get("q") },
+      }),
+    );
+    return;
+  }
+
+  if (url.pathname === "/corehub/api/v1/packages/plugin-lab") {
+    response.end(JSON.stringify({ apiVersion: "v1", data: entries[2], meta: { count: 1 } }));
+    return;
+  }
+
+  response.statusCode = 404;
+  response.end(JSON.stringify({ apiVersion: "v1", data: null, meta: { count: 0 } }));
+});
+
+await new Promise((resolve) => registryServer.listen(0, "127.0.0.1", resolve));
+try {
+  const registryUrl = `http://127.0.0.1:${registryServer.address().port}/corehub`;
+  const remoteExplore = await execFileAsync(process.execPath, [
+    cliPath,
+    "explore",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.match(remoteExplore.stdout, /corehub-directory\tskill\tCoreHub Directory Metadata/);
+
+  const remoteSearch = await execFileAsync(process.execPath, [
+    cliPath,
+    "search",
+    "plugin",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.match(remoteSearch.stdout, /plugin-lab\tplugin\tPlugin Lab score=8/);
+
+  const remoteInspect = await execFileAsync(process.execPath, [
+    cliPath,
+    "package",
+    "inspect",
+    "plugin-lab",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.equal(JSON.parse(remoteInspect.stdout).id, "plugin-lab");
+} finally {
+  await new Promise((resolve) => registryServer.close(resolve));
+}

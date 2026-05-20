@@ -17,6 +17,14 @@ npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
 
+Use the hosted Registry API v1 by passing `--registry`:
+
+```sh
+npm run corehub -- explore --registry https://coreblow.com/corehub
+npm run corehub -- search plugin --registry https://coreblow.com/corehub
+npm run corehub -- package inspect plugin-lab --registry https://coreblow.com/corehub
+```
+
 ## Canonical Catalog
 
 `catalog.json` in this repository is the canonical directory source. The public website serves a generated copy at:
@@ -114,3 +122,5 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package publish <source>`
 
 Commands that need a hosted registry currently report or perform local dry-run behavior. They must not publish remote artifacts until CoreHub Registry API v1 is available and release approval is explicit.
+
+Read commands can use the hosted API with `--registry https://coreblow.com/corehub` or `COREHUB_REGISTRY=https://coreblow.com/corehub`.
