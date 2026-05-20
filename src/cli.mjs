@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { mkdir, stat, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { CoreHubSkillInspector, readCatalog } from "./corehub.mjs";
 
 const command = process.argv[2] ?? "help";
@@ -51,7 +52,12 @@ async function runInstallCommand(values) {
   const output = readOption(values, "--output");
   const dryRun = hasFlag(values, "--dry-run");
   const json = hasFlag(values, "--json");
-  const result = await createPackageInstallPlan(id, { output, registry, dryRun });
+  const result = await createPackageInstallPlan(id, {
+    output,
+    registry,
+    dryRun,
+    fetchForApply: !dryRun,
+  });
   if (json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
@@ -375,11 +381,23 @@ async function writeVerifiedDownload(download, outputPath) {
 async function createPackageInstallPlan(id, options = {}) {
   const download = await readPackageDownload(id, { registry: options.registry });
   const artifact = download.artifact ?? null;
-  const output = options.output ? await writeVerifiedDownload(download, options.output) : null;
+  const shouldFetchForApply =
+    Boolean(options.fetchForApply) && !options.dryRun && download.download?.available;
+  const outputPath =
+    options.output ??
+    (shouldFetchForApply && artifact?.name
+      ? join(await mkdtemp(join(tmpdir(), "corehub-install-")), artifact.name)
+      : null);
+  const output = outputPath ? await writeVerifiedDownload(download, outputPath) : null;
   const verified = output?.output ?? null;
   const dryRun = Boolean(options.dryRun);
+  const installable = isCoreBlowPluginArchive(artifact);
   const applyBlockedReason =
-    artifact?.mediaType === "application/vnd.coreblow.corehub.manifest+json"
+    installable && verified?.verified
+      ? "CoreHub verified an installable CoreBlow plugin archive. CoreBlow installer boundary wiring is the next phase."
+      : installable
+      ? "CoreHub resolved an installable CoreBlow plugin archive. Run corehub install or provide --output to fetch and verify it before installer handoff."
+      : artifact?.mediaType === "application/vnd.coreblow.corehub.manifest+json"
       ? "CoreHub resolved a registry manifest, but this version does not yet provide an installable CoreBlow plugin archive."
       : "CoreHub install apply is blocked until the CoreBlow plugin installer boundary is wired.";
 
@@ -402,7 +420,9 @@ async function createPackageInstallPlan(id, options = {}) {
       verified: Boolean(verified?.verified),
       output: verified,
       nextStep: verified
-        ? "Pass the verified artifact to the CoreBlow plugin installer once installer wiring is available."
+        ? installable
+          ? "Pass the verified plugin archive to the CoreBlow plugin installer boundary."
+          : "Pass the verified artifact to the CoreBlow plugin installer once installer wiring is available."
         : "Run with --output <path> to fetch and verify the artifact before install.",
     },
     plan: [
@@ -434,6 +454,14 @@ async function createPackageInstallPlan(id, options = {}) {
       },
     ],
   };
+}
+
+function isCoreBlowPluginArchive(artifact) {
+  if (!artifact) return false;
+  return (
+    artifact.mediaType === "application/vnd.coreblow.plugin-archive+gzip" ||
+    /\.coreblow-plugin\.t(?:ar\.)?gz$/i.test(artifact.name ?? "")
+  );
 }
 
 function readCatalogPackageVersion(catalog, id, requested) {

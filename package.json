@@ -14,6 +14,7 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "build:artifacts": "node scripts/build-plugin-artifacts.mjs",
     "corehub": "node src/cli.mjs",
     "test": "node test/catalog.test.mjs",
     "validate:schema": "node scripts/validate-catalog-schema.mjs"

@@ -21,9 +21,9 @@ npm run corehub -- package versions plugin-lab
 npm run corehub -- package files plugin-lab
 npm run corehub -- package artifact plugin-lab
 npm run corehub -- package download plugin-lab
-npm run corehub -- package download plugin-lab --output plugin-lab.corehub-manifest.json
+npm run corehub -- package download plugin-lab --output plugin-lab.coreblow-plugin.tgz
 npm run corehub -- package install plugin-lab
-npm run corehub -- package install plugin-lab --output plugin-lab.corehub-manifest.json
+npm run corehub -- package install plugin-lab --output plugin-lab.coreblow-plugin.tgz
 npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
@@ -42,9 +42,9 @@ npm run corehub -- package versions plugin-lab --registry https://coreblow.com/c
 npm run corehub -- package files plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package artifact plugin-lab --registry https://coreblow.com/corehub
 npm run corehub -- package download plugin-lab --registry https://coreblow.com/corehub
-npm run corehub -- package download plugin-lab --output plugin-lab.corehub-manifest.json --registry https://coreblow.com/corehub
+npm run corehub -- package download plugin-lab --output plugin-lab.coreblow-plugin.tgz --registry https://coreblow.com/corehub
 npm run corehub -- package install plugin-lab --registry https://coreblow.com/corehub
-npm run corehub -- package install plugin-lab --output plugin-lab.corehub-manifest.json --registry https://coreblow.com/corehub
+npm run corehub -- package install plugin-lab --output plugin-lab.coreblow-plugin.tgz --registry https://coreblow.com/corehub
 npm run corehub -- registry info --registry https://coreblow.com/corehub
 ```
 
@@ -147,7 +147,7 @@ Download endpoints support storage-backed signed redirects. The default response
 
 The CLI can perform a verified artifact fetch with `corehub package download <id> --output <path>`. Verified downloads write the artifact only after checking byte size and SHA-256 against the artifact manifest.
 
-The OpenClaw-style user command is `corehub install <id>`. It is the intended install entrypoint, while `corehub package install <id> --dry-run` remains the technical planner. Until CoreHub publishes installable CoreBlow plugin archives, install apply resolves and verifies metadata but reports the install step as blocked instead of modifying CoreBlow plugin state.
+The OpenClaw-style user command is `corehub install <id>`. It is the intended install entrypoint, while `corehub package install <id> --dry-run` remains the technical planner. CoreHub now publishes the `plugin-lab` version as an installable CoreBlow plugin archive; install apply fetches and verifies the archive, then reports the CoreBlow installer handoff as blocked until the installer boundary is wired.
 
 ## Search
 

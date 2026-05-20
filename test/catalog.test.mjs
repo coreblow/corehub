@@ -16,9 +16,9 @@ const schema = JSON.parse(
 );
 const errors = validateCatalog(entries);
 const pluginLabArtifactBytes = await readFile(
-  new URL("../artifacts/plugin-lab-0.1.0.corehub-manifest.json", import.meta.url),
+  new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url),
 );
-const pluginLabArtifactUrl = "/artifacts/plugin-lab-0.1.0.corehub-manifest.json";
+const pluginLabArtifactUrl = "/artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz";
 const pluginLabRemoteArtifact = {
   ...entries[2].versions[0].artifact,
   storage: {
@@ -39,12 +39,13 @@ assert.equal(catalog.findVersion("plugin-lab", "latest").status, "available");
 assert.equal(catalog.findVersion("plugin-lab", "latest").artifact.downloadEnabled, true);
 assert.equal(
   catalog.findVersion("plugin-lab", "0.1.0").artifact.name,
-  "plugin-lab-0.1.0.corehub-manifest.json",
+  "plugin-lab-0.1.0.coreblow-plugin.tgz",
 );
 assert.equal(
   catalog.findVersion("plugin-lab", "0.1.0").artifact.storage.key,
-  "artifacts/plugin-lab-0.1.0.corehub-manifest.json",
+  "artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz",
 );
+assert.equal(catalog.findVersion("plugin-lab", "0.1.0").artifact.files.length, 3);
 
 for (const entry of entries) {
   for (const version of entry.versions ?? []) {
@@ -156,7 +157,7 @@ const packageFiles = await execFileAsync(process.execPath, [
   "files",
   "plugin-lab",
 ]);
-assert.equal(JSON.parse(packageFiles.stdout).artifact.name, "plugin-lab-0.1.0.corehub-manifest.json");
+assert.equal(JSON.parse(packageFiles.stdout).artifact.name, "plugin-lab-0.1.0.coreblow-plugin.tgz");
 
 const packageDownload = await execFileAsync(process.execPath, [
   cliPath,
@@ -176,6 +177,7 @@ const installPlan = JSON.parse(packageInstall.stdout);
 assert.equal(installPlan.dryRun, false);
 assert.equal(installPlan.install.status, "blocked");
 assert.equal(installPlan.download.verified, false);
+assert.match(installPlan.install.message, /resolved an installable CoreBlow plugin archive/);
 assert.equal(installPlan.plan.at(-1).step, "install-plugin");
 
 const topLevelInstallPreview = await execFileAsync(process.execPath, [
@@ -297,7 +299,7 @@ const registryServer = createServer((request, response) => {
   }
 
   if (url.pathname === pluginLabArtifactUrl) {
-    response.setHeader("Content-Type", "application/vnd.coreblow.corehub.manifest+json");
+    response.setHeader("Content-Type", "application/vnd.coreblow.plugin-archive+gzip");
     response.end(pluginLabArtifactBytes);
     return;
   }
@@ -390,7 +392,7 @@ try {
 
   const downloadDir = await mkdtemp(join(tmpdir(), "corehub-download-"));
   try {
-    const downloadPath = join(downloadDir, "plugin-lab.corehub-manifest.json");
+    const downloadPath = join(downloadDir, "plugin-lab.coreblow-plugin.tgz");
     const remoteVerifiedDownload = await execFileAsync(process.execPath, [
       cliPath,
       "package",
@@ -405,17 +407,14 @@ try {
     assert.equal(verified.output.verified, true);
     assert.equal(verified.output.bytes, entries[2].versions[0].artifact.size);
     assert.equal(verified.output.sha256, entries[2].versions[0].artifact.sha256);
-    assert.deepEqual(
-      JSON.parse(await readFile(downloadPath, "utf-8")),
-      JSON.parse(pluginLabArtifactBytes.toString("utf-8")),
-    );
+    assert.deepEqual(await readFile(downloadPath), pluginLabArtifactBytes);
   } finally {
     await rm(downloadDir, { recursive: true, force: true });
   }
 
   const installDir = await mkdtemp(join(tmpdir(), "corehub-install-"));
   try {
-    const installPath = join(installDir, "plugin-lab.corehub-manifest.json");
+    const installPath = join(installDir, "plugin-lab.coreblow-plugin.tgz");
     const remoteInstall = await execFileAsync(process.execPath, [
       cliPath,
       "package",
@@ -433,10 +432,7 @@ try {
     assert.equal(plan.download.output.bytes, entries[2].versions[0].artifact.size);
     assert.equal(plan.download.output.sha256, entries[2].versions[0].artifact.sha256);
     assert.equal(plan.plan.find((step) => step.step === "fetch-artifact").status, "complete");
-    assert.deepEqual(
-      JSON.parse(await readFile(installPath, "utf-8")),
-      JSON.parse(pluginLabArtifactBytes.toString("utf-8")),
-    );
+    assert.deepEqual(await readFile(installPath), pluginLabArtifactBytes);
   } finally {
     await rm(installDir, { recursive: true, force: true });
   }
@@ -453,6 +449,21 @@ try {
   const remotePreview = JSON.parse(remoteTopLevelPreview.stdout);
   assert.equal(remotePreview.dryRun, true);
   assert.equal(remotePreview.install.status, "planned");
+
+  const remoteTopLevelInstall = await execFileAsync(process.execPath, [
+    cliPath,
+    "install",
+    "plugin-lab",
+    "--json",
+    "--registry",
+    registryUrl,
+  ]);
+  const remoteInstallPlan = JSON.parse(remoteTopLevelInstall.stdout);
+  assert.equal(remoteInstallPlan.dryRun, false);
+  assert.equal(remoteInstallPlan.install.status, "blocked");
+  assert.equal(remoteInstallPlan.download.verified, true);
+  assert.equal(remoteInstallPlan.download.output.bytes, entries[2].versions[0].artifact.size);
+  assert.match(remoteInstallPlan.install.message, /verified an installable CoreBlow plugin archive/);
 
   const remotePublishers = await execFileAsync(process.execPath, [
     cliPath,
