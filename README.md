@@ -83,6 +83,14 @@ npm run smoke:local-publish
 
 See `docs/local-publish-runbook.md` for the manual command flow.
 
+Run the production-style audit incident automation check:
+
+```sh
+COREHUB_REGISTRY=https://coreblow.com/corehub npm run audit:incident
+```
+
+See `docs/production-audit-monitoring.md` for cron, GitHub Actions, and Cloudflare Scheduled Worker wiring.
+
 ### CLI
 
 ```sh
@@ -139,7 +147,7 @@ Review states:
 - `verified`
 - `deprecated`
 
-See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), [Publisher Identity](docs/publisher-identity.md), [Write-Side Schema](docs/write-side-schema.md), and [ClawHub Parity](docs/clawhub-parity.md).
+See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), [Publisher Identity](docs/publisher-identity.md), [Write-Side Schema](docs/write-side-schema.md), [Production Audit Monitoring](docs/production-audit-monitoring.md), and [ClawHub Parity](docs/clawhub-parity.md).
 
 ## Public Web Surface
 

@@ -10,6 +10,7 @@ import { CoreHubLocalStorageAdapter, createCoreHubApiHandler } from "../src/api-
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { createCoreHubServer } from "../src/server.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
+import { runAuditIncidentCheck } from "../ops/cloudflare/audit-incident-worker.mjs";
 
 const execFileAsync = promisify(execFile);
 const entries = JSON.parse(await readFile(new URL("../catalog.json", import.meta.url), "utf-8"));
@@ -101,6 +102,48 @@ assert.equal(catalog.list({ kind: "skill" }).length, 1);
 assert.equal(catalog.list({ verifiedOnly: true }).length, entries.length);
 assert.equal(catalog.listPublishers().length, 1);
 assert.equal(catalog.findPublisher("coreblow").entries.length, entries.length);
+
+const originalFetch = globalThis.fetch;
+try {
+  const workerResponses = {
+    "/corehub/api/v2/audit/verify": {
+      apiVersion: "v2",
+      data: { valid: true, behavior: "proceed", count: 2, head: "a".repeat(64), errors: [] },
+    },
+    "/corehub/api/v2/audit/retention": {
+      apiVersion: "v2",
+      data: { status: "noop", policy: { integrityFailureBehavior: "fail_closed" } },
+    },
+    "/corehub/api/v2/audit/events": {
+      apiVersion: "v2",
+      data: [{ sequence: 2, action: "audit.verify", targetType: "audit", targetId: "ok" }],
+      meta: { count: 1 },
+    },
+  };
+  globalThis.fetch = async (url) => Response.json(workerResponses[new URL(url).pathname]);
+  const workerReport = await runAuditIncidentCheck({ COREHUB_REGISTRY: "https://coreblow.com/corehub" });
+  assert.equal(workerReport.status, "ok");
+  assert.equal(workerReport.recentAuditEvents.length, 1);
+
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === "/corehub/api/v2/audit/verify") {
+      return Response.json({
+        apiVersion: "v2",
+        data: { valid: false, behavior: "fail_closed", count: 1, head: "b".repeat(64), errors: ["tampered"] },
+      });
+    }
+    return Response.json(workerResponses[parsed.pathname]);
+  };
+  const failClosedWorkerReport = await runAuditIncidentCheck({ COREHUB_REGISTRY: "https://coreblow.com/corehub" });
+  assert.equal(failClosedWorkerReport.status, "fail_closed");
+  await assert.rejects(
+    runAuditIncidentCheck({ COREHUB_REGISTRY: "https://coreblow.com/corehub" }, { throwOnFail: true }),
+    /fail_closed/,
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 const searchResults = catalog.search("compatibility lab fixtures");
 assert.equal(searchResults[0].id, "plugin-lab");

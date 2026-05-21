@@ -1,0 +1,4 @@
+# Run from the CoreHub checkout every 30 minutes.
+# The script exits non-zero when CoreHub audit verification reports fail_closed.
+
+*/30 * * * * cd /srv/corehub && COREHUB_REGISTRY=https://coreblow.com/corehub npm run audit:incident >> /var/log/corehub-audit-incident.log 2>&1

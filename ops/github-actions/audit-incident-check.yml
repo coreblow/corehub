@@ -1,0 +1,28 @@
+name: CoreHub Audit Incident Check
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  audit-incident:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Run audit incident check
+        env:
+          COREHUB_REGISTRY: https://coreblow.com/corehub
+          COREHUB_TOKEN: ${{ secrets.COREHUB_AUDIT_TOKEN }}
+          COREHUB_USER: github:coreblow-admin
+          COREHUB_PUBLISHER: coreblow
+        run: npm run audit:incident -- --output ./corehub-audit-incident.md --limit 50
+      - name: Upload audit incident report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: corehub-audit-incident
+          path: ./corehub-audit-incident.md

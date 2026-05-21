@@ -20,6 +20,7 @@
     "serve": "node src/server.mjs",
     "smoke:local-publish": "node scripts/smoke-local-publish.mjs",
     "test": "node test/catalog.test.mjs",
+    "validate:ops": "node --check scripts/audit-incident-check.mjs && node --check ops/cloudflare/audit-incident-worker.mjs",
     "validate:schema": "node scripts/validate-catalog-schema.mjs",
     "validate:write-schema": "node scripts/validate-write-side-schema.mjs"
   }

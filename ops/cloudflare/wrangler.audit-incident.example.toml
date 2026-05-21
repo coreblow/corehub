@@ -1,0 +1,15 @@
+name = "corehub-audit-incident"
+main = "ops/cloudflare/audit-incident-worker.mjs"
+compatibility_date = "2026-05-21"
+
+[triggers]
+crons = ["*/30 * * * *"]
+
+[vars]
+COREHUB_REGISTRY = "https://coreblow.com/corehub"
+COREHUB_AUDIT_INCIDENT_LIMIT = "50"
+COREHUB_USER = "github:coreblow-admin"
+
+# Configure secrets out-of-band:
+# wrangler secret put COREHUB_TOKEN
+# wrangler secret put COREHUB_AUDIT_ALERT_WEBHOOK

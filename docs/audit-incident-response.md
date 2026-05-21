@@ -83,6 +83,8 @@ Example GitHub Actions step:
 
 The script writes the incident report and exits non-zero when the report status is `fail_closed`.
 
+For production deployment templates, see `docs/production-audit-monitoring.md`.
+
 ## Enterprise Notes
 
 CoreHub treats audit integrity failures as operational incidents, not routine warnings. The CLI exits non-zero for `fail_closed` so automation can halt retention jobs and alert operators.
