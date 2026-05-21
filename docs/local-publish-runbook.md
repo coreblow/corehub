@@ -35,11 +35,12 @@ npm run corehub -- reviews list --status approved --limit 20 --offset 0 --regist
 npm run corehub -- audit list --target review-plugin-lab-0-1-0 --limit 20 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- audit list --action review.approve --actor github:coreblow-admin --target-type review --format jsonl --output ./review-approvals.audit.jsonl --registry http://127.0.0.1:8787/corehub
 npm run corehub -- audit verify --registry http://127.0.0.1:8787/corehub
+npm run corehub -- audit incident report --limit 5 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- audit retention --dry-run --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package inspect plugin-lab --registry http://127.0.0.1:8787/corehub
 ```
 
-Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, `corehub audit verify` returns `valid: true` with the current audit head hash, and the retention dry run reports the export-before-prune policy.
+Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report returns `status: ok`, and the retention dry run reports the export-before-prune policy.
 
 ## Local State
 

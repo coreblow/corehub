@@ -28,6 +28,12 @@ Verify the audit hash chain:
 npm run corehub -- audit verify --registry http://127.0.0.1:8787/corehub
 ```
 
+Generate an operator incident report:
+
+```sh
+npm run corehub -- audit incident report --format markdown --output ./corehub-audit-incident.md --registry http://127.0.0.1:8787/corehub
+```
+
 Check the retention policy and prune plan:
 
 ```sh
@@ -40,7 +46,7 @@ Export before pruning retained audit evidence:
 npm run corehub -- audit retention --prune --output ./corehub-audit-retention.audit.jsonl --registry http://127.0.0.1:8787/corehub
 ```
 
-If `corehub audit verify` returns `valid: false`, CoreHub reports `behavior: fail_closed`. Operators should stop pruning, export the current state file, and escalate before trusting write-side evidence.
+If `corehub audit verify` returns `valid: false`, CoreHub reports `behavior: fail_closed`. Operators should stop pruning, export the current state file, and escalate before trusting write-side evidence. For the full incident response procedure, see `docs/audit-incident-response.md`.
 
 ## Artifact Verification Evidence
 

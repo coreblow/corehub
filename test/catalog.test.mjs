@@ -810,6 +810,17 @@ try {
     assert.equal(auditRetentionPayload.policy.integrityFailureBehavior, "fail_closed");
     assert.equal(auditRetentionPayload.verification.valid, true);
 
+    const auditIncident = await execFileAsync(
+      process.execPath,
+      [cliPath, "audit", "incident", "report", "--limit", "5", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const auditIncidentPayload = JSON.parse(auditIncident.stdout);
+    assert.equal(auditIncidentPayload.status, "ok");
+    assert.equal(auditIncidentPayload.severity, "informational");
+    assert.equal(auditIncidentPayload.verification.valid, true);
+    assert.equal(auditIncidentPayload.recentAuditEvents.length, 5);
+
     const retentionExportDir = await mkdtemp(join(tmpdir(), "corehub-retention-export-"));
     try {
       const outputPath = join(retentionExportDir, "audit-retention.audit.jsonl");
@@ -831,6 +842,27 @@ try {
       assert.match(auditRetentionExportPayload.exportHash, /^[a-f0-9]{64}$/);
       assert.equal(auditRetentionExportPayload.verification.valid, true);
       assert.match(await readFile(outputPath, "utf8"), /review\.approve/);
+      const incidentOutputPath = join(retentionExportDir, "audit-incident.md");
+      const auditIncidentExport = await execFileAsync(
+        process.execPath,
+        [
+          cliPath,
+          "audit",
+          "incident",
+          "report",
+          "--format",
+          "markdown",
+          "--output",
+          incidentOutputPath,
+          "--registry",
+          apiRegistryUrl,
+        ],
+        { env: apiAuthEnv },
+      );
+      const auditIncidentExportPayload = JSON.parse(auditIncidentExport.stdout);
+      assert.equal(auditIncidentExportPayload.status, "exported");
+      assert.equal(auditIncidentExportPayload.incidentStatus, "ok");
+      assert.match(await readFile(incidentOutputPath, "utf8"), /CoreHub Audit Incident Report/);
     } finally {
       await rm(retentionExportDir, { recursive: true, force: true });
     }
@@ -1102,6 +1134,46 @@ try {
   assert.equal(blockedPrune.status, "blocked");
 } finally {
   await rm(retentionStorageDir, { recursive: true, force: true });
+}
+
+const incidentStorageDir = await mkdtemp(join(tmpdir(), "corehub-incident-storage-"));
+try {
+  const incidentStorage = new CoreHubLocalStorageAdapter({ root: incidentStorageDir });
+  incidentStorage.recordAuditEvent({
+    actor: { type: "system", id: "system:incident-test" },
+    action: "audit.fixture",
+    targetType: "audit",
+    targetId: "fixture",
+    metadata: {},
+    createdAt: "2026-05-22T12:00:00.000Z",
+  });
+  incidentStorage.auditEvents[0].targetId = "tampered";
+  const incidentServer = createServer(
+    createCoreHubApiHandler({
+      storage: incidentStorage,
+      now: () => new Date("2026-05-22T12:01:00.000Z"),
+    }),
+  );
+  try {
+    await new Promise((resolve) => incidentServer.listen(0, "127.0.0.1", resolve));
+    const address = incidentServer.address();
+    const incidentRegistryUrl = `http://127.0.0.1:${address.port}/corehub`;
+    await assert.rejects(
+      execFileAsync(process.execPath, [cliPath, "audit", "incident", "report", "--registry", incidentRegistryUrl]),
+      (error) => {
+        const payload = JSON.parse(error.stdout);
+        assert.equal(payload.status, "fail_closed");
+        assert.equal(payload.severity, "critical");
+        assert.match(payload.summary, /suspect/);
+        assert.equal(payload.verification.behavior, "fail_closed");
+        return true;
+      },
+    );
+  } finally {
+    await new Promise((resolve) => incidentServer.close(resolve));
+  }
+} finally {
+  await rm(incidentStorageDir, { recursive: true, force: true });
 }
 
 const registryServer = createServer((request, response) => {

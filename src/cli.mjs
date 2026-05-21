@@ -538,6 +538,53 @@ async function runAuditCommand(values) {
     return;
   }
 
+  if (subcommand === "incident") {
+    const incidentCommand = args[0] ?? "help";
+    const incidentArgs = args.slice(1);
+    if (incidentCommand !== "report") {
+      printAuditHelp();
+      return;
+    }
+    if (!registry) throw new Error("audit incident report requires --registry or COREHUB_REGISTRY");
+    const auth = await readAuthState();
+    const format = readOption(incidentArgs, "--format") ?? "json";
+    if (!new Set(["json", "markdown"]).has(format)) throw new Error("--format must be json or markdown");
+    const output = readOption(incidentArgs, "--output");
+    const limit = readOptionalNonNegativeInteger(incidentArgs, "--limit") ?? 20;
+    const client = new CoreHubRegistryClient(registry);
+    const verification = await client.verifyAuditEvents({ auth });
+    const retention = await client.auditRetention({ auth });
+    const recent = await client.auditEvents({ limit, auth });
+    const report = buildAuditIncidentReport({
+      registry,
+      verification,
+      retention,
+      recentAuditEvents: recent.data,
+      recentMeta: recent.meta,
+    });
+    const rendered = format === "markdown" ? formatAuditIncidentMarkdown(report) : `${JSON.stringify(report, null, 2)}\n`;
+    if (output) {
+      await writeTextOutput(output, rendered);
+      console.log(
+        JSON.stringify(
+          {
+            status: "exported",
+            incidentStatus: report.status,
+            registry: report.registry,
+            format,
+            output: resolve(output),
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log(rendered);
+    }
+    if (report.status === "fail_closed") process.exitCode = 1;
+    return;
+  }
+
   printAuditHelp();
 }
 
@@ -887,6 +934,68 @@ function formatAuditOutput(payload, format) {
     return `${payload.auditEvents.map((event) => JSON.stringify(event)).join("\n")}\n`;
   }
   return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+function buildAuditIncidentReport({ registry, verification, retention, recentAuditEvents, recentMeta }) {
+  const failed = verification.valid === false || verification.behavior === "fail_closed";
+  return {
+    status: failed ? "fail_closed" : "ok",
+    registry: normalizeRegistry(registry),
+    generatedAt: new Date().toISOString(),
+    summary: failed
+      ? "Audit integrity verification failed. Treat write-side evidence as suspect until reviewed."
+      : "Audit integrity verification passed. No audit integrity incident is active.",
+    severity: failed ? "critical" : "informational",
+    operatorActions: failed
+      ? [
+          "Stop audit retention pruning immediately.",
+          "Export the current audit events and local state before making changes.",
+          "Preserve the registry state file, storage metadata, and CI logs.",
+          "Escalate to the CoreHub operator or security owner for manual review.",
+        ]
+      : [
+          "Continue normal operations.",
+          "Keep retention pruning gated by export-before-prune policy.",
+          "Archive this report when an operator needs evidence of a clean audit chain.",
+        ],
+    verification,
+    retention,
+    recentAuditEvents,
+    recentAuditMeta: recentMeta,
+  };
+}
+
+function formatAuditIncidentMarkdown(report) {
+  const lines = [
+    "# CoreHub Audit Incident Report",
+    "",
+    `- Status: ${report.status}`,
+    `- Severity: ${report.severity}`,
+    `- Registry: ${report.registry}`,
+    `- Generated At: ${report.generatedAt}`,
+    `- Audit Behavior: ${report.verification.behavior}`,
+    `- Audit Head: ${report.verification.head}`,
+    `- Audit Event Count: ${report.verification.count}`,
+    `- Retention Status: ${report.retention.status}`,
+    "",
+    "## Summary",
+    "",
+    report.summary,
+    "",
+    "## Operator Actions",
+    "",
+    ...report.operatorActions.map((action, index) => `${index + 1}. ${action}`),
+    "",
+    "## Verification Errors",
+    "",
+    ...(report.verification.errors.length > 0 ? report.verification.errors.map((error) => `- ${error}`) : ["- None"]),
+    "",
+    "## Recent Audit Events",
+    "",
+    ...report.recentAuditEvents.map((event) => `- ${event.sequence}: ${event.action} -> ${event.targetType}:${event.targetId}`),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 async function writeTextOutput(outputPath, text) {
@@ -1895,6 +2004,7 @@ Usage:
   corehub audit list [--target id] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub audit verify --registry https://coreblow.com/corehub
   corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
+  corehub audit incident report [--format json|markdown] [--output file] [--limit n] --registry https://coreblow.com/corehub
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -1952,6 +2062,7 @@ Usage:
   corehub audit list [--target id] [--target-type type] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub audit verify --registry https://coreblow.com/corehub
   corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
+  corehub audit incident report [--format json|markdown] [--output file] [--limit n] --registry https://coreblow.com/corehub
 `);
 }
 

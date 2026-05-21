@@ -204,6 +204,12 @@ try {
   assert.equal(auditRetention.verification.valid, true);
   logStep(`audit retention policy checked: ${auditRetention.policy.retentionDays} days`);
 
+  const auditIncident = JSON.parse(await runCoreHub(["audit", "incident", "report", "--limit", "5", "--registry", registry]));
+  assert.equal(auditIncident.status, "ok");
+  assert.equal(auditIncident.verification.valid, true);
+  assert.equal(auditIncident.recentAuditEvents.length, 5);
+  logStep(`audit incident report generated: ${auditIncident.status}`);
+
   const projected = await fetch(`${registry}/api/v1/packages/plugin-lab`);
   assert.equal(projected.status, 200);
   const projectedPayload = await projected.json();

@@ -223,11 +223,12 @@ corehub audit list --target review-plugin-lab-0-1-0 --limit 20 --registry http:/
 corehub audit list --action review.approve --limit 20 --registry http://127.0.0.1:8787/corehub
 corehub audit list --action review.approve --actor github:coreblow-admin --target-type review --format jsonl --output ./review-approvals.audit.jsonl --registry http://127.0.0.1:8787/corehub
 corehub audit verify --registry http://127.0.0.1:8787/corehub
+corehub audit incident report --format markdown --output ./audit-incident.md --registry http://127.0.0.1:8787/corehub
 corehub audit retention --dry-run --registry http://127.0.0.1:8787/corehub
 corehub audit retention --prune --output ./audit-retention.audit.jsonl --registry http://127.0.0.1:8787/corehub
 ```
 
-For enterprise export examples, see `docs/audit-runbook.md`.
+For enterprise export examples, see `docs/audit-runbook.md`. For `fail_closed` handling, see `docs/audit-incident-response.md`.
 
 ## Server Bootstrap
 
