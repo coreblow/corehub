@@ -165,6 +165,8 @@ npm run corehub -- audit alert-metrics assert ./corehub-audit-alert-delivery-met
 
 The assert command prints a JSON result and exits non-zero when any configured threshold is exceeded. Threshold values are rates from `0` to `1`.
 
+The GitHub Actions template runs this assertion only when `corehub-audit-alert-delivery-metrics.jsonl` exists, so normal runs without a `fail_closed` alert do not fail just because no metric artifact was produced.
+
 ## Cloudflare Scheduled Worker
 
 Use the Worker template:

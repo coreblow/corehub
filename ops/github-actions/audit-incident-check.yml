@@ -27,6 +27,13 @@ jobs:
           COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH: ./corehub-audit-alert-dead-letter.json
           COREHUB_AUDIT_ALERT_METRICS_PATH: ./corehub-audit-alert-delivery-metrics.jsonl
         run: npm run audit:incident -- --output ./corehub-audit-incident.md --limit 50
+      - name: Gate alert delivery metrics
+        if: always() && hashFiles('./corehub-audit-alert-delivery-metrics.jsonl') != ''
+        run: >
+          npm run corehub -- audit alert-metrics assert
+          ./corehub-audit-alert-delivery-metrics.jsonl
+          --max-dead-letter-rate 0
+          --max-retry-rate 0.25
       - name: Upload audit incident report
         if: always()
         uses: actions/upload-artifact@v7
