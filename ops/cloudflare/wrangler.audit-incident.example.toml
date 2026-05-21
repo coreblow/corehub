@@ -9,6 +9,8 @@ crons = ["*/30 * * * *"]
 COREHUB_REGISTRY = "https://coreblow.com/corehub"
 COREHUB_AUDIT_INCIDENT_LIMIT = "50"
 COREHUB_USER = "github:coreblow-admin"
+COREHUB_AUDIT_ALERT_DESTINATION = "slack"
+COREHUB_AUDIT_RUNBOOK_URL = "https://github.com/coreblow/corehub/blob/main/docs/audit-incident-response.md"
 
 # Configure secrets out-of-band:
 # wrangler secret put COREHUB_TOKEN

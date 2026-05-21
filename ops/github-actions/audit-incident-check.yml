@@ -19,6 +19,8 @@ jobs:
           COREHUB_TOKEN: ${{ secrets.COREHUB_AUDIT_TOKEN }}
           COREHUB_USER: github:coreblow-admin
           COREHUB_PUBLISHER: coreblow
+          COREHUB_AUDIT_ALERT_DESTINATION: slack
+          COREHUB_AUDIT_ALERT_WEBHOOK: ${{ secrets.COREHUB_AUDIT_ALERT_WEBHOOK }}
         run: npm run audit:incident -- --output ./corehub-audit-incident.md --limit 50
       - name: Upload audit incident report
         if: always()

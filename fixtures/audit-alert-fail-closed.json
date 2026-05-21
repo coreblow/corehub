@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "corehub.audit-alert.v1",
+  "alertType": "audit.fail_closed",
+  "status": "fail_closed",
+  "severity": "critical",
+  "registry": "https://coreblow.com/corehub",
+  "generatedAt": "2026-05-21T18:45:00.000Z",
+  "summary": "CoreHub audit integrity verification failed. Stop retention pruning and escalate.",
+  "runbook": "https://github.com/coreblow/corehub/blob/main/docs/audit-incident-response.md",
+  "incident": {
+    "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "count": 1,
+    "errors": ["audit-000001-fixture.eventHash expected aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    "retentionStatus": "blocked",
+    "recentAuditEventCount": 1
+  }
+}

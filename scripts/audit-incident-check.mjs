@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { buildAuditAlertPayload, formatAlertForDestination } from "../ops/cloudflare/audit-alert-adapters.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(new URL("..", import.meta.url).pathname);
@@ -14,6 +15,8 @@ const format = readOption(args, "--format") ?? process.env.COREHUB_AUDIT_INCIDEN
 const output =
   readOption(args, "--output") ?? process.env.COREHUB_AUDIT_INCIDENT_REPORT ?? ".corehub-audit/corehub-audit-incident.md";
 const limit = readOption(args, "--limit") ?? process.env.COREHUB_AUDIT_INCIDENT_LIMIT ?? "50";
+const alertDestination = process.env.COREHUB_AUDIT_ALERT_DESTINATION;
+const alertWebhook = process.env.COREHUB_AUDIT_ALERT_WEBHOOK;
 
 if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
   printHelp();
@@ -46,6 +49,11 @@ try {
   writePassthrough(result);
 } catch (error) {
   writePassthrough(error);
+  if (alertWebhook && error.stdout) {
+    await sendAlert(error.stdout).catch((alertError) => {
+      console.error(alertError instanceof Error ? alertError.message : alertError);
+    });
+  }
   process.exitCode = typeof error.code === "number" ? error.code : 1;
 }
 
@@ -64,6 +72,16 @@ function hasFlag(values, name) {
   return values.includes(name);
 }
 
+async function sendAlert(stdout) {
+  const payload = JSON.parse(stdout);
+  const alert = buildAuditAlertPayload(payload, process.env);
+  await fetch(alertWebhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(formatAlertForDestination(alert, alertDestination, process.env)),
+  });
+}
+
 function printHelp() {
   console.log(`CoreHub audit incident automation check
 
@@ -78,5 +96,6 @@ Options:
   --limit <n>        Recent audit event limit. Defaults to 50.
 
 The command exits non-zero when the audit incident report returns fail_closed.
+Set COREHUB_AUDIT_ALERT_WEBHOOK and COREHUB_AUDIT_ALERT_DESTINATION to send fail_closed alerts.
 `);
 }

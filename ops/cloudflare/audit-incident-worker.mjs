@@ -1,3 +1,5 @@
+import { deliverAuditAlert } from "./audit-alert-adapters.mjs";
+
 const defaultRegistry = "https://coreblow.com/corehub";
 
 export default {
@@ -35,9 +37,7 @@ export async function runAuditIncidentCheck(env = {}, options = {}) {
     recentAuditEvents: recent.data,
     recentAuditMeta: recent.meta,
   };
-  if (failClosed && env.COREHUB_AUDIT_ALERT_WEBHOOK) {
-    await postAlert(env.COREHUB_AUDIT_ALERT_WEBHOOK, report);
-  }
+  if (failClosed) report.alertDelivery = await deliverAuditAlert(report, env);
   if (failClosed && options.throwOnFail) {
     throw new Error(`CoreHub audit incident fail_closed: ${verification.errors?.join("; ") || "unknown error"}`);
   }
@@ -56,14 +56,6 @@ async function readV2Envelope(url, headers) {
     throw new Error("CoreHub audit request returned an invalid v2 response");
   }
   return { data: payload.data, meta: payload.meta ?? {} };
-}
-
-async function postAlert(webhook, report) {
-  await fetch(webhook, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(report),
-  });
 }
 
 function normalizeRegistry(value) {

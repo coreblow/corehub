@@ -85,6 +85,8 @@ The script writes the incident report and exits non-zero when the report status 
 
 For production deployment templates, see `docs/production-audit-monitoring.md`.
 
+The production alert payload is validated by `schemas/corehub.audit-alert.schema.json` and can be delivered as raw webhook JSON, Slack blocks, Teams adaptive cards, or a generic email-provider payload.
+
 ## Enterprise Notes
 
 CoreHub treats audit integrity failures as operational incidents, not routine warnings. The CLI exits non-zero for `fail_closed` so automation can halt retention jobs and alert operators.

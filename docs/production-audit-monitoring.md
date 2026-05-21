@@ -16,6 +16,38 @@ Required behavior:
 | Failure behavior | Non-zero exit or Worker failure when status is `fail_closed`. |
 | Alerting | Route the failure to the operator or security owner. |
 
+## Alert Payload Contract
+
+Every `fail_closed` alert uses `schemas/corehub.audit-alert.schema.json`.
+
+Example payload:
+
+```json
+{
+  "schemaVersion": "corehub.audit-alert.v1",
+  "alertType": "audit.fail_closed",
+  "status": "fail_closed",
+  "severity": "critical",
+  "registry": "https://coreblow.com/corehub",
+  "generatedAt": "2026-05-21T18:45:00.000Z",
+  "summary": "CoreHub audit integrity verification failed. Stop retention pruning and escalate.",
+  "runbook": "https://github.com/coreblow/corehub/blob/main/docs/audit-incident-response.md",
+  "incident": {
+    "head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "count": 1,
+    "errors": ["audit-000001-fixture.eventHash expected aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    "retentionStatus": "blocked",
+    "recentAuditEventCount": 1
+  }
+}
+```
+
+Validate the fixture:
+
+```sh
+npm run validate:alert-schema
+```
+
 ## Node Cron Runner
 
 Use the checked-in environment template:
@@ -38,6 +70,8 @@ COREHUB_REGISTRY=https://coreblow.com/corehub npm run audit:incident
 
 The default report path is `.corehub-audit/corehub-audit-incident.md`, which is ignored by git.
 
+Set `COREHUB_AUDIT_ALERT_WEBHOOK` to send alerts from the Node runner when the report is `fail_closed`.
+
 ## GitHub Actions Runner
 
 Use `ops/github-actions/audit-incident-check.yml` as the workflow template. It is intentionally stored under `ops/` so operators can review it before copying into `.github/workflows/`.
@@ -47,8 +81,30 @@ Required secret:
 | Secret | Purpose |
 | --- | --- |
 | `COREHUB_AUDIT_TOKEN` | Bearer token for audit API reads when production auth is enabled. |
+| `COREHUB_AUDIT_ALERT_WEBHOOK` | Slack, Teams, email gateway, or generic webhook endpoint for `fail_closed` alerts. |
 
 The workflow uploads `corehub-audit-incident.md` as an artifact and fails automatically when the CLI returns `fail_closed`.
+
+## Alert Destinations
+
+Use `COREHUB_AUDIT_ALERT_DESTINATION` to choose the outbound payload format:
+
+| Destination | Payload |
+| --- | --- |
+| `webhook` | Raw `corehub.audit-alert.v1` JSON payload. |
+| `slack` | Slack Incoming Webhook message with blocks. |
+| `teams` | Microsoft Teams adaptive-card message. |
+| `email` | Generic email-provider JSON with `to`, `from`, `subject`, `text`, and raw alert. |
+
+Email adapter variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `COREHUB_AUDIT_ALERT_EMAIL_TO` | Recipient address for the email gateway payload. |
+| `COREHUB_AUDIT_ALERT_EMAIL_FROM` | Sender address for the email gateway payload. |
+| `COREHUB_AUDIT_ALERT_EMAIL_SUBJECT` | Subject override. |
+
+The Cloudflare Worker implementation lives in `ops/cloudflare/audit-alert-adapters.mjs`. It is intentionally provider-light: Slack and Teams use their webhook JSON formats, while email is shaped for a generic mail gateway such as a transactional email Worker, Queue consumer, or provider webhook.
 
 ## Cloudflare Scheduled Worker
 

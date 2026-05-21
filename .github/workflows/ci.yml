@@ -16,5 +16,6 @@ jobs:
           node-version: 22
       - run: npm test
       - run: npm run smoke:local-publish
+      - run: npm run validate:ops
       - run: npm run validate:schema
       - run: npm run validate:write-schema

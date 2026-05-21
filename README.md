@@ -65,6 +65,7 @@ npm test
 ```sh
 npm run validate:schema
 npm run validate:write-schema
+npm run validate:alert-schema
 ```
 
 ### Local API Server

@@ -11,6 +11,12 @@ import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/c
 import { createCoreHubServer } from "../src/server.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
 import { runAuditIncidentCheck } from "../ops/cloudflare/audit-incident-worker.mjs";
+import {
+  buildAuditAlertPayload,
+  formatEmailAlert,
+  formatSlackAlert,
+  formatTeamsAlert,
+} from "../ops/cloudflare/audit-alert-adapters.mjs";
 
 const execFileAsync = promisify(execFile);
 const entries = JSON.parse(await readFile(new URL("../catalog.json", import.meta.url), "utf-8"));
@@ -22,6 +28,12 @@ const writeSideSchema = JSON.parse(
 );
 const writeSideState = JSON.parse(
   await readFile(new URL("../fixtures/write-side-state.json", import.meta.url), "utf-8"),
+);
+const auditAlertSchema = JSON.parse(
+  await readFile(new URL("../schemas/corehub.audit-alert.schema.json", import.meta.url), "utf-8"),
+);
+const auditAlertFixture = JSON.parse(
+  await readFile(new URL("../fixtures/audit-alert-fail-closed.json", import.meta.url), "utf-8"),
 );
 const pluginLabEntry = entries.find((entry) => entry.id === "plugin-lab");
 const errors = validateCatalog(entries);
@@ -46,6 +58,7 @@ const pluginLabRemoteArtifact = {
 assert.deepEqual(errors, []);
 assert.deepEqual(new CoreHubCatalogSchemaValidator(schema).validate(entries), []);
 assert.deepEqual(new CoreHubCatalogSchemaValidator(writeSideSchema).validate(writeSideState), []);
+assert.deepEqual(new CoreHubCatalogSchemaValidator(auditAlertSchema).validate(auditAlertFixture), []);
 assert.equal(entries[0].id, "coreblow");
 assert.equal(writeSideState.schemaVersion, "corehub.write.v1");
 assert.equal(writeSideState.authSessions[0].actor.id, "github:coreblow-admin");
@@ -137,6 +150,35 @@ try {
   };
   const failClosedWorkerReport = await runAuditIncidentCheck({ COREHUB_REGISTRY: "https://coreblow.com/corehub" });
   assert.equal(failClosedWorkerReport.status, "fail_closed");
+  const alertPayload = buildAuditAlertPayload(failClosedWorkerReport);
+  assert.deepEqual(new CoreHubCatalogSchemaValidator(auditAlertSchema).validate(alertPayload), []);
+  assert.equal(formatSlackAlert(alertPayload).blocks[0].type, "section");
+  assert.equal(formatTeamsAlert(alertPayload).attachments[0].contentType, "application/vnd.microsoft.card.adaptive");
+  assert.equal(formatEmailAlert(alertPayload, { COREHUB_AUDIT_ALERT_EMAIL_TO: "security@coreblow.com" }).to, "security@coreblow.com");
+
+  const deliveredAlerts = [];
+  globalThis.fetch = async (url, init) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === "/alert") {
+      deliveredAlerts.push(JSON.parse(init.body));
+      return Response.json({ ok: true });
+    }
+    if (parsed.pathname === "/corehub/api/v2/audit/verify") {
+      return Response.json({
+        apiVersion: "v2",
+        data: { valid: false, behavior: "fail_closed", count: 1, head: "b".repeat(64), errors: ["tampered"] },
+      });
+    }
+    return Response.json(workerResponses[parsed.pathname]);
+  };
+  const alertedWorkerReport = await runAuditIncidentCheck({
+    COREHUB_REGISTRY: "https://coreblow.com/corehub",
+    COREHUB_AUDIT_ALERT_WEBHOOK: "https://alerts.example.invalid/alert",
+    COREHUB_AUDIT_ALERT_DESTINATION: "slack",
+  });
+  assert.equal(alertedWorkerReport.alertDelivery.delivered, true);
+  assert.equal(deliveredAlerts[0].text, "CoreHub audit fail_closed");
+
   await assert.rejects(
     runAuditIncidentCheck({ COREHUB_REGISTRY: "https://coreblow.com/corehub" }, { throwOnFail: true }),
     /fail_closed/,

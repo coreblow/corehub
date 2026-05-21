@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coreblow.com/schemas/corehub.audit-alert.schema.json",
+  "title": "CoreHub Audit Alert Payload",
+  "description": "Production alert payload emitted when CoreHub audit incident monitoring enters fail_closed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "alertType",
+    "status",
+    "severity",
+    "registry",
+    "generatedAt",
+    "summary",
+    "runbook",
+    "incident"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": ["corehub.audit-alert.v1"]
+    },
+    "alertType": {
+      "type": "string",
+      "enum": ["audit.fail_closed"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["fail_closed"]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical"]
+    },
+    "registry": {
+      "$ref": "#/$defs/url"
+    },
+    "generatedAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runbook": {
+      "$ref": "#/$defs/url"
+    },
+    "incident": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head", "count", "errors", "retentionStatus", "recentAuditEventCount"],
+      "properties": {
+        "head": {
+          "$ref": "#/$defs/sha256"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "retentionStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recentAuditEventCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https?://"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}
