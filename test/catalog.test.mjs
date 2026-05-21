@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { CoreHubLocalStorageAdapter, createCoreHubApiHandler } from "../src/api-server.mjs";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
+import { createCoreHubServer } from "../src/server.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -357,6 +358,26 @@ const skillPublish = await execFileAsync(process.execPath, [
   new URL("../fixtures/example-skill", import.meta.url).pathname,
 ]);
 assert.equal(JSON.parse(skillPublish.stdout).dryRun, true);
+
+const bootstrapDir = await mkdtemp(join(tmpdir(), "corehub-server-"));
+const bootstrapServer = await createCoreHubServer({
+  dataRoot: bootstrapDir,
+  host: "127.0.0.1",
+  port: 0,
+});
+const bootstrapInfo = await bootstrapServer.listen();
+try {
+  const health = await fetch(bootstrapInfo.healthUrl);
+  assert.equal(health.status, 200);
+  assert.equal((await health.json()).service, "corehub-api");
+  const registryInfo = await fetch(`${bootstrapInfo.url}/api/v1`);
+  assert.equal(registryInfo.status, 200);
+  assert.equal((await registryInfo.json()).data.name, "CoreHub Registry API");
+  assert.match(bootstrapServer.statePath, /write-side-state\.json$/);
+} finally {
+  await bootstrapServer.close();
+  await rm(bootstrapDir, { recursive: true, force: true });
+}
 
 const apiStorageDir = await mkdtemp(join(tmpdir(), "corehub-api-storage-"));
 const apiStatePath = join(apiStorageDir, "write-side-state.json");

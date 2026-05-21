@@ -176,3 +176,24 @@ Phase 23 keeps production persistence out of scope, but the local storage adapte
 | `packageVersions` | Approved or blocked version records used by projection. |
 
 The local state file uses `schemaVersion: corehub.local-state.v1`. Future production persistence should preserve this logical state model even if storage moves to SQL, KV, Durable Objects, or R2/S3 metadata.
+
+## Server Bootstrap
+
+Phase 24 adds a production-ish local API server entrypoint:
+
+```sh
+npm run serve
+```
+
+Defaults:
+
+| Setting | Default |
+| --- | --- |
+| `COREHUB_HOST` | `127.0.0.1` |
+| `COREHUB_PORT` | `8787` |
+| `COREHUB_DATA_ROOT` | `.corehub-local` |
+| `COREHUB_STATE_PATH` | `.corehub-local/write-side-state.json` |
+| `COREHUB_STORAGE_ROOT` | `.corehub-local/storage` |
+| `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` |
+
+This lets the upload, submit, review, and projected Registry API v1 flow run over HTTP without a test harness while still keeping production R2/S3 and database persistence out of scope.

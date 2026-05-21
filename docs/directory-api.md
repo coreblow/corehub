@@ -28,6 +28,14 @@ npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
 
+Run the local API server with persisted JSON write-side state:
+
+```sh
+npm run serve
+```
+
+By default it listens at `http://127.0.0.1:8787/corehub`, writes metadata to `.corehub-local/write-side-state.json`, and stores uploaded artifact bytes under `.corehub-local/storage`.
+
 Use the hosted Registry API v1 by passing `--registry`:
 
 ```sh
