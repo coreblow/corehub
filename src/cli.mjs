@@ -259,7 +259,10 @@ async function runPackageCommand(values) {
     if (!dryRun) {
       throw new Error("package submit is a dry-run contract in this phase. Re-run with --dry-run.");
     }
-    console.log(JSON.stringify(await createPackageSubmissionDryRun(source, args), null, 2));
+    const result = registry
+      ? await createPackageSubmissionViaRegistry(source, args, registry)
+      : await createPackageSubmissionDryRun(source, args);
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 
@@ -640,6 +643,8 @@ function positionalArgs(values) {
 function optionTakesValue(name) {
   return new Set([
     "--contact",
+    "--artifact-upload",
+    "--artifact-upload-id",
     "--changelog",
     "--display-name",
     "--kind",
@@ -805,6 +810,57 @@ async function createPackageSubmissionDryRun(source, values) {
       ],
     },
     nextStep: "Submit this payload to the future authenticated package submission API.",
+  };
+}
+
+async function createPackageSubmissionViaRegistry(source, values, registry) {
+  const auth = await requireAuthState();
+  const inspected = await inspectPackageSubmitSource(source);
+  const publisherHandle = resolvePackagePublisherHandle(values, inspected, auth, "package submit");
+  const packageId = inspected.package.id;
+  const version = inspected.package.version;
+  const versionSlug = slugVersion(version);
+  const artifactUploadId =
+    readOption(values, "--artifact-upload") ??
+    readOption(values, "--artifact-upload-id") ??
+    `artifact-${packageId}-${versionSlug}`;
+  const sourceUrl = readOption(values, "--source") ?? inspected.source ?? `https://github.com/${publisherHandle}/${packageId}`;
+  const changelog = readOption(values, "--changelog") ?? "CoreHub package submission dry run.";
+  const result = await new CoreHubRegistryClient(registry).createPackageSubmission(
+    {
+      packageId,
+      kind: inspected.package.kind,
+      publisherHandle,
+      version,
+      artifactUploadId,
+      source: sourceUrl,
+      changelog,
+    },
+    { auth },
+  );
+  return {
+    dryRun: true,
+    status: "remote_pending_review",
+    registry: normalizeRegistry(registry),
+    actor: auth.actor,
+    source: {
+      path: resolve(source),
+      type: inspected.type,
+    },
+    submission: result.submission,
+    artifactUpload: result.artifactUpload,
+    packageVersionPreview: result.packageVersionPreview,
+    validation: {
+      ready: true,
+      checks: [
+        "authenticated actor resolved",
+        "publisher handle resolved",
+        "verified artifact upload resolved",
+        "submission accepted by CoreHub API v2",
+        "submission remains pending review",
+      ],
+    },
+    nextStep: "Wait for moderation review before projecting this version into the public catalog.",
   };
 }
 
@@ -1379,6 +1435,16 @@ class CoreHubRegistryClient {
     });
   }
 
+  async createPackageSubmission(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/submissions"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
   apiUrl(path) {
     return new URL(`${this.registry}/api/v1${path}`);
   }
@@ -1464,7 +1530,7 @@ Usage:
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
-  corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text]
+  corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package publish <source>
@@ -1484,7 +1550,7 @@ Usage:
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
-  corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text]
+  corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package publish <source>

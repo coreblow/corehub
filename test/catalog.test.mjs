@@ -480,6 +480,26 @@ try {
     assert.equal(remoteUploadVerifyPayload.uploaded.uploaded.size, pluginLabArtifactBytes.byteLength);
     assert.equal(remoteUploadVerifyPayload.artifactUpload.status, "verified");
     assert.equal(remoteUploadVerifyPayload.verification.checksumMatches, true);
+
+    const remoteSubmit = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "submit",
+        new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+        "--registry",
+        apiRegistryUrl,
+        "--dry-run",
+      ],
+      { env: apiAuthEnv },
+    );
+    const remoteSubmitPayload = JSON.parse(remoteSubmit.stdout);
+    assert.equal(remoteSubmitPayload.status, "remote_pending_review");
+    assert.equal(remoteSubmitPayload.submission.status, "pending_review");
+    assert.equal(remoteSubmitPayload.submission.artifactUploadId, remoteUploadVerifyPayload.artifactUpload.id);
+    assert.equal(remoteSubmitPayload.artifactUpload.status, "verified");
+    assert.equal(remoteSubmitPayload.packageVersionPreview.moderationStatus, "pending");
   } finally {
     await rm(apiAuthHome, { recursive: true, force: true });
   }

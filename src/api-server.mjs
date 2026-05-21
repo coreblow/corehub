@@ -11,6 +11,7 @@ export class CoreHubLocalStorageAdapter {
     this.root = resolve(root);
     this.publicBaseUrl = publicBaseUrl.replace(/\/$/, "");
     this.slots = new Map();
+    this.submissions = new Map();
   }
 
   async requestUploadSlot(input, { actor = defaultActor(), now = new Date() } = {}) {
@@ -132,10 +133,63 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  async createSubmission(input, { actor = defaultActor(), now = new Date() } = {}) {
+    const request = normalizeSubmissionRequest(input);
+    const artifactUpload = this.findArtifactUpload(request.artifactUploadId);
+    if (!artifactUpload) throw httpError(404, "Verified artifact upload not found");
+    if (artifactUpload.status !== "verified") {
+      throw httpError(409, "Artifact upload must be verified before submission");
+    }
+    if (
+      artifactUpload.packageId !== request.packageId ||
+      artifactUpload.version !== request.version ||
+      artifactUpload.publisherHandle !== request.publisherHandle
+    ) {
+      throw httpError(400, "Submission package, version, or publisher does not match artifact upload");
+    }
+    const versionSlug = slugVersion(request.version);
+    const submittedAt = now.toISOString();
+    const id = `submission-${request.packageId}-${versionSlug}`;
+    const submission = {
+      id,
+      packageId: request.packageId,
+      kind: request.kind,
+      publisherHandle: request.publisherHandle,
+      version: request.version,
+      status: "pending_review",
+      artifactUploadId: request.artifactUploadId,
+      ...(request.source ? { source: request.source } : {}),
+      changelog: request.changelog,
+      submittedBy: actor,
+      submittedAt,
+    };
+    const packageVersionPreview = {
+      id: `version-${request.packageId}-${versionSlug}`,
+      packageId: request.packageId,
+      version: request.version,
+      tag: "latest",
+      publisherHandle: request.publisherHandle,
+      status: "pending_review",
+      artifactUploadId: request.artifactUploadId,
+      submissionId: id,
+      createdAt: submittedAt,
+      moderationStatus: "pending",
+    };
+    this.submissions.set(id, { submission, packageVersionPreview });
+    return { submission, artifactUpload, packageVersionPreview };
+  }
+
   requireSlot(uploadSlotId) {
     const slot = this.slots.get(uploadSlotId);
     if (!slot) throw httpError(404, "Upload slot not found");
     return slot;
+  }
+
+  findArtifactUpload(artifactUploadId) {
+    for (const slot of this.slots.values()) {
+      if (slot.artifactUpload.id === artifactUploadId) return slot.artifactUpload;
+    }
+    return null;
   }
 
   storagePath(key) {
@@ -164,6 +218,13 @@ export function createCoreHubApiHandler({
         const actor = actorFromRequest(request);
         const uploadSlot = await storage.requestUploadSlot(body, { actor, now: now() });
         return json(response, 201, { apiVersion: "v2", data: { uploadSlot } });
+      }
+
+      if (request.method === "POST" && segments.join("/") === "submissions") {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request);
+        const result = await storage.createSubmission(body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
       }
 
       if (
@@ -229,6 +290,28 @@ function normalizeUploadRequest(input) {
       size,
       sha256: sha256.toLowerCase(),
     },
+  };
+}
+
+function normalizeSubmissionRequest(input) {
+  const packageId = normalizeRequiredString(input?.packageId, "packageId");
+  const version = normalizeRequiredString(input?.version, "version");
+  const publisherHandle = normalizeRequiredString(input?.publisherHandle, "publisherHandle");
+  const kind = normalizeRequiredString(input?.kind, "kind");
+  if (!["skill", "plugin", "provider", "channel"].includes(kind)) {
+    throw httpError(400, "kind must be skill, plugin, provider, or channel");
+  }
+  const artifactUploadId = normalizeRequiredString(input?.artifactUploadId, "artifactUploadId");
+  const changelog = normalizeRequiredString(input?.changelog ?? "CoreHub package submission.", "changelog");
+  const source = typeof input?.source === "string" && input.source.trim().length > 0 ? input.source.trim() : undefined;
+  return {
+    packageId,
+    version,
+    publisherHandle,
+    kind,
+    artifactUploadId,
+    source,
+    changelog,
   };
 }
 

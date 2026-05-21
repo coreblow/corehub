@@ -77,6 +77,7 @@ corehub package upload request ./plugin-lab.coreblow-plugin.tgz --dry-run
 corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --dry-run
 corehub package submit ./plugin --dry-run
 corehub package submit ./plugin-lab.coreblow-plugin.tgz --dry-run
+corehub package submit ./plugin-lab.coreblow-plugin.tgz --registry https://coreblow.com/corehub --dry-run
 corehub package publish ./plugin --dry-run
 corehub package publish ./plugin
 corehub package submit ./plugin-lab.coreblow-plugin.tgz
@@ -110,6 +111,8 @@ corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upl
 
 When `--registry` is provided, the CLI uses the API v2 upload boundary. Without `--registry`, it keeps the local dry-run fallback so publishers can inspect the planned payload before the hosted write API is available.
 
+`corehub package submit <artifact> --registry <url> --dry-run` uses the verified artifact upload id for the package and version. A custom id can be passed with `--artifact-upload <id>` when the upload slot does not follow the default `artifact-<package>-<version>` shape.
+
 ## API and Storage Boundary
 
 Phase 18 adds the server-side shape before wiring production R2 or S3 credentials. The API handler accepts the same write-side payload that the CLI dry run emits, stores uploaded bytes through a storage adapter, and verifies the stored object before a submission can reference it.
@@ -119,6 +122,7 @@ Phase 18 adds the server-side shape before wiring production R2 or S3 credential
 | `POST /corehub/api/v2/artifacts/uploads` | Validates publisher, package, artifact metadata, expected size, expected SHA-256, storage provider, and max byte limit, then returns an upload slot. |
 | `PUT /corehub/api/v2/artifacts/uploads/:id` | Accepts artifact bytes for the reserved slot and writes them through the configured storage adapter. |
 | `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Reads the stored object, recomputes size and SHA-256, and returns a verified or rejected artifact upload record. |
+| `POST /corehub/api/v2/submissions` | Accepts a verified artifact upload id and creates a pending-review package submission. |
 
 The current adapter is local and mocked for tests. Its storage key shape is already compatible with managed object storage:
 
