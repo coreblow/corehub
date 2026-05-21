@@ -84,6 +84,13 @@ try {
   assert.equal(submission.moderationReview.status, "open");
   logStep(`submission created: ${submission.submission.id}`);
 
+  const pendingSubmissions = JSON.parse(
+    await runCoreHub(["submissions", "list", "--status", "pending_review", "--registry", registry]),
+  );
+  assert.equal(pendingSubmissions.count, 1);
+  assert.equal(pendingSubmissions.submissions[0].submission.id, submission.submission.id);
+  logStep(`pending submissions listed: ${pendingSubmissions.count}`);
+
   const submissionInspect = JSON.parse(
     await runCoreHub(["submissions", "inspect", submission.submission.id, "--registry", registry]),
   );
@@ -97,6 +104,11 @@ try {
   assert.equal(reviewStatus.status, "open");
   assert.equal(reviewStatus.submission.status, "pending_review");
   logStep(`review status before approval: ${reviewStatus.status}`);
+
+  const openReviews = JSON.parse(await runCoreHub(["reviews", "list", "--status", "open", "--registry", registry]));
+  assert.equal(openReviews.count, 1);
+  assert.equal(openReviews.reviews[0].moderationReview.id, submission.moderationReview.id);
+  logStep(`open reviews listed: ${openReviews.count}`);
 
   const approval = JSON.parse(
     await runCoreHub([
@@ -119,6 +131,16 @@ try {
   assert.equal(approvedReview.status, "approved");
   assert.equal(approvedReview.packageVersion.status, "available");
   logStep(`review status after approval: ${approvedReview.status}`);
+
+  const remainingOpenReviews = JSON.parse(
+    await runCoreHub(["reviews", "list", "--status", "open", "--registry", registry]),
+  );
+  assert.equal(remainingOpenReviews.count, 0);
+  const approvedReviews = JSON.parse(
+    await runCoreHub(["reviews", "list", "--status", "approved", "--registry", registry]),
+  );
+  assert.equal(approvedReviews.count, 1);
+  logStep(`approved reviews listed: ${approvedReviews.count}`);
 
   const projected = await fetch(`${registry}/api/v1/packages/plugin-lab`);
   assert.equal(projected.status, 200);

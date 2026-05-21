@@ -524,6 +524,24 @@ try {
     assert.equal(remoteSubmitPayload.packageVersionPreview.moderationStatus, "pending");
     assert.equal(remoteSubmitPayload.moderationReview.status, "open");
 
+    const pendingSubmissionsList = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "submissions",
+        "list",
+        "--status",
+        "pending_review",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const pendingSubmissionsListPayload = JSON.parse(pendingSubmissionsList.stdout);
+    assert.equal(pendingSubmissionsListPayload.status, "ok");
+    assert.equal(pendingSubmissionsListPayload.count, 1);
+    assert.equal(pendingSubmissionsListPayload.submissions[0].submission.id, remoteSubmitPayload.submission.id);
+
     const remoteSubmissionInspect = await execFileAsync(
       process.execPath,
       [
@@ -559,6 +577,24 @@ try {
     assert.equal(remoteReviewStatusPayload.status, "open");
     assert.equal(remoteReviewStatusPayload.moderationReview.id, remoteSubmitPayload.moderationReview.id);
     assert.equal(remoteReviewStatusPayload.submission.status, "pending_review");
+
+    const openReviewsList = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "reviews",
+        "list",
+        "--status",
+        "open",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const openReviewsListPayload = JSON.parse(openReviewsList.stdout);
+    assert.equal(openReviewsListPayload.status, "ok");
+    assert.equal(openReviewsListPayload.count, 1);
+    assert.equal(openReviewsListPayload.reviews[0].moderationReview.id, remoteSubmitPayload.moderationReview.id);
 
     const approve = await execFileAsync(
       process.execPath,
@@ -598,6 +634,38 @@ try {
     assert.equal(approvedReviewStatusPayload.status, "approved");
     assert.equal(approvedReviewStatusPayload.submission.status, "approved");
     assert.equal(approvedReviewStatusPayload.packageVersion.status, "available");
+
+    const approvedSubmissionsList = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "submissions",
+        "list",
+        "--status",
+        "approved",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const approvedSubmissionsListPayload = JSON.parse(approvedSubmissionsList.stdout);
+    assert.equal(approvedSubmissionsListPayload.count, 1);
+    assert.equal(approvedSubmissionsListPayload.submissions[0].submission.status, "approved");
+
+    const remainingOpenReviewsList = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "reviews",
+        "list",
+        "--status",
+        "open",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    assert.equal(JSON.parse(remainingOpenReviewsList.stdout).count, 0);
 
     const projectedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
     assert.equal(projectedEntriesResponse.status, 200);

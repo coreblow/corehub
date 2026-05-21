@@ -255,15 +255,33 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  listSubmissions({ status } = {}) {
+    return [...this.submissions.values()]
+      .map((record) => this.submissionInspection(record))
+      .filter((record) => !status || record.submission.status === status)
+      .sort((left, right) => left.submission.submittedAt.localeCompare(right.submission.submittedAt));
+  }
+
   inspectSubmission(submissionId) {
     const record = this.submissions.get(submissionId);
     if (!record) throw httpError(404, "Submission not found");
     return this.submissionInspection(record);
   }
 
+  listReviews({ status } = {}) {
+    return [...this.reviews.values()]
+      .filter((review) => !status || review.status === status)
+      .map((review) => this.reviewInspection(review))
+      .sort((left, right) => left.moderationReview.createdAt.localeCompare(right.moderationReview.createdAt));
+  }
+
   inspectReview(reviewId) {
     const moderationReview = this.reviews.get(reviewId);
     if (!moderationReview) throw httpError(404, "Moderation review not found");
+    return this.reviewInspection(moderationReview);
+  }
+
+  reviewInspection(moderationReview) {
     const record = moderationReview.targetType === "submission" ? this.submissions.get(moderationReview.targetId) : null;
     return {
       moderationReview,
@@ -449,9 +467,19 @@ export function createCoreHubApiHandler({
         return json(response, 201, { apiVersion: "v2", data: result });
       }
 
+      if (request.method === "GET" && segments[0] === "submissions" && segments.length === 1) {
+        const result = storage.listSubmissions({ status: url.searchParams.get("status") });
+        return json(response, 200, { apiVersion: "v2", data: result, meta: { count: result.length } });
+      }
+
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 2) {
         const result = storage.inspectSubmission(decodeURIComponent(segments[1]));
         return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "reviews" && segments.length === 1) {
+        const result = storage.listReviews({ status: url.searchParams.get("status") });
+        return json(response, 200, { apiVersion: "v2", data: result, meta: { count: result.length } });
       }
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 2) {

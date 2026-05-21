@@ -309,6 +309,24 @@ async function runReviewCommand(values) {
   const args = values.slice(1);
   const registry = readOption(args, "--registry") ?? defaultRegistry;
 
+  if (subcommand === "list") {
+    if (!registry) throw new Error("review list requires --registry or COREHUB_REGISTRY");
+    const result = await new CoreHubRegistryClient(registry).reviews({ status: readOption(args, "--status") });
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          registry: normalizeRegistry(registry),
+          count: result.length,
+          reviews: result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
   if (subcommand === "status" || subcommand === "inspect") {
     if (!registry) throw new Error(`review ${subcommand} requires --registry or COREHUB_REGISTRY`);
     const reviewId = positionalArgs(args)[0];
@@ -361,6 +379,24 @@ async function runSubmissionCommand(values) {
   const subcommand = values[0] ?? "help";
   const args = values.slice(1);
   const registry = readOption(args, "--registry") ?? defaultRegistry;
+
+  if (subcommand === "list") {
+    if (!registry) throw new Error("submissions list requires --registry or COREHUB_REGISTRY");
+    const result = await new CoreHubRegistryClient(registry).submissions({ status: readOption(args, "--status") });
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          registry: normalizeRegistry(registry),
+          count: result.length,
+          submissions: result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
 
   if (subcommand === "inspect" || subcommand === "status") {
     if (!registry) throw new Error(`submissions ${subcommand} requires --registry or COREHUB_REGISTRY`);
@@ -1490,8 +1526,20 @@ class CoreHubRegistryClient {
     return this.readData(this.apiUrl(`/publishers/${encodeURIComponent(handle)}`));
   }
 
+  async submissions(options = {}) {
+    const url = this.apiV2Url("/submissions");
+    if (options.status) url.searchParams.set("status", options.status);
+    return this.readV2Data(url);
+  }
+
   async submission(submissionId) {
     return this.readV2Data(this.apiV2Url(`/submissions/${encodeURIComponent(submissionId)}`));
+  }
+
+  async reviews(options = {}) {
+    const url = this.apiV2Url("/reviews");
+    if (options.status) url.searchParams.set("status", options.status);
+    return this.readV2Data(url);
   }
 
   async review(reviewId) {
@@ -1639,7 +1687,9 @@ Usage:
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
+  corehub submissions list [--status pending_review|approved|rejected] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
+  corehub review list [--status open|approved|blocked] --registry https://coreblow.com/corehub
   corehub review status <review-id> --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
@@ -1691,6 +1741,7 @@ function printReviewHelp() {
   console.log(`CoreHub review commands
 
 Usage:
+  corehub review list [--status open|approved|blocked] --registry https://coreblow.com/corehub
   corehub review status <review-id> --registry https://coreblow.com/corehub
   corehub review inspect <review-id> --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
@@ -1702,6 +1753,7 @@ function printSubmissionHelp() {
   console.log(`CoreHub submission commands
 
 Usage:
+  corehub submissions list [--status pending_review|approved|rejected] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub submissions status <submission-id> --registry https://coreblow.com/corehub
 `);
