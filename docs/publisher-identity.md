@@ -19,6 +19,7 @@ corehub login --token <token> --user github:<login> --publisher <handle>
 corehub whoami
 corehub publisher whoami --json
 corehub publisher claim <handle> --dry-run
+corehub package submit ./plugin --dry-run
 corehub logout
 ```
 

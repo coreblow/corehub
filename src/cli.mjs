@@ -1,14 +1,17 @@
 #!/usr/bin/env node
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { promisify } from "node:util";
 import { CoreHubSkillInspector, readCatalog } from "./corehub.mjs";
 
 const command = process.argv[2] ?? "help";
 const args = process.argv.slice(3);
 const defaultRegistry = process.env.COREHUB_REGISTRY ?? "";
 const authSchemaVersion = "corehub.auth.v1";
+const execFileAsync = promisify(execFile);
 
 async function main() {
   if (command === "validate") {
@@ -246,6 +249,17 @@ async function runPackageCommand(values) {
     const output = readOption(args, "--output");
     const dryRun = hasFlag(args, "--dry-run");
     console.log(JSON.stringify(await createPackageInstallPlan(id, { output, registry, dryRun }), null, 2));
+    return;
+  }
+
+  if (subcommand === "submit") {
+    const source = positionalArgs(args)[0];
+    if (!source) throw new Error("package submit requires an artifact file or folder");
+    const dryRun = hasFlag(args, "--dry-run");
+    if (!dryRun) {
+      throw new Error("package submit is a dry-run contract in this phase. Re-run with --dry-run.");
+    }
+    console.log(JSON.stringify(await createPackageSubmissionDryRun(source, args), null, 2));
     return;
   }
 
@@ -621,6 +635,7 @@ function positionalArgs(values) {
 function optionTakesValue(name) {
   return new Set([
     "--contact",
+    "--changelog",
     "--display-name",
     "--kind",
     "--output",
@@ -667,6 +682,206 @@ function printInstallResult(result) {
   console.log(`Verified artifact: ${verified}`);
   console.log(`Status: ${result.install.status}`);
   console.log(result.install.message);
+}
+
+async function createPackageSubmissionDryRun(source, values) {
+  const auth = await requireAuthState();
+  const inspected = await inspectPackageSubmitSource(source);
+  const publisherHandle =
+    normalizeHandle(readOption(values, "--publisher")) ||
+    normalizeHandle(inspected.publisher?.handle) ||
+    normalizeHandle(auth.defaultPublisherHandle);
+  if (!publisherHandle) {
+    throw new Error("package submit requires --publisher, artifact publisher metadata, or a login publisher");
+  }
+  const packageId = inspected.package.id;
+  const version = inspected.package.version;
+  const now = new Date().toISOString();
+  const artifactUploadId = `artifact-${packageId}-${version.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  const submissionId = `submission-${packageId}-${version.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  const sourceUrl = readOption(values, "--source") ?? inspected.source ?? `https://github.com/${publisherHandle}/${packageId}`;
+  const changelog = readOption(values, "--changelog") ?? "CoreHub package submission dry run.";
+  const artifactUpload = {
+    id: artifactUploadId,
+    packageId,
+    version,
+    publisherHandle,
+    status: "verified",
+    storage: {
+      provider: "github-raw",
+      key: `uploads/${publisherHandle}/${packageId}/${version}/${inspected.artifact.name}`,
+      url: sourceUrl,
+    },
+    mediaType: inspected.artifact.mediaType,
+    size: inspected.artifact.size,
+    sha256: inspected.artifact.sha256,
+    uploadedBy: auth.actor,
+    createdAt: now,
+    verifiedAt: now,
+  };
+  const submission = {
+    id: submissionId,
+    packageId,
+    kind: inspected.package.kind,
+    publisherHandle,
+    version,
+    status: "pending_review",
+    artifactUploadId,
+    source: sourceUrl,
+    changelog,
+    submittedBy: auth.actor,
+    submittedAt: now,
+  };
+  return {
+    dryRun: true,
+    status: "planned",
+    actor: auth.actor,
+    source: {
+      path: resolve(source),
+      type: inspected.type,
+    },
+    submission,
+    artifactUpload,
+    packageVersionPreview: {
+      id: `version-${packageId}-${version.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`,
+      packageId,
+      version,
+      tag: "latest",
+      publisherHandle,
+      status: "pending_review",
+      artifactUploadId,
+      submissionId,
+      createdAt: now,
+      moderationStatus: "pending",
+    },
+    validation: {
+      ready: true,
+      checks: [
+        "authenticated actor resolved",
+        "package id and version resolved",
+        "publisher handle resolved",
+        "artifact checksum computed",
+        "submission remains pending review",
+      ],
+    },
+    nextStep: "Submit this payload to the future authenticated package submission API.",
+  };
+}
+
+async function inspectPackageSubmitSource(source) {
+  const path = resolve(source);
+  const info = await stat(path);
+  if (info.isDirectory()) return inspectPackageSubmitFolder(path);
+  if (/\.json$/i.test(path)) return inspectPackageSubmitManifest(path);
+  if (/\.t(?:ar\.)?gz$/i.test(path)) return inspectPackageSubmitArchive(path);
+  throw new Error("package submit source must be a folder, .json manifest, or .tgz artifact");
+}
+
+async function inspectPackageSubmitFolder(path) {
+  const manifest = JSON.parse(await readFile(join(path, "corehub.artifact.json"), "utf8"));
+  const files = await collectFolderFiles(path);
+  const hash = createHash("sha256");
+  let size = 0;
+  for (const file of files) {
+    size += file.size;
+    hash.update(`${file.path}\0${file.size}\0${file.sha256}\n`);
+  }
+  return normalizeSubmitManifest({
+    type: "folder",
+    sourcePath: path,
+    manifest,
+    artifact: {
+      name: `${manifest.package.id}-${manifest.package.version}.coreblow-plugin-folder`,
+      mediaType: "application/vnd.coreblow.plugin-folder",
+      size,
+      sha256: hash.digest("hex"),
+    },
+    storageKey: path,
+  });
+}
+
+async function inspectPackageSubmitManifest(path) {
+  const manifest = JSON.parse(await readFile(path, "utf8"));
+  return normalizeSubmitManifest({
+    type: "manifest",
+    sourcePath: path,
+    manifest,
+    artifact: manifest.artifact,
+    storageKey: path,
+  });
+}
+
+async function inspectPackageSubmitArchive(path) {
+  const bytes = await readFile(path);
+  const manifest = await readArchiveCoreHubManifest(path);
+  return normalizeSubmitManifest({
+    type: "archive",
+    sourcePath: path,
+    manifest,
+    artifact: {
+      name: path.split(/[\\/]/).at(-1),
+      mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+      size: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+    storageKey: path,
+  });
+}
+
+async function readArchiveCoreHubManifest(path) {
+  const candidates = ["corehub.artifact.json", "package/corehub.artifact.json"];
+  for (const candidate of candidates) {
+    try {
+      const { stdout } = await execFileAsync("tar", ["-xOzf", path, candidate], {
+        encoding: "utf8",
+      });
+      return JSON.parse(stdout);
+    } catch {
+      // Try the next common archive layout.
+    }
+  }
+  throw new Error("package submit archive must contain corehub.artifact.json");
+}
+
+function normalizeSubmitManifest({ type, sourcePath, manifest, artifact, storageKey }) {
+  const pkg = manifest.package;
+  if (!pkg?.id || !pkg?.version || !pkg?.kind) {
+    throw new Error("package submit metadata must include package.id, package.version, and package.kind");
+  }
+  if (!artifact?.sha256 || !Number.isInteger(artifact.size)) {
+    throw new Error("package submit metadata must include artifact.size and artifact.sha256");
+  }
+  return {
+    type,
+    sourcePath,
+    package: pkg,
+    publisher: manifest.publisher ?? null,
+    source: manifest.source,
+    artifact,
+  };
+}
+
+async function collectFolderFiles(root) {
+  const result = [];
+  async function visit(dir) {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await visit(path);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const bytes = await readFile(path);
+      result.push({
+        path: path.slice(root.length + 1).replaceAll("\\", "/"),
+        size: bytes.byteLength,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      });
+    }
+  }
+  await visit(root);
+  return result.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 async function createWhoamiResult(auth) {
@@ -885,6 +1100,7 @@ Usage:
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text]
   corehub package publish <source>
   corehub registry info --registry https://coreblow.com/corehub
 `);
@@ -902,6 +1118,7 @@ Usage:
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text]
   corehub package publish <source>
 `);
 }

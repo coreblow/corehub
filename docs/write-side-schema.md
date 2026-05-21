@@ -71,6 +71,8 @@ Future CLI commands should keep the ClawHub-style dry-run habit:
 ```sh
 corehub publisher login
 corehub publisher whoami
+corehub package submit ./plugin --dry-run
+corehub package submit ./plugin-lab.coreblow-plugin.tgz --dry-run
 corehub package publish ./plugin --dry-run
 corehub package publish ./plugin
 corehub package submit ./plugin-lab.coreblow-plugin.tgz

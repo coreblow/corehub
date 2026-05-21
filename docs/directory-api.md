@@ -166,6 +166,7 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package inspect <entry-id>`
 - `corehub package versions <entry-id>`
 - `corehub package install <entry-id>`
+- `corehub package submit <artifact|folder> --dry-run`
 - `corehub package publish <source>`
 - `corehub registry info`
 

@@ -275,6 +275,36 @@ try {
   assert.equal(claimPayload.status, "planned");
   assert.equal(claimPayload.claim.handle, "example-org");
 
+  const folderSubmit = await execFileAsync(
+    process.execPath,
+    [cliPath, "package", "submit", new URL("../fixtures/plugin-lab-plugin", import.meta.url).pathname, "--dry-run"],
+    { env: authEnv },
+  );
+  const folderSubmitPayload = JSON.parse(folderSubmit.stdout);
+  assert.equal(folderSubmitPayload.dryRun, true);
+  assert.equal(folderSubmitPayload.submission.status, "pending_review");
+  assert.equal(folderSubmitPayload.submission.packageId, "plugin-lab");
+  assert.equal(folderSubmitPayload.submission.publisherHandle, "coreblow");
+  assert.equal(folderSubmitPayload.artifactUpload.status, "verified");
+  assert.equal(folderSubmitPayload.artifactUpload.mediaType, "application/vnd.coreblow.plugin-folder");
+
+  const archiveSubmit = await execFileAsync(
+    process.execPath,
+    [
+      cliPath,
+      "package",
+      "submit",
+      new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+      "--dry-run",
+    ],
+    { env: authEnv },
+  );
+  const archiveSubmitPayload = JSON.parse(archiveSubmit.stdout);
+  assert.equal(archiveSubmitPayload.source.type, "archive");
+  assert.equal(archiveSubmitPayload.submission.status, "pending_review");
+  assert.equal(archiveSubmitPayload.artifactUpload.sha256, pluginLabEntry.versions[0].artifact.sha256);
+  assert.equal(archiveSubmitPayload.artifactUpload.size, pluginLabEntry.versions[0].artifact.size);
+
   const logout = await execFileAsync(process.execPath, [cliPath, "logout"], { env: authEnv });
   assert.match(logout.stdout, /Logged out/);
 } finally {
