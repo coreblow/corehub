@@ -224,6 +224,7 @@ corehub audit list --action review.approve --limit 20 --registry http://127.0.0.
 corehub audit list --action review.approve --actor github:coreblow-admin --target-type review --format jsonl --output ./review-approvals.audit.jsonl --registry http://127.0.0.1:8787/corehub
 corehub audit verify --registry http://127.0.0.1:8787/corehub
 corehub audit incident report --format markdown --output ./audit-incident.md --registry http://127.0.0.1:8787/corehub
+npm run audit:incident -- --registry http://127.0.0.1:8787/corehub --output ./audit-incident.md
 corehub audit retention --dry-run --registry http://127.0.0.1:8787/corehub
 corehub audit retention --prune --output ./audit-retention.audit.jsonl --registry http://127.0.0.1:8787/corehub
 ```

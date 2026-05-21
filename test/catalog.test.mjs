@@ -164,6 +164,7 @@ assert.ok(inspected.fingerprint);
 assert.ok(inspected.files.some((file) => file.path === "SKILL.md"));
 
 const cliPath = new URL("../src/cli.mjs", import.meta.url).pathname;
+const auditIncidentCheckPath = new URL("../scripts/audit-incident-check.mjs", import.meta.url).pathname;
 const explore = await execFileAsync(process.execPath, [cliPath, "explore"]);
 assert.match(explore.stdout, /corehub-directory\tskill\tCoreHub Directory Metadata/);
 
@@ -863,6 +864,20 @@ try {
       assert.equal(auditIncidentExportPayload.status, "exported");
       assert.equal(auditIncidentExportPayload.incidentStatus, "ok");
       assert.match(await readFile(incidentOutputPath, "utf8"), /CoreHub Audit Incident Report/);
+      const auditIncidentCheck = await execFileAsync(
+        process.execPath,
+        [
+          auditIncidentCheckPath,
+          "--registry",
+          apiRegistryUrl,
+          "--output",
+          join(retentionExportDir, "automation-incident.md"),
+          "--limit",
+          "5",
+        ],
+        { env: apiAuthEnv },
+      );
+      assert.equal(JSON.parse(auditIncidentCheck.stdout).incidentStatus, "ok");
     } finally {
       await rm(retentionExportDir, { recursive: true, force: true });
     }
@@ -1169,6 +1184,22 @@ try {
         return true;
       },
     );
+    const incidentAutomationOutput = join(incidentStorageDir, "incident.md");
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        auditIncidentCheckPath,
+        "--registry",
+        incidentRegistryUrl,
+        "--output",
+        incidentAutomationOutput,
+      ]),
+      (error) => {
+        const payload = JSON.parse(error.stdout);
+        assert.equal(payload.incidentStatus, "fail_closed");
+        return true;
+      },
+    );
+    assert.match(await readFile(incidentAutomationOutput, "utf8"), /Status: fail_closed/);
   } finally {
     await new Promise((resolve) => incidentServer.close(resolve));
   }

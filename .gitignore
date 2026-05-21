@@ -5,3 +5,4 @@ dist/
 .env
 .env.*
 .corehub-local/
+.corehub-audit/

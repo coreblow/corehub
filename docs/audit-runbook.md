@@ -34,6 +34,12 @@ Generate an operator incident report:
 npm run corehub -- audit incident report --format markdown --output ./corehub-audit-incident.md --registry http://127.0.0.1:8787/corehub
 ```
 
+Run the automation-friendly incident check:
+
+```sh
+npm run audit:incident -- --registry http://127.0.0.1:8787/corehub --output ./corehub-audit-incident.md
+```
+
 Check the retention policy and prune plan:
 
 ```sh

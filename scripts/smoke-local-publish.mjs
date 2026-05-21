@@ -210,6 +210,18 @@ try {
   assert.equal(auditIncident.recentAuditEvents.length, 5);
   logStep(`audit incident report generated: ${auditIncident.status}`);
 
+  const auditIncidentCheck = await execFileAsync(process.execPath, [
+    join(repoRoot, "scripts/audit-incident-check.mjs"),
+    "--registry",
+    registry,
+    "--output",
+    join(tempRoot, "audit-incident.md"),
+    "--limit",
+    "5",
+  ]);
+  assert.equal(JSON.parse(auditIncidentCheck.stdout).incidentStatus, "ok");
+  logStep("audit incident automation check passed");
+
   const projected = await fetch(`${registry}/api/v1/packages/plugin-lab`);
   assert.equal(projected.status, 200);
   const projectedPayload = await projected.json();

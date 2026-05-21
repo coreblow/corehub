@@ -45,6 +45,44 @@ When `status` is `ok`, the report can be stored as evidence that the audit chain
 npm run corehub -- audit retention --prune --output ./corehub-audit-retention.audit.jsonl --registry http://127.0.0.1:8787/corehub
 ```
 
+## Automation Hook
+
+Use the repository script for cron or CI jobs:
+
+```sh
+COREHUB_REGISTRY=https://coreblow.com/corehub npm run audit:incident
+```
+
+Equivalent explicit form:
+
+```sh
+npm run audit:incident -- --registry https://coreblow.com/corehub --output ./corehub-audit-incident.md --limit 50
+```
+
+Defaults:
+
+| Setting | Default |
+| --- | --- |
+| `COREHUB_REGISTRY` | Required when `--registry` is omitted. |
+| `COREHUB_AUDIT_INCIDENT_REPORT` | `.corehub-audit/corehub-audit-incident.md` |
+| `COREHUB_AUDIT_INCIDENT_FORMAT` | `markdown` |
+| `COREHUB_AUDIT_INCIDENT_LIMIT` | `50` |
+
+Example cron entry:
+
+```cron
+*/30 * * * * cd /srv/corehub && COREHUB_REGISTRY=https://coreblow.com/corehub npm run audit:incident >> /var/log/corehub-audit-incident.log 2>&1
+```
+
+Example GitHub Actions step:
+
+```yaml
+- name: CoreHub audit incident check
+  run: npm run audit:incident -- --registry https://coreblow.com/corehub --output ./corehub-audit-incident.md
+```
+
+The script writes the incident report and exits non-zero when the report status is `fail_closed`.
+
 ## Enterprise Notes
 
 CoreHub treats audit integrity failures as operational incidents, not routine warnings. The CLI exits non-zero for `fail_closed` so automation can halt retention jobs and alert operators.
