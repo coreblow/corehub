@@ -46,6 +46,8 @@ async function main() {
     await runPublisherCommand(args);
   } else if (command === "registry") {
     await runRegistryCommand(args);
+  } else if (command === "review" || command === "reviews") {
+    await runReviewCommand(args);
   } else if (command === "skill") {
     await runSkillCommand(args);
   } else if (command === "inspect") {
@@ -298,6 +300,40 @@ async function runRegistryCommand(values) {
   }
 
   printRegistryHelp();
+}
+
+async function runReviewCommand(values) {
+  const subcommand = values[0] ?? "help";
+  const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
+
+  if (subcommand === "approve" || subcommand === "block") {
+    if (!registry) throw new Error(`review ${subcommand} requires --registry or COREHUB_REGISTRY`);
+    const reviewId = positionalArgs(args)[0];
+    if (!reviewId) throw new Error(`review ${subcommand} requires a review id`);
+    const auth = await requireAuthState();
+    const result = await new CoreHubRegistryClient(registry).decideReview(
+      reviewId,
+      subcommand,
+      { notes: readOption(args, "--notes") },
+      { auth },
+    );
+    console.log(
+      JSON.stringify(
+        {
+          status: subcommand === "approve" ? "approved" : "blocked",
+          registry: normalizeRegistry(registry),
+          actor: auth.actor,
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  printReviewHelp();
 }
 
 async function runSkillCommand(values) {
@@ -649,6 +685,7 @@ function optionTakesValue(name) {
     "--display-name",
     "--kind",
     "--max-bytes",
+    "--notes",
     "--output",
     "--publisher",
     "--provider",
@@ -1446,6 +1483,16 @@ class CoreHubRegistryClient {
     });
   }
 
+  async decideReview(reviewId, decision, payload = {}, options = {}) {
+    return this.writeData(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}/${decision}`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
   apiUrl(path) {
     return new URL(`${this.registry}/api/v1${path}`);
   }
@@ -1522,6 +1569,8 @@ Usage:
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
+  corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
+  corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub skill publish <skill-folder>
   corehub package explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub package search <query> [--registry https://coreblow.com/corehub]
@@ -1563,6 +1612,15 @@ function printRegistryHelp() {
 
 Usage:
   corehub registry info --registry https://coreblow.com/corehub
+`);
+}
+
+function printReviewHelp() {
+  console.log(`CoreHub review commands
+
+Usage:
+  corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
+  corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
 `);
 }
 

@@ -137,6 +137,13 @@ Each remote submission receives an open moderation review id. Review decisions a
 
 Review approval is the first point where a submitted artifact can become installable. Blocked versions remain non-installable but auditable, preserving package/version history instead of deleting the failed submission.
 
+The admin CLI can now call these API v2 review decisions:
+
+```sh
+corehub review approve review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub --notes "Artifact verified."
+corehub review block review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub --notes "Blocked by moderation."
+```
+
 The current adapter is local and mocked for tests. Its storage key shape is already compatible with managed object storage:
 
 ```text

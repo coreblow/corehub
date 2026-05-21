@@ -524,24 +524,27 @@ try {
     assert.equal(remoteSubmitPayload.packageVersionPreview.moderationStatus, "pending");
     assert.equal(remoteSubmitPayload.moderationReview.status, "open");
 
-    const approveResponse = await fetch(
-      `${apiBaseUrl}/reviews/${remoteSubmitPayload.moderationReview.id}/approve`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-corehub-user": "moderator:corehub",
-        },
-        body: JSON.stringify({ notes: "Artifact verified and package scope approved." }),
-      },
+    const approve = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "review",
+        "approve",
+        remoteSubmitPayload.moderationReview.id,
+        "--registry",
+        apiRegistryUrl,
+        "--notes",
+        "Artifact verified and package scope approved.",
+      ],
+      { env: apiAuthEnv },
     );
-    assert.equal(approveResponse.status, 200);
-    const approvePayload = await approveResponse.json();
-    assert.equal(approvePayload.data.moderationReview.status, "approved");
-    assert.equal(approvePayload.data.moderationReview.decision, "approve");
-    assert.equal(approvePayload.data.submission.status, "approved");
-    assert.equal(approvePayload.data.packageVersion.status, "available");
-    assert.equal(approvePayload.data.packageVersion.moderationStatus, "approved");
+    const approvePayload = JSON.parse(approve.stdout);
+    assert.equal(approvePayload.status, "approved");
+    assert.equal(approvePayload.moderationReview.status, "approved");
+    assert.equal(approvePayload.moderationReview.decision, "approve");
+    assert.equal(approvePayload.submission.status, "approved");
+    assert.equal(approvePayload.packageVersion.status, "available");
+    assert.equal(approvePayload.packageVersion.moderationStatus, "approved");
 
     const projectedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
     assert.equal(projectedEntriesResponse.status, 200);
@@ -647,21 +650,46 @@ try {
     }),
   });
   const submissionPayload = await submissionResponse.json();
-  const blockResponse = await fetch(`${blockApiBaseUrl}/reviews/${submissionPayload.data.moderationReview.id}/block`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-corehub-user": "moderator:corehub",
-    },
-    body: JSON.stringify({ notes: "Blocked by moderation fixture." }),
-  });
-  assert.equal(blockResponse.status, 200);
-  const blockPayload = await blockResponse.json();
-  assert.equal(blockPayload.data.moderationReview.status, "blocked");
-  assert.equal(blockPayload.data.moderationReview.decision, "block");
-  assert.equal(blockPayload.data.submission.status, "rejected");
-  assert.equal(blockPayload.data.packageVersion.status, "blocked");
-  assert.equal(blockPayload.data.packageVersion.moderationStatus, "blocked");
+  const blockAuthHome = await mkdtemp(join(tmpdir(), "corehub-block-auth-"));
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "login",
+        "--token",
+        "local-dev-token",
+        "--user",
+        "moderator:corehub",
+        "--publisher",
+        "coreblow",
+      ],
+      { env: { ...process.env, COREHUB_HOME: blockAuthHome } },
+    );
+    const block = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "review",
+        "block",
+        submissionPayload.data.moderationReview.id,
+        "--registry",
+        blockApiBaseUrl.replace("/api/v2", ""),
+        "--notes",
+        "Blocked by moderation fixture.",
+      ],
+      { env: { ...process.env, COREHUB_HOME: blockAuthHome } },
+    );
+    const blockPayload = JSON.parse(block.stdout);
+    assert.equal(blockPayload.status, "blocked");
+    assert.equal(blockPayload.moderationReview.status, "blocked");
+    assert.equal(blockPayload.moderationReview.decision, "block");
+    assert.equal(blockPayload.submission.status, "rejected");
+    assert.equal(blockPayload.packageVersion.status, "blocked");
+    assert.equal(blockPayload.packageVersion.moderationStatus, "blocked");
+  } finally {
+    await rm(blockAuthHome, { recursive: true, force: true });
+  }
   const blockedEntries = await fetch(`${blockApiBaseUrl.replace("/api/v2", "/api/v1")}/entries`);
   assert.equal((await blockedEntries.json()).data.length, 0);
 } finally {

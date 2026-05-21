@@ -24,6 +24,8 @@ npm run corehub -- package download plugin-lab
 npm run corehub -- package download plugin-lab --output plugin-lab.coreblow-plugin.tgz
 npm run corehub -- package install plugin-lab
 npm run corehub -- package install plugin-lab --output plugin-lab.coreblow-plugin.tgz
+npm run corehub -- review approve review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
+npm run corehub -- review block review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
@@ -177,6 +179,8 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package upload request <artifact|folder> --dry-run`
 - `corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run`
 - `corehub package submit <artifact|folder> --dry-run`
+- `corehub review approve <review-id> --registry <url>`
+- `corehub review block <review-id> --registry <url>`
 - `corehub package publish <source>`
 - `corehub registry info`
 
