@@ -46,6 +46,8 @@ async function main() {
     await runPublisherCommand(args);
   } else if (command === "registry") {
     await runRegistryCommand(args);
+  } else if (command === "audit") {
+    await runAuditCommand(args);
   } else if (command === "submission" || command === "submissions") {
     await runSubmissionCommand(args);
   } else if (command === "review" || command === "reviews") {
@@ -308,10 +310,11 @@ async function runReviewCommand(values) {
   const subcommand = values[0] ?? "help";
   const args = values.slice(1);
   const registry = readOption(args, "--registry") ?? defaultRegistry;
+  const auth = await readAuthState();
 
   if (subcommand === "list") {
     if (!registry) throw new Error("review list requires --registry or COREHUB_REGISTRY");
-    const result = await new CoreHubRegistryClient(registry).reviews(readQueueListOptions(args));
+    const result = await new CoreHubRegistryClient(registry).reviews({ ...readQueueListOptions(args), auth });
     console.log(
       JSON.stringify(
         {
@@ -331,7 +334,7 @@ async function runReviewCommand(values) {
     if (!registry) throw new Error(`review ${subcommand} requires --registry or COREHUB_REGISTRY`);
     const reviewId = positionalArgs(args)[0];
     if (!reviewId) throw new Error(`review ${subcommand} requires a review id`);
-    const result = await new CoreHubRegistryClient(registry).review(reviewId);
+    const result = await new CoreHubRegistryClient(registry).review(reviewId, { auth });
     console.log(
       JSON.stringify(
         {
@@ -379,10 +382,11 @@ async function runSubmissionCommand(values) {
   const subcommand = values[0] ?? "help";
   const args = values.slice(1);
   const registry = readOption(args, "--registry") ?? defaultRegistry;
+  const auth = await readAuthState();
 
   if (subcommand === "list") {
     if (!registry) throw new Error("submissions list requires --registry or COREHUB_REGISTRY");
-    const result = await new CoreHubRegistryClient(registry).submissions(readQueueListOptions(args));
+    const result = await new CoreHubRegistryClient(registry).submissions({ ...readQueueListOptions(args), auth });
     console.log(
       JSON.stringify(
         {
@@ -402,7 +406,7 @@ async function runSubmissionCommand(values) {
     if (!registry) throw new Error(`submissions ${subcommand} requires --registry or COREHUB_REGISTRY`);
     const submissionId = positionalArgs(args)[0];
     if (!submissionId) throw new Error(`submissions ${subcommand} requires a submission id`);
-    const result = await new CoreHubRegistryClient(registry).submission(submissionId);
+    const result = await new CoreHubRegistryClient(registry).submission(submissionId, { auth });
     console.log(
       JSON.stringify(
         {
@@ -418,6 +422,40 @@ async function runSubmissionCommand(values) {
   }
 
   printSubmissionHelp();
+}
+
+async function runAuditCommand(values) {
+  const subcommand = values[0] ?? "help";
+  const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
+
+  if (subcommand === "list" || subcommand === "events") {
+    if (!registry) throw new Error("audit list requires --registry or COREHUB_REGISTRY");
+    const auth = await readAuthState();
+    const result = await new CoreHubRegistryClient(registry).auditEvents({
+      ...readQueueListOptions(args),
+      actor: readOption(args, "--actor"),
+      action: readOption(args, "--action"),
+      target: readOption(args, "--target"),
+      targetType: readOption(args, "--target-type"),
+      auth,
+    });
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          registry: normalizeRegistry(registry),
+          ...result.meta,
+          auditEvents: result.data,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  printAuditHelp();
 }
 
 async function runSkillCommand(values) {
@@ -783,6 +821,8 @@ function optionTakesValue(name) {
     "--contact",
     "--artifact-upload",
     "--artifact-upload-id",
+    "--action",
+    "--actor",
     "--changelog",
     "--display-name",
     "--kind",
@@ -796,6 +836,8 @@ function optionTakesValue(name) {
     "--registry",
     "--region",
     "--source",
+    "--target",
+    "--target-type",
     "--token",
     "--upload-slot",
     "--user",
@@ -1551,11 +1593,13 @@ class CoreHubRegistryClient {
     if (options.status) url.searchParams.set("status", options.status);
     if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
     if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
-    return this.readV2Envelope(url);
+    return this.readV2Envelope(url, { auth: options.auth });
   }
 
-  async submission(submissionId) {
-    return this.readV2Data(this.apiV2Url(`/submissions/${encodeURIComponent(submissionId)}`));
+  async submission(submissionId, options = {}) {
+    return this.readV2Data(this.apiV2Url(`/submissions/${encodeURIComponent(submissionId)}`), {
+      auth: options.auth,
+    });
   }
 
   async reviews(options = {}) {
@@ -1563,11 +1607,24 @@ class CoreHubRegistryClient {
     if (options.status) url.searchParams.set("status", options.status);
     if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
     if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
-    return this.readV2Envelope(url);
+    return this.readV2Envelope(url, { auth: options.auth });
   }
 
-  async review(reviewId) {
-    return this.readV2Data(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}`));
+  async review(reviewId, options = {}) {
+    return this.readV2Data(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}`), {
+      auth: options.auth,
+    });
+  }
+
+  async auditEvents(options = {}) {
+    const url = this.apiV2Url("/audit/events");
+    if (options.actor) url.searchParams.set("actor", options.actor);
+    if (options.action) url.searchParams.set("action", options.action);
+    if (options.target) url.searchParams.set("target", options.target);
+    if (options.targetType) url.searchParams.set("targetType", options.targetType);
+    if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+    if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
+    return this.readV2Envelope(url, { auth: options.auth });
   }
 
   async requestArtifactUpload(payload, options = {}) {
@@ -1644,13 +1701,13 @@ class CoreHubRegistryClient {
     return payload.data;
   }
 
-  async readV2Data(url) {
-    return (await this.readV2Envelope(url)).data;
+  async readV2Data(url, options = {}) {
+    return (await this.readV2Envelope(url, options)).data;
   }
 
-  async readV2Envelope(url) {
+  async readV2Envelope(url, options = {}) {
     const response = await fetch(url, {
-      headers: { Accept: "application/json", "User-Agent": "corehub-cli" },
+      headers: this.authHeaders(options.auth),
     });
     if (!response.ok) {
       throw new Error(`CoreHub registry request failed: ${response.status} ${response.statusText}`);
@@ -1715,6 +1772,7 @@ Usage:
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
+  corehub audit list [--target id] [--action action] [--actor actor-id] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -1762,6 +1820,14 @@ function printRegistryHelp() {
 
 Usage:
   corehub registry info --registry https://coreblow.com/corehub
+`);
+}
+
+function printAuditHelp() {
+  console.log(`CoreHub audit commands
+
+Usage:
+  corehub audit list [--target id] [--target-type type] [--action action] [--actor actor-id] [--limit n] [--offset n] --registry https://coreblow.com/corehub
 `);
 }
 

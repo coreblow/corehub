@@ -159,6 +159,13 @@ try {
   assert.equal(approvedReviews.count, 1);
   logStep(`approved reviews listed: ${approvedReviews.count}`);
 
+  const reviewAudit = JSON.parse(
+    await runCoreHub(["audit", "list", "--target", submission.moderationReview.id, "--limit", "20", "--registry", registry]),
+  );
+  assert.equal(reviewAudit.auditEvents.some((event) => event.action === "review.approve"), true);
+  assert.equal(reviewAudit.auditEvents.some((event) => event.action === "review.inspect"), true);
+  logStep(`review audit events listed: ${reviewAudit.count}`);
+
   const projected = await fetch(`${registry}/api/v1/packages/plugin-lab`);
   assert.equal(projected.status, 200);
   const projectedPayload = await projected.json();

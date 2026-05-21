@@ -15,6 +15,7 @@ export class CoreHubLocalStorageAdapter {
     this.submissions = new Map();
     this.reviews = new Map();
     this.packageVersions = new Map();
+    this.auditEvents = [];
   }
 
   static async open(options = {}) {
@@ -74,11 +75,27 @@ export class CoreHubLocalStorageAdapter {
       artifactUpload,
     };
     this.slots.set(id, slot);
+    this.recordAuditEvent({
+      actor,
+      action: "artifact.upload.request",
+      targetType: "artifactUpload",
+      targetId: artifactUploadId,
+      metadata: {
+        uploadSlotId: id,
+        packageId: request.packageId,
+        version: request.version,
+        publisherHandle: request.publisherHandle,
+        storage,
+        sha256: request.artifact.sha256,
+        size: request.artifact.size,
+      },
+      createdAt,
+    });
     await this.persistState();
     return slot;
   }
 
-  async putObject(uploadSlotId, bytes, headers = {}) {
+  async putObject(uploadSlotId, bytes, headers = {}, { actor = defaultActor(), now = new Date() } = {}) {
     const slot = this.requireSlot(uploadSlotId);
     if (bytes.byteLength > slot.upload.maxBytes) {
       throw httpError(413, "Artifact exceeds upload slot maxBytes");
@@ -97,6 +114,22 @@ export class CoreHubLocalStorageAdapter {
       uploadedAt: new Date().toISOString(),
     };
     slot.artifactUpload.status = "uploaded";
+    this.recordAuditEvent({
+      actor,
+      action: "artifact.upload.put",
+      targetType: "artifactUpload",
+      targetId: slot.artifactUpload.id,
+      metadata: {
+        uploadSlotId,
+        packageId: slot.packageId,
+        version: slot.version,
+        publisherHandle: slot.publisherHandle,
+        storage: slot.storage,
+        size: slot.uploaded.size,
+        sha256: slot.uploaded.sha256,
+      },
+      createdAt: now.toISOString(),
+    });
     await this.persistState();
     return {
       uploadSlotId,
@@ -131,6 +164,22 @@ export class CoreHubLocalStorageAdapter {
       verifiedAt: now.toISOString(),
     };
     slot.artifactUpload = artifactUpload;
+    this.recordAuditEvent({
+      actor,
+      action: "artifact.upload.verify",
+      targetType: "artifactUpload",
+      targetId: artifactUpload.id,
+      metadata: {
+        uploadSlotId,
+        packageId: artifactUpload.packageId,
+        version: artifactUpload.version,
+        publisherHandle: artifactUpload.publisherHandle,
+        status,
+        checksumMatches,
+        sizeMatches,
+      },
+      createdAt: now.toISOString(),
+    });
     await this.persistState();
     return {
       status,
@@ -200,6 +249,20 @@ export class CoreHubLocalStorageAdapter {
     };
     this.submissions.set(id, { submission, packageVersionPreview, artifactUploadId: request.artifactUploadId });
     this.reviews.set(reviewId, moderationReview);
+    this.recordAuditEvent({
+      actor,
+      action: "submission.create",
+      targetType: "submission",
+      targetId: id,
+      metadata: {
+        packageId: request.packageId,
+        version: request.version,
+        publisherHandle: request.publisherHandle,
+        artifactUploadId: request.artifactUploadId,
+        reviewId,
+      },
+      createdAt: submittedAt,
+    });
     await this.persistState();
     return { submission, artifactUpload, packageVersionPreview, moderationReview };
   }
@@ -246,6 +309,23 @@ export class CoreHubLocalStorageAdapter {
       packageVersionPreview: packageVersion,
     });
     this.packageVersions.set(packageVersion.id, packageVersion);
+    this.recordAuditEvent({
+      actor,
+      action: `review.${decision}`,
+      targetType: "review",
+      targetId: reviewId,
+      metadata: {
+        submissionId: submission.id,
+        packageVersionId: packageVersion.id,
+        packageId: packageVersion.packageId,
+        version: packageVersion.version,
+        publisherHandle: packageVersion.publisherHandle,
+        submissionStatus,
+        packageVersionStatus,
+        notes: moderationReview.notes ?? null,
+      },
+      createdAt: decidedAt,
+    });
     await this.persistState();
     return {
       moderationReview,
@@ -300,6 +380,42 @@ export class CoreHubLocalStorageAdapter {
       packageVersion,
       moderationReview: this.reviews.get(record.submission.reviewId) ?? null,
     };
+  }
+
+  listAuditEvents(options = {}) {
+    const records = this.auditEvents
+      .filter((event) => !options.actor || event.actor?.id === options.actor)
+      .filter((event) => !options.action || event.action === options.action)
+      .filter((event) => !options.target || event.targetId === options.target || `${event.targetType}:${event.targetId}` === options.target)
+      .filter((event) => !options.targetType || event.targetType === options.targetType)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return paginate(records, options);
+  }
+
+  async auditRead({ actor = defaultActor(), action, targetType, targetId, metadata = {}, now = new Date() }) {
+    this.recordAuditEvent({
+      actor,
+      action,
+      targetType,
+      targetId,
+      metadata,
+      createdAt: now.toISOString(),
+    });
+    await this.persistState();
+  }
+
+  recordAuditEvent({ actor, action, targetType, targetId, metadata = {}, createdAt }) {
+    const event = {
+      id: `audit-${String(this.auditEvents.length + 1).padStart(6, "0")}-${slugId(action)}-${slugId(targetId).slice(0, 48)}`,
+      actor,
+      action,
+      targetType,
+      targetId,
+      metadata,
+      createdAt,
+    };
+    this.auditEvents.push(event);
+    return event;
   }
 
   projectCatalogEntries() {
@@ -375,6 +491,7 @@ export class CoreHubLocalStorageAdapter {
       submissions: [...this.submissions.values()],
       reviews: [...this.reviews.values()],
       packageVersions: [...this.packageVersions.values()],
+      auditEvents: this.auditEvents,
     };
   }
 
@@ -387,6 +504,7 @@ export class CoreHubLocalStorageAdapter {
     this.submissions = new Map((state.submissions ?? []).map((record) => [record.submission.id, record]));
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
+    this.auditEvents = state.auditEvents ?? [];
   }
 
   async saveState(path = this.statePath) {
@@ -470,23 +588,71 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 1) {
-        const result = storage.listSubmissions(readListOptions(url));
+        const options = readListOptions(url);
+        const result = storage.listSubmissions(options);
+        await storage.auditRead({
+          actor: actorFromRequest(request),
+          action: "submission.list",
+          targetType: "submission",
+          targetId: options.status ? `status:${options.status}` : "all",
+          metadata: options,
+          now: now(),
+        });
         return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
       }
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 2) {
-        const result = storage.inspectSubmission(decodeURIComponent(segments[1]));
+        const submissionId = decodeURIComponent(segments[1]);
+        const result = storage.inspectSubmission(submissionId);
+        await storage.auditRead({
+          actor: actorFromRequest(request),
+          action: "submission.inspect",
+          targetType: "submission",
+          targetId: submissionId,
+          now: now(),
+        });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 1) {
-        const result = storage.listReviews(readListOptions(url));
+        const options = readListOptions(url);
+        const result = storage.listReviews(options);
+        await storage.auditRead({
+          actor: actorFromRequest(request),
+          action: "review.list",
+          targetType: "review",
+          targetId: options.status ? `status:${options.status}` : "all",
+          metadata: options,
+          now: now(),
+        });
         return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
       }
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 2) {
-        const result = storage.inspectReview(decodeURIComponent(segments[1]));
+        const reviewId = decodeURIComponent(segments[1]);
+        const result = storage.inspectReview(reviewId);
+        await storage.auditRead({
+          actor: actorFromRequest(request),
+          action: "review.inspect",
+          targetType: "review",
+          targetId: reviewId,
+          now: now(),
+        });
         return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "audit" && segments[1] === "events" && segments.length === 2) {
+        const options = readAuditListOptions(url);
+        const result = storage.listAuditEvents(options);
+        await storage.auditRead({
+          actor: actorFromRequest(request),
+          action: "audit.list",
+          targetType: "audit",
+          targetId: options.target ?? options.action ?? "all",
+          metadata: options,
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
       }
 
       if (
@@ -511,7 +677,10 @@ export function createCoreHubApiHandler({
         segments.length === 3
       ) {
         const bytes = await readBytes(request);
-        const result = await storage.putObject(decodeURIComponent(segments[2]), bytes, request.headers);
+        const result = await storage.putObject(decodeURIComponent(segments[2]), bytes, request.headers, {
+          actor: actorFromRequest(request),
+          now: now(),
+        });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -683,6 +852,17 @@ function readListOptions(url) {
   };
 }
 
+function readAuditListOptions(url) {
+  return {
+    actor: url.searchParams.get("actor") ?? undefined,
+    action: url.searchParams.get("action") ?? undefined,
+    target: url.searchParams.get("target") ?? undefined,
+    targetType: url.searchParams.get("targetType") ?? undefined,
+    limit: parseNonNegativeInteger(url.searchParams.get("limit"), "limit", 50),
+    offset: parseNonNegativeInteger(url.searchParams.get("offset"), "offset", 0),
+  };
+}
+
 function paginate(items, { limit = 50, offset = 0 } = {}) {
   return {
     items: items.slice(offset, offset + limit),
@@ -700,6 +880,13 @@ function parseNonNegativeInteger(value, name, fallback) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) throw httpError(400, `${name} must be a non-negative integer`);
   return parsed;
+}
+
+function slugId(value) {
+  return String(value ?? "unknown")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "unknown";
 }
 
 function trimBasePath(pathname, basePath) {

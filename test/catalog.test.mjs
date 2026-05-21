@@ -53,6 +53,7 @@ assert.equal(writeSideState.packageSubmissions[0].status, "approved");
 assert.equal(writeSideState.packageVersions[0].status, "available");
 assert.equal(writeSideState.artifactUploads[0].sha256, pluginLabEntry.versions[0].artifact.sha256);
 assert.equal(writeSideState.artifactUploads[0].size, pluginLabEntry.versions[0].artifact.size);
+assert.equal(writeSideState.auditEvents.some((event) => event.action === "review.approve"), true);
 
 const catalog = new CoreHubCatalog(entries);
 assert.equal(catalog.findById("plugin-lab").kind, "plugin");
@@ -681,6 +682,46 @@ try {
     );
     assert.equal(JSON.parse(remainingOpenReviewsList.stdout).count, 0);
 
+    const reviewAuditList = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "audit",
+        "list",
+        "--target",
+        remoteSubmitPayload.moderationReview.id,
+        "--limit",
+        "20",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const reviewAuditListPayload = JSON.parse(reviewAuditList.stdout);
+    assert.equal(reviewAuditListPayload.status, "ok");
+    assert.equal(reviewAuditListPayload.auditEvents.some((event) => event.action === "review.approve"), true);
+    assert.equal(reviewAuditListPayload.auditEvents.some((event) => event.action === "review.inspect"), true);
+    assert.equal(reviewAuditListPayload.auditEvents[0].actor.id, "github:coreblow-admin");
+
+    const uploadAuditList = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "audit",
+        "list",
+        "--target",
+        remoteUploadVerifyPayload.artifactUpload.id,
+        "--limit",
+        "20",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const uploadAuditListPayload = JSON.parse(uploadAuditList.stdout);
+    assert.equal(uploadAuditListPayload.auditEvents.some((event) => event.action === "artifact.upload.request"), true);
+    assert.equal(uploadAuditListPayload.auditEvents.some((event) => event.action === "artifact.upload.verify"), true);
+
     const projectedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
     assert.equal(projectedEntriesResponse.status, 200);
     const projectedEntriesPayload = await projectedEntriesResponse.json();
@@ -707,6 +748,8 @@ try {
     assert.equal(persistedState.slots[0].artifactUpload.status, "verified");
     assert.equal(persistedState.submissions[0].submission.status, "approved");
     assert.equal(persistedState.packageVersions[0].status, "available");
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);
 
     const reloadedStorage = await CoreHubLocalStorageAdapter.open({
       root: apiStorageDir,
@@ -716,6 +759,7 @@ try {
     assert.equal(reloadedEntries.length, 1);
     assert.equal(reloadedEntries[0].id, "plugin-lab");
     assert.equal(reloadedEntries[0].versions[0].artifact.sha256, entries[2].versions[0].artifact.sha256);
+    assert.ok(reloadedStorage.listAuditEvents({ target: remoteSubmitPayload.moderationReview.id }).items.length > 0);
   } finally {
     await rm(apiAuthHome, { recursive: true, force: true });
   }

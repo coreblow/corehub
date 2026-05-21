@@ -185,5 +185,39 @@
       "reason": "Phase 14 schema fixture",
       "createdAt": "2026-05-21T00:00:00Z"
     }
+  ],
+  "auditEvents": [
+    {
+      "id": "audit-plugin-lab-upload-request",
+      "actor": {
+        "type": "publisher",
+        "id": "publisher-coreblow",
+        "publisherHandle": "coreblow"
+      },
+      "action": "artifact.upload.request",
+      "targetType": "artifactUpload",
+      "targetId": "artifact-plugin-lab-010",
+      "metadata": {
+        "uploadSlotId": "upload-plugin-lab-0-1-0",
+        "packageId": "plugin-lab",
+        "version": "0.1.0"
+      },
+      "createdAt": "2026-05-21T00:00:00Z"
+    },
+    {
+      "id": "audit-plugin-lab-review-approve",
+      "actor": {
+        "type": "moderator",
+        "id": "moderator:corehub"
+      },
+      "action": "review.approve",
+      "targetType": "review",
+      "targetId": "review-plugin-lab-010",
+      "metadata": {
+        "submissionId": "submission-plugin-lab-010",
+        "packageVersionId": "version-plugin-lab-010"
+      },
+      "createdAt": "2026-05-21T00:00:00Z"
+    }
   ]
 }

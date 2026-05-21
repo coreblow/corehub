@@ -17,7 +17,8 @@
     "artifactUploads",
     "moderationReviews",
     "ownershipTransfers",
-    "installEvents"
+    "installEvents",
+    "auditEvents"
   ],
   "properties": {
     "schemaVersion": {
@@ -85,6 +86,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/installEvent"
+      }
+    },
+    "auditEvents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/auditEvent"
       }
     }
   },
@@ -612,6 +619,37 @@
         "reason": {
           "type": "string",
           "minLength": 1
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "auditEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "actor", "action", "targetType", "targetId", "createdAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "actor": {
+          "$ref": "#/$defs/actor"
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "type": "object"
         },
         "createdAt": {
           "$ref": "#/$defs/timestamp"

@@ -28,6 +28,7 @@ The schema follows the ClawHub pattern where publishing is owner-scoped:
 | `moderationReviews` | Human or automated review decisions. |
 | `ownershipTransfers` | Explicit publisher ownership moves with audit history. |
 | `installEvents` | Privacy-preserving aggregate install and verification events. |
+| `auditEvents` | Operator audit trail for write-side actions and admin reads. |
 
 ## Status Flow
 
@@ -63,6 +64,7 @@ The future authenticated API should expose these resources under a new versioned
 | `GET /corehub/api/v2/submissions/:id` | Inspect submission status and review diagnostics. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approve a submission or version for install surfaces. |
 | `POST /corehub/api/v2/reviews/:id/block` | Block a submission, version, artifact, or publisher. |
+| `GET /corehub/api/v2/audit/events` | List write-side audit events with target, action, actor, and pagination filters. |
 | `POST /corehub/api/v2/transfers` | Request package ownership transfer. |
 | `POST /corehub/api/v2/install-events` | Record opt-in aggregate install telemetry. |
 
@@ -181,8 +183,33 @@ Phase 23 keeps production persistence out of scope, but the local storage adapte
 | `submissions` | Package submission records plus pending or decided package version previews. |
 | `reviews` | Moderation review decisions and reviewer audit metadata. |
 | `packageVersions` | Approved or blocked version records used by projection. |
+| `auditEvents` | Append-only audit events for upload, verification, submission, review decision, and admin read actions. |
 
 The local state file uses `schemaVersion: corehub.local-state.v1`. Future production persistence should preserve this logical state model even if storage moves to SQL, KV, Durable Objects, or R2/S3 metadata.
+
+## Audit Trail Boundary
+
+CoreHub records audit events in the same spirit as ClawHub's general `auditLogs` and moderation event logs. Each event includes `id`, `actor`, `action`, `targetType`, `targetId`, `metadata`, and `createdAt`.
+
+The local API currently records:
+
+| Action | Target |
+| --- | --- |
+| `artifact.upload.request` | Managed artifact upload id. |
+| `artifact.upload.put` | Managed artifact upload id. |
+| `artifact.upload.verify` | Managed artifact upload id. |
+| `submission.create` | Package submission id. |
+| `review.approve` / `review.block` | Moderation review id. |
+| `submission.list` / `submission.inspect` | Submission queue or submission id. |
+| `review.list` / `review.inspect` | Review queue or review id. |
+| `audit.list` | Audit query target or filter. |
+
+Operators can inspect the trail through the read-only CLI surface:
+
+```sh
+corehub audit list --target review-plugin-lab-0-1-0 --limit 20 --registry http://127.0.0.1:8787/corehub
+corehub audit list --action review.approve --limit 20 --registry http://127.0.0.1:8787/corehub
+```
 
 ## Server Bootstrap
 
