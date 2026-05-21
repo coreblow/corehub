@@ -157,6 +157,14 @@ npm run corehub -- audit alert-metrics summarize ./corehub-audit-alert-delivery-
 
 The summary reports parsed metric count, ignored non-metric lines, destination counts, final delivered/dead-letter rates, retry rate, and failed attempt rate.
 
+Gate a CI or cron job on reliability thresholds:
+
+```sh
+npm run corehub -- audit alert-metrics assert ./corehub-audit-alert-delivery-metrics.jsonl --max-dead-letter-rate 0 --max-retry-rate 0.25
+```
+
+The assert command prints a JSON result and exits non-zero when any configured threshold is exceeded. Threshold values are rates from `0` to `1`.
+
 ## Cloudflare Scheduled Worker
 
 Use the Worker template:

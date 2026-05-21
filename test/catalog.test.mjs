@@ -259,6 +259,40 @@ try {
     ]);
     assert.equal(JSON.parse(metricsMarkdownSummary.stdout).status, "exported");
     assert.match(await readFile(metricsMarkdownPath, "utf8"), /Dead-letter Rate: 50\.00%/);
+
+    const passingAssert = await execFileAsync(process.execPath, [
+      new URL("../src/cli.mjs", import.meta.url).pathname,
+      "audit",
+      "alert-metrics",
+      "assert",
+      metricsPath,
+      "--max-dead-letter-rate",
+      "0.5",
+      "--max-retry-rate",
+      "0.6",
+    ]);
+    assert.equal(JSON.parse(passingAssert.stdout).status, "passed");
+
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        new URL("../src/cli.mjs", import.meta.url).pathname,
+        "audit",
+        "alert-metrics",
+        "assert",
+        metricsPath,
+        "--max-dead-letter-rate",
+        "0",
+        "--max-retry-rate",
+        "0.25",
+      ]),
+      (error) => {
+        const payload = JSON.parse(error.stdout);
+        assert.equal(payload.status, "failed");
+        assert.equal(payload.failures.length, 2);
+        assert.equal(payload.failures[0].name, "deadLetter");
+        return true;
+      },
+    );
   } finally {
     await rm(metricsDir, { recursive: true, force: true });
   }

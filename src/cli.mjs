@@ -432,16 +432,26 @@ async function runAuditCommand(values) {
   if (subcommand === "alert-metrics") {
     const metricsCommand = args[0] ?? "help";
     const metricsArgs = args.slice(1);
-    if (metricsCommand !== "summarize") {
+    if (!new Set(["summarize", "assert"]).has(metricsCommand)) {
       printAuditHelp();
       return;
     }
     const input = positionalArgs(metricsArgs)[0];
-    if (!input) throw new Error("audit alert-metrics summarize requires a JSONL file");
+    if (!input) throw new Error(`audit alert-metrics ${metricsCommand} requires a JSONL file`);
     const format = readOption(metricsArgs, "--format") ?? "json";
     if (!new Set(["json", "markdown"]).has(format)) throw new Error("--format must be json or markdown");
     const output = readOption(metricsArgs, "--output");
     const summary = summarizeAuditAlertDeliveryMetrics(await readFile(input, "utf8"), { input: resolve(input) });
+    if (metricsCommand === "assert") {
+      const assertion = assertAuditAlertDeliveryMetrics(summary, {
+        maxDeadLetterRate: readOptionalRate(metricsArgs, "--max-dead-letter-rate"),
+        maxRetryRate: readOptionalRate(metricsArgs, "--max-retry-rate"),
+        maxFailedRate: readOptionalRate(metricsArgs, "--max-failed-rate"),
+      });
+      console.log(JSON.stringify(assertion, null, 2));
+      if (assertion.status !== "passed") process.exitCode = 1;
+      return;
+    }
     const rendered = format === "markdown" ? formatAlertMetricsSummaryMarkdown(summary) : `${JSON.stringify(summary, null, 2)}\n`;
     if (output) {
       await writeTextOutput(output, rendered);
@@ -1089,6 +1099,39 @@ function summarizeAuditAlertDeliveryMetrics(text, { input } = {}) {
   };
 }
 
+function assertAuditAlertDeliveryMetrics(summary, thresholds) {
+  const checks = [
+    buildRateCheck("deadLetter", summary.rates.deadLetter, thresholds.maxDeadLetterRate),
+    buildRateCheck("retry", summary.rates.retry, thresholds.maxRetryRate),
+    buildRateCheck("failed", summary.rates.failed, thresholds.maxFailedRate),
+  ].filter(Boolean);
+  const failedChecks = checks.filter((check) => !check.passed);
+  return {
+    status: failedChecks.length === 0 ? "passed" : "failed",
+    input: summary.input,
+    parsedMetrics: summary.parsedMetrics,
+    ignoredLines: summary.ignoredLines,
+    rates: summary.rates,
+    thresholds: {
+      maxDeadLetterRate: thresholds.maxDeadLetterRate ?? null,
+      maxRetryRate: thresholds.maxRetryRate ?? null,
+      maxFailedRate: thresholds.maxFailedRate ?? null,
+    },
+    checks,
+    failures: failedChecks,
+  };
+}
+
+function buildRateCheck(name, actual, maximum) {
+  if (maximum === undefined) return null;
+  return {
+    name,
+    actual,
+    maximum,
+    passed: actual <= maximum,
+  };
+}
+
 function formatAlertMetricsSummaryMarkdown(summary) {
   return `# CoreHub Alert Delivery Metrics Summary
 
@@ -1136,6 +1179,16 @@ function formatCountTable(counts) {
   const entries = Object.entries(counts);
   if (entries.length === 0) return "| Value | Count |\n| --- | --- |\n| none | 0 |";
   return ["| Value | Count |", "| --- | --- |", ...entries.map(([value, count]) => `| ${value} | ${count} |`)].join("\n");
+}
+
+function readOptionalRate(values, name) {
+  const value = readOption(values, name);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new Error(`${name} must be a number between 0 and 1`);
+  }
+  return parsed;
 }
 
 async function writeTextOutput(outputPath, text) {
@@ -2146,6 +2199,7 @@ Usage:
   corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
   corehub audit incident report [--format json|markdown] [--output file] [--limit n] --registry https://coreblow.com/corehub
   corehub audit alert-metrics summarize <metrics.jsonl> [--format json|markdown] [--output file]
+  corehub audit alert-metrics assert <metrics.jsonl> [--max-dead-letter-rate n] [--max-retry-rate n] [--max-failed-rate n]
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -2205,6 +2259,7 @@ Usage:
   corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
   corehub audit incident report [--format json|markdown] [--output file] [--limit n] --registry https://coreblow.com/corehub
   corehub audit alert-metrics summarize <metrics.jsonl> [--format json|markdown] [--output file]
+  corehub audit alert-metrics assert <metrics.jsonl> [--max-dead-letter-rate n] [--max-retry-rate n] [--max-failed-rate n]
 `);
 }
 

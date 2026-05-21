@@ -99,6 +99,12 @@ Summarize an exported metrics artifact with:
 npm run corehub -- audit alert-metrics summarize ./corehub-audit-alert-delivery-metrics.jsonl
 ```
 
+Fail automation when reliability crosses a threshold:
+
+```sh
+npm run corehub -- audit alert-metrics assert ./corehub-audit-alert-delivery-metrics.jsonl --max-dead-letter-rate 0 --max-retry-rate 0.25
+```
+
 ## Enterprise Notes
 
 CoreHub treats audit integrity failures as operational incidents, not routine warnings. The CLI exits non-zero for `fail_closed` so automation can halt retention jobs and alert operators.
