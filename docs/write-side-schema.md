@@ -18,6 +18,8 @@ The schema follows the ClawHub pattern where publishing is owner-scoped:
 
 | Collection | Purpose |
 | --- | --- |
+| `authSessions` | Authenticated CLI or API sessions for publisher workflows. |
+| `publisherClaims` | Handle reservation and verification requests before an account is active. |
 | `publisherAccounts` | Stable publisher handles for users or organizations. |
 | `publisherMembers` | Role bindings for organization-owned publishers. |
 | `packageSubmissions` | Authenticated publish attempts before they become public versions. |
@@ -30,7 +32,7 @@ The schema follows the ClawHub pattern where publishing is owner-scoped:
 ## Status Flow
 
 ```text
-publisher account -> package submission -> artifact upload -> moderation review -> package version -> install event
+auth session -> publisher claim -> publisher account -> package submission -> artifact upload -> moderation review -> package version -> install event
 ```
 
 Submissions start as `draft` or `pending_review`. Only approved submissions can create an `available` package version. Blocked, rejected, or held records must not become installable.

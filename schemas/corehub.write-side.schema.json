@@ -8,6 +8,8 @@
   "required": [
     "schemaVersion",
     "generatedAt",
+    "authSessions",
+    "publisherClaims",
     "publisherAccounts",
     "publisherMembers",
     "packageSubmissions",
@@ -24,6 +26,18 @@
     },
     "generatedAt": {
       "$ref": "#/$defs/timestamp"
+    },
+    "authSessions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/authSession"
+      }
+    },
+    "publisherClaims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/publisherClaim"
+      }
     },
     "publisherAccounts": {
       "type": "array",
@@ -118,6 +132,72 @@
         },
         "publisherHandle": {
           "$ref": "#/$defs/handle"
+        }
+      }
+    },
+    "authSession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "actor", "status", "createdAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "actor": {
+          "$ref": "#/$defs/actor"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "expired", "revoked"]
+        },
+        "defaultPublisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "publisherClaim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "handle", "displayName", "kind", "status", "requestedBy", "requestedAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "handle": {
+          "$ref": "#/$defs/handle"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["user", "organization"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected", "cancelled"]
+        },
+        "source": {
+          "$ref": "#/$defs/url"
+        },
+        "contact": {
+          "$ref": "#/$defs/url"
+        },
+        "requestedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "requestedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reviewId": {
+          "$ref": "#/$defs/id"
         }
       }
     },

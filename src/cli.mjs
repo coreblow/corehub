@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { CoreHubSkillInspector, readCatalog } from "./corehub.mjs";
 
 const command = process.argv[2] ?? "help";
 const args = process.argv.slice(3);
 const defaultRegistry = process.env.COREHUB_REGISTRY ?? "";
+const authSchemaVersion = "corehub.auth.v1";
 
 async function main() {
   if (command === "validate") {
@@ -30,6 +31,12 @@ async function main() {
     printRecords(await searchRecords(query, { registry }));
   } else if (command === "install") {
     await runInstallCommand(args);
+  } else if (command === "login" || (command === "auth" && args[0] === "login")) {
+    await runLoginCommand(command === "auth" ? args.slice(1) : args);
+  } else if (command === "logout" || (command === "auth" && args[0] === "logout")) {
+    await runLogoutCommand();
+  } else if (command === "whoami") {
+    await runWhoamiCommand(args);
   } else if (command === "package") {
     await runPackageCommand(args);
   } else if (command === "publishers" || command === "publisher") {
@@ -70,6 +77,16 @@ async function runPublisherCommand(values) {
   const args = values.slice(1);
   const registry = readOption(args, "--registry") ?? defaultRegistry;
 
+  if (subcommand === "whoami") {
+    await runWhoamiCommand(args);
+    return;
+  }
+
+  if (subcommand === "claim") {
+    await runPublisherClaimCommand(args);
+    return;
+  }
+
   if (subcommand === "list") {
     console.log(JSON.stringify(await listPublishers({ registry }), null, 2));
     return;
@@ -83,6 +100,93 @@ async function runPublisherCommand(values) {
   }
 
   printPublisherHelp();
+}
+
+async function runLoginCommand(values) {
+  const token = readOption(values, "--token") ?? process.env.COREHUB_TOKEN;
+  if (!token) {
+    throw new Error("CoreHub login requires --token or COREHUB_TOKEN until browser login lands.");
+  }
+  const actorId = readOption(values, "--user") ?? "local-user";
+  const publisherHandle = normalizeHandle(readOption(values, "--publisher"));
+  const auth = {
+    schemaVersion: authSchemaVersion,
+    token,
+    actor: {
+      type: "user",
+      id: actorId,
+    },
+    defaultPublisherHandle: publisherHandle,
+    createdAt: new Date().toISOString(),
+  };
+  await writeAuthState(auth);
+  const result = await createWhoamiResult(auth);
+  if (hasFlag(values, "--json")) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log(`Logged in as ${result.actor.id}.`);
+    if (result.defaultPublisher) console.log(`Default publisher: ${result.defaultPublisher.handle}`);
+  }
+}
+
+async function runLogoutCommand() {
+  await rm(authStatePath(), { force: true });
+  console.log("Logged out of CoreHub.");
+}
+
+async function runWhoamiCommand(values = []) {
+  const auth = await requireAuthState();
+  const result = await createWhoamiResult(auth);
+  if (hasFlag(values, "--json")) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`User: ${result.actor.id}`);
+  console.log(`Token: ${result.tokenPreview}`);
+  if (result.defaultPublisher) {
+    console.log(`Default publisher: ${result.defaultPublisher.handle}`);
+  }
+  if (result.memberships.length === 0) {
+    console.log("Publisher memberships: none");
+  } else {
+    console.log("Publisher memberships:");
+    for (const membership of result.memberships) {
+      console.log(`  ${membership.publisherHandle}\t${membership.role}\t${membership.status}`);
+    }
+  }
+}
+
+async function runPublisherClaimCommand(values) {
+  const handle = normalizeHandle(positionalArgs(values)[0]);
+  if (!handle) throw new Error("publisher claim requires a handle");
+  const dryRun = hasFlag(values, "--dry-run");
+  if (!dryRun) {
+    throw new Error("publisher claim is a dry-run contract in this phase. Re-run with --dry-run.");
+  }
+  const auth = await requireAuthState();
+  const existing = await findWriteSidePublisher(handle);
+  const kind = readOption(values, "--kind") ?? "organization";
+  if (!new Set(["user", "organization"]).has(kind)) {
+    throw new Error("--kind must be user or organization");
+  }
+  const displayName = readOption(values, "--display-name") ?? titleizeHandle(handle);
+  const result = {
+    dryRun: true,
+    status: existing ? "already_claimed" : "planned",
+    actor: auth.actor,
+    claim: {
+      handle,
+      displayName,
+      kind,
+      status: "pending",
+      source: readOption(values, "--source") ?? `https://github.com/${handle}`,
+      contact: readOption(values, "--contact") ?? `https://github.com/${handle}`,
+    },
+    nextStep: existing
+      ? `Publisher ${handle} already exists in CoreHub write-side state.`
+      : "Submit this claim to the future authenticated publisher API for verification.",
+  };
+  console.log(JSON.stringify(result, null, 2));
 }
 
 async function runPackageCommand(values) {
@@ -515,7 +619,18 @@ function positionalArgs(values) {
 }
 
 function optionTakesValue(name) {
-  return new Set(["--kind", "--registry", "--output", "--version"]).has(name);
+  return new Set([
+    "--contact",
+    "--display-name",
+    "--kind",
+    "--output",
+    "--publisher",
+    "--registry",
+    "--source",
+    "--token",
+    "--user",
+    "--version",
+  ]).has(name);
 }
 
 function printRecords(records) {
@@ -552,6 +667,114 @@ function printInstallResult(result) {
   console.log(`Verified artifact: ${verified}`);
   console.log(`Status: ${result.install.status}`);
   console.log(result.install.message);
+}
+
+async function createWhoamiResult(auth) {
+  const writeSideState = await readWriteSideState();
+  const memberships = writeSideState.publisherMembers.filter(
+    (member) => member.userId === auth.actor.id && member.status === "active",
+  );
+  const defaultPublisher =
+    writeSideState.publisherAccounts.find(
+      (publisher) => publisher.handle === auth.defaultPublisherHandle,
+    ) ??
+    writeSideState.publisherAccounts.find(
+      (publisher) => publisher.handle === memberships[0]?.publisherHandle,
+    ) ??
+    null;
+  return {
+    authenticated: true,
+    auth: {
+      schemaVersion: auth.schemaVersion,
+      createdAt: auth.createdAt,
+    },
+    actor: auth.actor,
+    tokenPreview: previewToken(auth.token),
+    defaultPublisher,
+    memberships,
+    registryWrite: {
+      status: "planned",
+      api: "/corehub/api/v2/publishers/me",
+    },
+  };
+}
+
+async function readWriteSideState() {
+  const path = new URL("../fixtures/write-side-state.json", import.meta.url);
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function findWriteSidePublisher(handle) {
+  const writeSideState = await readWriteSideState();
+  return writeSideState.publisherAccounts.find((publisher) => publisher.handle === handle) ?? null;
+}
+
+async function requireAuthState() {
+  const auth = await readAuthState();
+  if (!auth) throw new Error("Not logged in. Run: corehub login --token <token>");
+  return auth;
+}
+
+async function readAuthState() {
+  const envToken = process.env.COREHUB_TOKEN;
+  if (envToken) {
+    return {
+      schemaVersion: authSchemaVersion,
+      token: envToken,
+      actor: {
+        type: "user",
+        id: process.env.COREHUB_USER ?? "env-user",
+      },
+      defaultPublisherHandle: normalizeHandle(process.env.COREHUB_PUBLISHER),
+      createdAt: "env",
+    };
+  }
+  try {
+    const raw = JSON.parse(await readFile(authStatePath(), "utf8"));
+    if (raw?.schemaVersion !== authSchemaVersion || !raw.token || !raw.actor?.id) {
+      throw new Error(`CoreHub auth state is invalid at ${authStatePath()}`);
+    }
+    return raw;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function writeAuthState(auth) {
+  const path = authStatePath();
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${JSON.stringify(auth, null, 2)}\n`, { mode: 0o600 });
+}
+
+function authStatePath() {
+  const root = process.env.COREHUB_HOME || join(homedir(), ".corehub");
+  return join(root, "auth.json");
+}
+
+function previewToken(token) {
+  if (token.length <= 8) return "***";
+  return `${token.slice(0, 4)}...${token.slice(-4)}`;
+}
+
+function normalizeHandle(handle) {
+  const normalized = String(handle ?? "")
+    .trim()
+    .replace(/^@+/, "")
+    .toLowerCase();
+  if (!normalized) return "";
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(normalized)) {
+    throw new Error("publisher handle must be lowercase kebab-case");
+  }
+  return normalized;
+}
+
+function titleizeHandle(handle) {
+  return handle
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part[0].toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 class CoreHubRegistryClient {
@@ -641,6 +864,9 @@ function printHelp() {
 
 Usage:
   corehub validate
+  corehub login --token <token> [--user github:<login>] [--publisher <handle>]
+  corehub whoami [--json]
+  corehub logout
   corehub explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub list [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub search <query> [--registry https://coreblow.com/corehub]
@@ -648,6 +874,8 @@ Usage:
   corehub inspect <entry-id|skill-folder> [--registry https://coreblow.com/corehub]
   corehub publishers list [--registry https://coreblow.com/corehub]
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
+  corehub publisher whoami [--json]
+  corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
   corehub skill publish <skill-folder>
   corehub package explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub package search <query> [--registry https://coreblow.com/corehub]
@@ -690,6 +918,8 @@ function printPublisherHelp() {
   console.log(`CoreHub publisher commands
 
 Usage:
+  corehub publisher whoami [--json]
+  corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
   corehub publishers list [--registry https://coreblow.com/corehub]
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
 `);

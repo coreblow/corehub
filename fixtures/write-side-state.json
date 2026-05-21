@@ -1,6 +1,38 @@
 {
   "schemaVersion": "corehub.write.v1",
   "generatedAt": "2026-05-21T00:00:00Z",
+  "authSessions": [
+    {
+      "id": "session-coreblow-admin",
+      "actor": {
+        "type": "user",
+        "id": "github:coreblow-admin",
+        "publisherHandle": "coreblow"
+      },
+      "status": "active",
+      "defaultPublisherHandle": "coreblow",
+      "createdAt": "2026-05-21T00:00:00Z",
+      "expiresAt": "2026-05-22T00:00:00Z"
+    }
+  ],
+  "publisherClaims": [
+    {
+      "id": "claim-coreblow",
+      "handle": "coreblow",
+      "displayName": "CoreBlow",
+      "kind": "organization",
+      "status": "approved",
+      "source": "https://github.com/coreblow",
+      "contact": "https://github.com/coreblow/corehub/security/policy",
+      "requestedBy": {
+        "type": "user",
+        "id": "github:coreblow-admin",
+        "publisherHandle": "coreblow"
+      },
+      "requestedAt": "2026-05-21T00:00:00Z",
+      "reviewId": "review-coreblow-claim"
+    }
+  ],
   "publisherAccounts": [
     {
       "id": "publisher-coreblow",

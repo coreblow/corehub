@@ -45,6 +45,8 @@ assert.deepEqual(new CoreHubCatalogSchemaValidator(schema).validate(entries), []
 assert.deepEqual(new CoreHubCatalogSchemaValidator(writeSideSchema).validate(writeSideState), []);
 assert.equal(entries[0].id, "coreblow");
 assert.equal(writeSideState.schemaVersion, "corehub.write.v1");
+assert.equal(writeSideState.authSessions[0].actor.id, "github:coreblow-admin");
+assert.equal(writeSideState.publisherClaims[0].handle, "coreblow");
 assert.equal(writeSideState.packageSubmissions[0].status, "approved");
 assert.equal(writeSideState.packageVersions[0].status, "available");
 assert.equal(writeSideState.artifactUploads[0].sha256, pluginLabEntry.versions[0].artifact.sha256);
@@ -235,6 +237,49 @@ const publisherInspect = await execFileAsync(process.execPath, [
   "coreblow",
 ]);
 assert.equal(JSON.parse(publisherInspect.stdout).entries.length, entries.length);
+
+const authHome = await mkdtemp(join(tmpdir(), "corehub-auth-"));
+try {
+  const authEnv = { ...process.env, COREHUB_HOME: authHome };
+  const login = await execFileAsync(
+    process.execPath,
+    [
+      cliPath,
+      "login",
+      "--token",
+      "local-dev-token",
+      "--user",
+      "github:coreblow-admin",
+      "--publisher",
+      "coreblow",
+      "--json",
+    ],
+    { env: authEnv },
+  );
+  assert.equal(JSON.parse(login.stdout).defaultPublisher.handle, "coreblow");
+
+  const whoami = await execFileAsync(process.execPath, [cliPath, "publisher", "whoami", "--json"], {
+    env: authEnv,
+  });
+  const whoamiPayload = JSON.parse(whoami.stdout);
+  assert.equal(whoamiPayload.actor.id, "github:coreblow-admin");
+  assert.equal(whoamiPayload.memberships[0].publisherHandle, "coreblow");
+
+  const claim = await execFileAsync(
+    process.execPath,
+    [cliPath, "publisher", "claim", "example-org", "--dry-run", "--display-name", "Example Org"],
+    { env: authEnv },
+  );
+  const claimPayload = JSON.parse(claim.stdout);
+  assert.equal(claimPayload.dryRun, true);
+  assert.equal(claimPayload.status, "planned");
+  assert.equal(claimPayload.claim.handle, "example-org");
+
+  const logout = await execFileAsync(process.execPath, [cliPath, "logout"], { env: authEnv });
+  assert.match(logout.stdout, /Logged out/);
+} finally {
+  await rm(authHome, { recursive: true, force: true });
+}
 
 const skillPublish = await execFileAsync(process.execPath, [
   cliPath,

@@ -40,6 +40,7 @@ The current implementation is the registry foundation: catalog validation, deter
 - `docs/skill-format.md`
 - `docs/plugin-format.md`
 - `docs/directory-api.md`
+- `docs/publisher-identity.md`
 - `docs/write-side-schema.md`
 - `package.json`
 - `schemas/corehub.write-side.schema.json`
@@ -74,6 +75,9 @@ npm run corehub -- explore
 npm run corehub -- list
 npm run corehub -- list --kind skill
 npm run corehub -- search plugin
+npm run corehub -- login --token local-dev-token --user github:coreblow-admin --publisher coreblow
+npm run corehub -- whoami
+npm run corehub -- publisher claim example-org --dry-run
 npm run corehub -- package explore
 npm run corehub -- package inspect plugin-lab
 npm run corehub -- package versions plugin-lab
@@ -104,7 +108,7 @@ Review states:
 - `verified`
 - `deprecated`
 
-See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), [Write-Side Schema](docs/write-side-schema.md), and [ClawHub Parity](docs/clawhub-parity.md).
+See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), [Publisher Identity](docs/publisher-identity.md), [Write-Side Schema](docs/write-side-schema.md), and [ClawHub Parity](docs/clawhub-parity.md).
 
 ## Public Web Surface
 
