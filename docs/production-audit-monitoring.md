@@ -104,7 +104,18 @@ Email adapter variables:
 | `COREHUB_AUDIT_ALERT_EMAIL_FROM` | Sender address for the email gateway payload. |
 | `COREHUB_AUDIT_ALERT_EMAIL_SUBJECT` | Subject override. |
 
+Alert delivery reliability variables:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `COREHUB_AUDIT_ALERT_RETRIES` | `2` | Retry count after the first failed delivery attempt. |
+| `COREHUB_AUDIT_ALERT_RETRY_DELAY_MS` | `250` | Delay between delivery attempts. |
+| `COREHUB_AUDIT_ALERT_TIMEOUT_MS` | `5000` | Per-attempt request timeout. |
+| `COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH` | unset | Node runner path for the dead-letter JSON when delivery still fails after retries. |
+
 The Cloudflare Worker implementation lives in `ops/cloudflare/audit-alert-adapters.mjs`. It is intentionally provider-light: Slack and Teams use their webhook JSON formats, while email is shaped for a generic mail gateway such as a transactional email Worker, Queue consumer, or provider webhook.
+
+When delivery fails after all retries, CoreHub does not hide the audit incident. The delivery result becomes `delivered: false` with a `corehub.audit-alert-dead-letter.v1` object containing the destination, webhook host, errors, timestamp, and original alert payload. The Node runner logs this object and can persist it with `COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH`; the Worker includes it in the returned report for fetch-based checks and scheduled-run logs.
 
 ## Cloudflare Scheduled Worker
 
@@ -125,7 +136,7 @@ The Worker runs every 30 minutes by default. It checks:
 | `/corehub/api/v2/audit/retention` | Retention policy and prune eligibility. |
 | `/corehub/api/v2/audit/events` | Recent audit context for the report. |
 
-When the report status is `fail_closed`, the scheduled handler posts the report to `COREHUB_AUDIT_ALERT_WEBHOOK` when configured and throws so the scheduled run is marked failed.
+When the report status is `fail_closed`, the scheduled handler posts the formatted alert to `COREHUB_AUDIT_ALERT_WEBHOOK` when configured and throws so the scheduled run is marked failed. Alert delivery is retried before the run fails; if delivery still fails, the report includes the dead-letter object for operator follow-up.
 
 ## Production Rollout Checklist
 

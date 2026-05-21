@@ -1,4 +1,7 @@
 const defaultRunbook = "https://github.com/coreblow/corehub/blob/main/docs/audit-incident-response.md";
+const defaultRetries = 2;
+const defaultRetryDelayMs = 250;
+const defaultTimeoutMs = 5000;
 
 export function buildAuditAlertPayload(report, env = {}) {
   return {
@@ -26,13 +29,31 @@ export async function deliverAuditAlert(report, env = {}) {
 
   const destination = env.COREHUB_AUDIT_ALERT_DESTINATION ?? "webhook";
   const alert = buildAuditAlertPayload(report, env);
-  const body = JSON.stringify(formatAlertForDestination(alert, destination, env));
-  await fetch(webhook, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body,
-  });
-  return { delivered: true, destination };
+  const outboundPayload = formatAlertForDestination(alert, destination, env);
+  const body = JSON.stringify(outboundPayload);
+  const retryConfig = readRetryConfig(env);
+  const errors = [];
+
+  for (let attempt = 1; attempt <= retryConfig.maxAttempts; attempt += 1) {
+    try {
+      const response = await postWithTimeout(webhook, body, retryConfig.timeoutMs);
+      if (response.ok) {
+        return { delivered: true, destination, attempts: attempt };
+      }
+      errors.push(`attempt ${attempt}: HTTP ${response.status} ${response.statusText}`.trim());
+    } catch (error) {
+      errors.push(`attempt ${attempt}: ${formatError(error)}`);
+    }
+
+    if (attempt < retryConfig.maxAttempts) await sleep(retryConfig.retryDelayMs);
+  }
+
+  return {
+    delivered: false,
+    destination,
+    attempts: retryConfig.maxAttempts,
+    deadLetter: buildAuditAlertDeadLetter(alert, destination, webhook, errors),
+  };
 }
 
 export function formatAlertForDestination(alert, destination, env = {}) {
@@ -123,4 +144,72 @@ function alertFacts(alert) {
     { title: "Errors", value: String(alert.incident.errors.length) },
     { title: "Retention", value: alert.incident.retentionStatus },
   ];
+}
+
+export function buildAuditAlertDeadLetter(alert, destination, webhook, errors) {
+  return {
+    schemaVersion: "corehub.audit-alert-dead-letter.v1",
+    destination,
+    webhookHost: safeWebhookHost(webhook),
+    failedAt: new Date().toISOString(),
+    errors,
+    retryable: true,
+    alert,
+  };
+}
+
+async function postWithTimeout(webhook, body, timeoutMs) {
+  if (!timeoutMs) {
+    return fetch(webhook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(webhook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function readRetryConfig(env) {
+  const retries = readNonNegativeInteger(env.COREHUB_AUDIT_ALERT_RETRIES, defaultRetries);
+  return {
+    maxAttempts: retries + 1,
+    retryDelayMs: readNonNegativeInteger(env.COREHUB_AUDIT_ALERT_RETRY_DELAY_MS, defaultRetryDelayMs),
+    timeoutMs: readNonNegativeInteger(env.COREHUB_AUDIT_ALERT_TIMEOUT_MS, defaultTimeoutMs),
+  };
+}
+
+function readNonNegativeInteger(value, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function formatError(error) {
+  if (error?.name === "AbortError") return "request timed out";
+  return error instanceof Error ? error.message : String(error);
+}
+
+function safeWebhookHost(webhook) {
+  try {
+    return new URL(webhook).host;
+  } catch {
+    return "invalid-webhook-url";
+  }
+}
+
+function sleep(ms) {
+  if (!ms) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

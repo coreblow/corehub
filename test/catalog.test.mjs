@@ -13,6 +13,7 @@ import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
 import { runAuditIncidentCheck } from "../ops/cloudflare/audit-incident-worker.mjs";
 import {
   buildAuditAlertPayload,
+  deliverAuditAlert,
   formatEmailAlert,
   formatSlackAlert,
   formatTeamsAlert,
@@ -179,6 +180,42 @@ try {
   assert.equal(alertedWorkerReport.alertDelivery.delivered, true);
   assert.equal(deliveredAlerts[0].text, "CoreHub audit fail_closed");
 
+  let retryAttempts = 0;
+  globalThis.fetch = async () => {
+    retryAttempts += 1;
+    if (retryAttempts < 3) return new Response("temporary outage", { status: 503, statusText: "Service Unavailable" });
+    return Response.json({ ok: true });
+  };
+  const retriedDelivery = await deliverAuditAlert(failClosedWorkerReport, {
+    COREHUB_AUDIT_ALERT_WEBHOOK: "https://alerts.example.invalid/retry",
+    COREHUB_AUDIT_ALERT_RETRIES: "2",
+    COREHUB_AUDIT_ALERT_RETRY_DELAY_MS: "0",
+  });
+  assert.equal(retriedDelivery.delivered, true);
+  assert.equal(retriedDelivery.attempts, 3);
+
+  globalThis.fetch = async () => new Response("still down", { status: 503, statusText: "Service Unavailable" });
+  const deadLetterDelivery = await deliverAuditAlert(failClosedWorkerReport, {
+    COREHUB_AUDIT_ALERT_WEBHOOK: "https://alerts.example.invalid/dead-letter",
+    COREHUB_AUDIT_ALERT_RETRIES: "1",
+    COREHUB_AUDIT_ALERT_RETRY_DELAY_MS: "0",
+  });
+  assert.equal(deadLetterDelivery.delivered, false);
+  assert.equal(deadLetterDelivery.attempts, 2);
+  assert.equal(deadLetterDelivery.deadLetter.destination, "webhook");
+  assert.equal(deadLetterDelivery.deadLetter.webhookHost, "alerts.example.invalid");
+  assert.equal(deadLetterDelivery.deadLetter.errors.length, 2);
+
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname === "/corehub/api/v2/audit/verify") {
+      return Response.json({
+        apiVersion: "v2",
+        data: { valid: false, behavior: "fail_closed", count: 1, head: "b".repeat(64), errors: ["tampered"] },
+      });
+    }
+    return Response.json(workerResponses[parsed.pathname]);
+  };
   await assert.rejects(
     runAuditIncidentCheck({ COREHUB_REGISTRY: "https://coreblow.com/corehub" }, { throwOnFail: true }),
     /fail_closed/,

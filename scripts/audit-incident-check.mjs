@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { buildAuditAlertPayload, formatAlertForDestination } from "../ops/cloudflare/audit-alert-adapters.mjs";
+import { deliverAuditAlert } from "../ops/cloudflare/audit-alert-adapters.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(new URL("..", import.meta.url).pathname);
@@ -15,8 +15,8 @@ const format = readOption(args, "--format") ?? process.env.COREHUB_AUDIT_INCIDEN
 const output =
   readOption(args, "--output") ?? process.env.COREHUB_AUDIT_INCIDENT_REPORT ?? ".corehub-audit/corehub-audit-incident.md";
 const limit = readOption(args, "--limit") ?? process.env.COREHUB_AUDIT_INCIDENT_LIMIT ?? "50";
-const alertDestination = process.env.COREHUB_AUDIT_ALERT_DESTINATION;
 const alertWebhook = process.env.COREHUB_AUDIT_ALERT_WEBHOOK;
+const deadLetterPath = process.env.COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH;
 
 if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
   printHelp();
@@ -25,6 +25,11 @@ if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
 
 if (!registry) {
   console.error("audit incident check requires --registry or COREHUB_REGISTRY");
+  process.exit(2);
+}
+
+if (!new Set(["json", "markdown"]).has(format)) {
+  console.error("audit incident check --format must be json or markdown");
   process.exit(2);
 }
 
@@ -38,28 +43,27 @@ try {
     "incident",
     "report",
     "--format",
-    format,
-    "--output",
-    outputPath,
+    "json",
     "--limit",
     limit,
     "--registry",
     registry,
   ]);
-  writePassthrough(result);
+  const report = JSON.parse(result.stdout);
+  await writeReport(outputPath, format, report);
+  writeExportSummary(report);
 } catch (error) {
-  writePassthrough(error);
+  if (error.stderr) process.stderr.write(error.stderr);
   if (alertWebhook && error.stdout) {
-    await sendAlert(error.stdout).catch((alertError) => {
+    await handleFailedReport(error.stdout).catch((alertError) => {
       console.error(alertError instanceof Error ? alertError.message : alertError);
     });
+  } else if (error.stdout) {
+    const report = JSON.parse(error.stdout);
+    await writeReport(outputPath, format, report);
+    writeExportSummary(report);
   }
   process.exitCode = typeof error.code === "number" ? error.code : 1;
-}
-
-function writePassthrough(result) {
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
 }
 
 function readOption(values, name) {
@@ -72,14 +76,72 @@ function hasFlag(values, name) {
   return values.includes(name);
 }
 
-async function sendAlert(stdout) {
-  const payload = JSON.parse(stdout);
-  const alert = buildAuditAlertPayload(payload, process.env);
-  await fetch(alertWebhook, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(formatAlertForDestination(alert, alertDestination, process.env)),
-  });
+async function handleFailedReport(stdout) {
+  const report = JSON.parse(stdout);
+  await writeReport(outputPath, format, report);
+  const delivery = await deliverAuditAlert(report, process.env);
+  if (delivery.deadLetter) {
+    const deadLetter = `${JSON.stringify(delivery.deadLetter, null, 2)}\n`;
+    if (deadLetterPath) await writeFile(resolve(deadLetterPath), deadLetter);
+    console.error(`CoreHub audit alert delivery failed after ${delivery.attempts} attempts.`);
+    console.error(deadLetter);
+  }
+  writeExportSummary(report, delivery);
+}
+
+async function writeReport(path, reportFormat, report) {
+  const rendered = reportFormat === "json" ? `${JSON.stringify(report, null, 2)}\n` : renderMarkdownReport(report);
+  await writeFile(path, rendered);
+}
+
+function writeExportSummary(report, alertDelivery) {
+  console.log(
+    JSON.stringify(
+      {
+        status: "exported",
+        incidentStatus: report.status,
+        registry: report.registry,
+        format,
+        output: outputPath,
+        ...(alertDelivery ? { alertDelivery } : {}),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function renderMarkdownReport(report) {
+  const errors = report.verification?.errors?.length
+    ? report.verification.errors.map((error) => `- ${error}`).join("\n")
+    : "- none";
+  return `# CoreHub Audit Incident Report
+
+Status: ${report.status}
+Severity: ${report.severity}
+Registry: ${report.registry}
+Generated: ${report.generatedAt}
+
+## Verification
+
+- Valid: ${String(report.verification?.valid)}
+- Behavior: ${report.verification?.behavior ?? "unknown"}
+- Count: ${report.verification?.count ?? 0}
+- Head: ${report.verification?.head ?? "unknown"}
+
+## Integrity Errors
+
+${errors}
+
+## Retention
+
+- Status: ${report.retention?.status ?? "unknown"}
+- Integrity failure behavior: ${report.retention?.policy?.integrityFailureBehavior ?? "unknown"}
+
+## Recent Audit Events
+
+- Count: ${report.recentAuditEvents?.length ?? 0}
+`;
 }
 
 function printHelp() {
@@ -97,5 +159,10 @@ Options:
 
 The command exits non-zero when the audit incident report returns fail_closed.
 Set COREHUB_AUDIT_ALERT_WEBHOOK and COREHUB_AUDIT_ALERT_DESTINATION to send fail_closed alerts.
+Optional reliability variables:
+  COREHUB_AUDIT_ALERT_RETRIES=2
+  COREHUB_AUDIT_ALERT_RETRY_DELAY_MS=250
+  COREHUB_AUDIT_ALERT_TIMEOUT_MS=5000
+  COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH=.corehub-audit/corehub-audit-alert-dead-letter.json
 `);
 }

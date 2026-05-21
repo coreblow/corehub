@@ -11,6 +11,9 @@ COREHUB_AUDIT_INCIDENT_LIMIT = "50"
 COREHUB_USER = "github:coreblow-admin"
 COREHUB_AUDIT_ALERT_DESTINATION = "slack"
 COREHUB_AUDIT_RUNBOOK_URL = "https://github.com/coreblow/corehub/blob/main/docs/audit-incident-response.md"
+COREHUB_AUDIT_ALERT_RETRIES = "2"
+COREHUB_AUDIT_ALERT_RETRY_DELAY_MS = "250"
+COREHUB_AUDIT_ALERT_TIMEOUT_MS = "5000"
 
 # Configure secrets out-of-band:
 # wrangler secret put COREHUB_TOKEN

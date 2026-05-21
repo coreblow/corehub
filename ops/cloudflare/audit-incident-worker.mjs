@@ -38,6 +38,9 @@ export async function runAuditIncidentCheck(env = {}, options = {}) {
     recentAuditMeta: recent.meta,
   };
   if (failClosed) report.alertDelivery = await deliverAuditAlert(report, env);
+  if (report.alertDelivery?.deadLetter) {
+    console.error(JSON.stringify(report.alertDelivery.deadLetter));
+  }
   if (failClosed && options.throwOnFail) {
     throw new Error(`CoreHub audit incident fail_closed: ${verification.errors?.join("; ") || "unknown error"}`);
   }
