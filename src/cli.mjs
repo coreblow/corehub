@@ -263,6 +263,11 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "upload") {
+    await runPackageUploadCommand(args);
+    return;
+  }
+
   if (subcommand === "search") {
     const query = positionalArgs(args).join(" ").trim();
     if (!query) throw new Error("package search requires a query");
@@ -638,11 +643,15 @@ function optionTakesValue(name) {
     "--changelog",
     "--display-name",
     "--kind",
+    "--max-bytes",
     "--output",
     "--publisher",
+    "--provider",
     "--registry",
+    "--region",
     "--source",
     "--token",
+    "--upload-slot",
     "--user",
     "--version",
   ]).has(name);
@@ -684,21 +693,45 @@ function printInstallResult(result) {
   console.log(result.install.message);
 }
 
+async function runPackageUploadCommand(values) {
+  const subcommand = values[0] ?? "help";
+  const args = values.slice(1);
+
+  if (subcommand === "request") {
+    const source = positionalArgs(args)[0];
+    if (!source) throw new Error("package upload request requires an artifact file or folder");
+    if (!hasFlag(args, "--dry-run")) {
+      throw new Error("package upload request is a dry-run contract in this phase. Re-run with --dry-run.");
+    }
+    console.log(JSON.stringify(await createArtifactUploadRequestDryRun(source, args), null, 2));
+    return;
+  }
+
+  if (subcommand === "verify") {
+    const source = positionalArgs(args)[0];
+    if (!source) throw new Error("package upload verify requires an artifact file or folder");
+    if (!hasFlag(args, "--dry-run")) {
+      throw new Error("package upload verify is a dry-run contract in this phase. Re-run with --dry-run.");
+    }
+    const uploadSlotId = readOption(args, "--upload-slot");
+    if (!uploadSlotId) throw new Error("package upload verify requires --upload-slot <id>");
+    console.log(JSON.stringify(await createArtifactUploadVerificationDryRun(source, args), null, 2));
+    return;
+  }
+
+  printPackageHelp();
+}
+
 async function createPackageSubmissionDryRun(source, values) {
   const auth = await requireAuthState();
   const inspected = await inspectPackageSubmitSource(source);
-  const publisherHandle =
-    normalizeHandle(readOption(values, "--publisher")) ||
-    normalizeHandle(inspected.publisher?.handle) ||
-    normalizeHandle(auth.defaultPublisherHandle);
-  if (!publisherHandle) {
-    throw new Error("package submit requires --publisher, artifact publisher metadata, or a login publisher");
-  }
+  const publisherHandle = resolvePackagePublisherHandle(values, inspected, auth, "package submit");
   const packageId = inspected.package.id;
   const version = inspected.package.version;
   const now = new Date().toISOString();
-  const artifactUploadId = `artifact-${packageId}-${version.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
-  const submissionId = `submission-${packageId}-${version.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+  const versionSlug = slugVersion(version);
+  const artifactUploadId = `artifact-${packageId}-${versionSlug}`;
+  const submissionId = `submission-${packageId}-${versionSlug}`;
   const sourceUrl = readOption(values, "--source") ?? inspected.source ?? `https://github.com/${publisherHandle}/${packageId}`;
   const changelog = readOption(values, "--changelog") ?? "CoreHub package submission dry run.";
   const artifactUpload = {
@@ -709,7 +742,7 @@ async function createPackageSubmissionDryRun(source, values) {
     status: "verified",
     storage: {
       provider: "github-raw",
-      key: `uploads/${publisherHandle}/${packageId}/${version}/${inspected.artifact.name}`,
+      key: artifactStorageKey(publisherHandle, packageId, version, inspected.artifact.name),
       url: sourceUrl,
     },
     mediaType: inspected.artifact.mediaType,
@@ -743,7 +776,7 @@ async function createPackageSubmissionDryRun(source, values) {
     submission,
     artifactUpload,
     packageVersionPreview: {
-      id: `version-${packageId}-${version.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`,
+      id: `version-${packageId}-${versionSlug}`,
       packageId,
       version,
       tag: "latest",
@@ -765,6 +798,194 @@ async function createPackageSubmissionDryRun(source, values) {
       ],
     },
     nextStep: "Submit this payload to the future authenticated package submission API.",
+  };
+}
+
+async function createArtifactUploadRequestDryRun(source, values) {
+  const auth = await requireAuthState();
+  const inspected = await inspectPackageSubmitSource(source);
+  const publisherHandle = resolvePackagePublisherHandle(values, inspected, auth, "package upload request");
+  const packageId = inspected.package.id;
+  const version = inspected.package.version;
+  const versionSlug = slugVersion(version);
+  const provider = readOption(values, "--provider") ?? "r2";
+  if (!["r2", "s3"].includes(provider)) {
+    throw new Error("package upload request --provider must be r2 or s3");
+  }
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const maxBytes = Number.parseInt(readOption(values, "--max-bytes") ?? "104857600", 10);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < inspected.artifact.size) {
+    throw new Error("package upload request --max-bytes must be an integer greater than or equal to artifact size");
+  }
+  const storage = {
+    provider,
+    key: artifactStorageKey(publisherHandle, packageId, version, inspected.artifact.name),
+  };
+  const region = readOption(values, "--region");
+  if (region) storage.region = region;
+  const uploadSlotId = `upload-${packageId}-${versionSlug}`;
+  const upload = createSignedUploadContract({
+    uploadSlotId,
+    storage,
+    mediaType: inspected.artifact.mediaType,
+    sha256: inspected.artifact.sha256,
+    size: inspected.artifact.size,
+    maxBytes,
+    expiresAt,
+  });
+  const artifactUpload = {
+    id: `artifact-${packageId}-${versionSlug}`,
+    packageId,
+    version,
+    publisherHandle,
+    status: "requested",
+    storage,
+    upload,
+    mediaType: inspected.artifact.mediaType,
+    size: inspected.artifact.size,
+    sha256: inspected.artifact.sha256,
+    uploadedBy: auth.actor,
+    createdAt: now,
+  };
+  return {
+    dryRun: true,
+    status: "planned",
+    actor: auth.actor,
+    source: {
+      path: resolve(source),
+      type: inspected.type,
+    },
+    uploadSlot: {
+      id: uploadSlotId,
+      packageId,
+      version,
+      publisherHandle,
+      storage,
+      upload,
+      expected: {
+        mediaType: inspected.artifact.mediaType,
+        size: inspected.artifact.size,
+        sha256: inspected.artifact.sha256,
+      },
+      artifactUpload,
+    },
+    validation: {
+      ready: true,
+      checks: [
+        "authenticated actor resolved",
+        "publisher handle resolved",
+        "artifact checksum computed",
+        "managed storage locator reserved",
+        "signed upload metadata generated",
+      ],
+    },
+    nextStep: `Upload artifact bytes with ${upload.method}, then run corehub package upload verify ${inspected.artifact.name} --upload-slot ${uploadSlotId} --dry-run.`,
+  };
+}
+
+async function createArtifactUploadVerificationDryRun(source, values) {
+  const auth = await requireAuthState();
+  const inspected = await inspectPackageSubmitSource(source);
+  const publisherHandle = resolvePackagePublisherHandle(values, inspected, auth, "package upload verify");
+  const packageId = inspected.package.id;
+  const version = inspected.package.version;
+  const versionSlug = slugVersion(version);
+  const uploadSlotId = readOption(values, "--upload-slot");
+  const expectedSlotId = `upload-${packageId}-${versionSlug}`;
+  const provider = readOption(values, "--provider") ?? "r2";
+  if (!["r2", "s3"].includes(provider)) {
+    throw new Error("package upload verify --provider must be r2 or s3");
+  }
+  const storage = {
+    provider,
+    key: artifactStorageKey(publisherHandle, packageId, version, inspected.artifact.name),
+  };
+  const region = readOption(values, "--region");
+  if (region) storage.region = region;
+  const now = new Date().toISOString();
+  const expectedArtifact = {
+    uploadSlotId: expectedSlotId,
+    size: inspected.artifact.size,
+    sha256: inspected.artifact.sha256,
+  };
+  const actualArtifact = {
+    uploadSlotId,
+    size: inspected.artifact.size,
+    sha256: inspected.artifact.sha256,
+  };
+  const checksumMatches = actualArtifact.sha256 === expectedArtifact.sha256;
+  const sizeMatches = actualArtifact.size === expectedArtifact.size;
+  return {
+    dryRun: true,
+    status: checksumMatches && sizeMatches ? "verified" : "rejected",
+    actor: auth.actor,
+    uploadSlotId,
+    source: {
+      path: resolve(source),
+      type: inspected.type,
+    },
+    artifactUpload: {
+      id: `artifact-${packageId}-${versionSlug}`,
+      packageId,
+      version,
+      publisherHandle,
+      status: checksumMatches && sizeMatches ? "verified" : "rejected",
+      storage,
+      mediaType: inspected.artifact.mediaType,
+      size: inspected.artifact.size,
+      sha256: inspected.artifact.sha256,
+      uploadedBy: auth.actor,
+      createdAt: now,
+      verifiedAt: now,
+    },
+    verification: {
+      uploadSlotMatchesSource: uploadSlotId === expectedSlotId,
+      checksumMatches,
+      sizeMatches,
+      expected: expectedArtifact,
+      actual: actualArtifact,
+    },
+    nextStep: "Create a package submission that references this verified artifact upload.",
+  };
+}
+
+function resolvePackagePublisherHandle(values, inspected, auth, commandName) {
+  const publisherHandle =
+    normalizeHandle(readOption(values, "--publisher")) ||
+    normalizeHandle(inspected.publisher?.handle) ||
+    normalizeHandle(auth.defaultPublisherHandle);
+  if (!publisherHandle) {
+    throw new Error(`${commandName} requires --publisher, artifact publisher metadata, or a login publisher`);
+  }
+  return publisherHandle;
+}
+
+function slugVersion(version) {
+  return version.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+}
+
+function artifactStorageKey(publisherHandle, packageId, version, artifactName) {
+  return `uploads/${publisherHandle}/${packageId}/${version}/${artifactName}`;
+}
+
+function createSignedUploadContract({ uploadSlotId, storage, mediaType, sha256, size, maxBytes, expiresAt }) {
+  const url = `https://coreblow.com/corehub/api/v2/artifacts/uploads/${uploadSlotId}`;
+  const headers = [
+    { name: "content-type", value: mediaType },
+    { name: "x-corehub-artifact-sha256", value: sha256 },
+    { name: "x-corehub-artifact-size", value: String(size) },
+  ];
+  const signature = createHash("sha256")
+    .update([uploadSlotId, storage.provider, storage.key, mediaType, sha256, size, maxBytes, expiresAt].join("\n"))
+    .digest("hex");
+  return {
+    method: "PUT",
+    url,
+    expiresAt,
+    maxBytes,
+    headers,
+    signature,
   };
 }
 
@@ -1101,6 +1322,8 @@ Usage:
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text]
+  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
+  corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package publish <source>
   corehub registry info --registry https://coreblow.com/corehub
 `);
@@ -1119,6 +1342,8 @@ Usage:
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text]
+  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
+  corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package publish <source>
 `);
 }

@@ -305,6 +305,44 @@ try {
   assert.equal(archiveSubmitPayload.artifactUpload.sha256, pluginLabEntry.versions[0].artifact.sha256);
   assert.equal(archiveSubmitPayload.artifactUpload.size, pluginLabEntry.versions[0].artifact.size);
 
+  const uploadRequest = await execFileAsync(
+    process.execPath,
+    [
+      cliPath,
+      "package",
+      "upload",
+      "request",
+      new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+      "--dry-run",
+    ],
+    { env: authEnv },
+  );
+  const uploadRequestPayload = JSON.parse(uploadRequest.stdout);
+  assert.equal(uploadRequestPayload.dryRun, true);
+  assert.equal(uploadRequestPayload.uploadSlot.artifactUpload.status, "requested");
+  assert.equal(uploadRequestPayload.uploadSlot.upload.method, "PUT");
+  assert.equal(uploadRequestPayload.uploadSlot.expected.sha256, pluginLabEntry.versions[0].artifact.sha256);
+
+  const uploadVerify = await execFileAsync(
+    process.execPath,
+    [
+      cliPath,
+      "package",
+      "upload",
+      "verify",
+      new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+      "--upload-slot",
+      uploadRequestPayload.uploadSlot.id,
+      "--dry-run",
+    ],
+    { env: authEnv },
+  );
+  const uploadVerifyPayload = JSON.parse(uploadVerify.stdout);
+  assert.equal(uploadVerifyPayload.status, "verified");
+  assert.equal(uploadVerifyPayload.artifactUpload.status, "verified");
+  assert.equal(uploadVerifyPayload.verification.checksumMatches, true);
+  assert.equal(uploadVerifyPayload.verification.uploadSlotMatchesSource, true);
+
   const logout = await execFileAsync(process.execPath, [cliPath, "logout"], { env: authEnv });
   assert.match(logout.stdout, /Logged out/);
 } finally {

@@ -103,6 +103,27 @@
         "key": "artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz",
         "url": "https://raw.githubusercontent.com/coreblow/corehub/main/artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz"
       },
+      "upload": {
+        "method": "PUT",
+        "url": "https://coreblow.com/corehub/api/v2/artifacts/uploads/upload-plugin-lab-0-1-0",
+        "expiresAt": "2026-05-21T00:15:00Z",
+        "maxBytes": 104857600,
+        "headers": [
+          {
+            "name": "content-type",
+            "value": "application/gzip"
+          },
+          {
+            "name": "x-corehub-artifact-sha256",
+            "value": "4de3b0826298645b080a471904b5bfb7731aaed67a6b6da2bad26402e91a6c90"
+          },
+          {
+            "name": "x-corehub-artifact-size",
+            "value": "736"
+          }
+        ],
+        "signature": "0e2816026f0eeb9fa4067ca7d5c57c5820e3f1cbda7d7376523c5c8d245adbf9"
+      },
       "mediaType": "application/gzip",
       "size": 736,
       "sha256": "4de3b0826298645b080a471904b5bfb7731aaed67a6b6da2bad26402e91a6c90",

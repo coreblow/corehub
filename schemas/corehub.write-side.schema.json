@@ -407,6 +407,9 @@
         "storage": {
           "$ref": "#/$defs/storage"
         },
+        "upload": {
+          "$ref": "#/$defs/uploadContract"
+        },
         "mediaType": {
           "type": "string",
           "minLength": 1
@@ -426,6 +429,51 @@
         },
         "verifiedAt": {
           "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "uploadContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "url", "expiresAt", "maxBytes", "headers", "signature"],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": ["PUT", "POST"]
+        },
+        "url": {
+          "$ref": "#/$defs/url"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uploadHeader"
+          }
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 16
+        }
+      }
+    },
+    "uploadHeader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string"
         }
       }
     },

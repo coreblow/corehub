@@ -57,6 +57,8 @@ The future authenticated API should expose these resources under a new versioned
 | `POST /corehub/api/v2/publishers` | Reserve or claim a publisher handle. |
 | `GET /corehub/api/v2/publishers/me` | Show the current actor's publisher memberships. |
 | `POST /corehub/api/v2/artifacts/uploads` | Request a managed artifact upload slot. |
+| `PUT /corehub/api/v2/artifacts/uploads/:id` | Upload artifact bytes with signed request metadata. |
+| `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Verify uploaded bytes against expected size and checksum. |
 | `POST /corehub/api/v2/submissions` | Create a package submission from uploaded artifact metadata. |
 | `GET /corehub/api/v2/submissions/:id` | Inspect submission status and review diagnostics. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approve a submission or version for install surfaces. |
@@ -71,6 +73,8 @@ Future CLI commands should keep the ClawHub-style dry-run habit:
 ```sh
 corehub publisher login
 corehub publisher whoami
+corehub package upload request ./plugin-lab.coreblow-plugin.tgz --dry-run
+corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --dry-run
 corehub package submit ./plugin --dry-run
 corehub package submit ./plugin-lab.coreblow-plugin.tgz --dry-run
 corehub package publish ./plugin --dry-run
@@ -80,3 +84,24 @@ corehub package transfer request plugin-lab --to coreblow
 ```
 
 Publishing should fail closed when package scope, publisher ownership, artifact checksum, or moderation status cannot be verified.
+
+## Managed Artifact Upload Contract
+
+CoreHub separates upload storage from submission review. A publisher first requests a managed upload slot, uploads bytes with signed metadata, then asks CoreHub to verify the uploaded artifact before a package submission can reference it.
+
+| Step | Contract |
+| --- | --- |
+| Request upload slot | CLI or API resolves actor, publisher, package id, version, media type, size, and expected SHA-256. |
+| Signed upload metadata | CoreHub returns method, URL, expiry, max byte limit, required headers, storage locator, and signature. |
+| Upload bytes | Client uploads the exact artifact to the reserved storage locator. |
+| Verify checksum | CoreHub reads the stored object metadata or bytes and compares size and SHA-256 before marking the artifact `verified`. |
+| Submit package | Submission references only a verified artifact upload id. |
+
+The dry-run CLI shape is:
+
+```sh
+corehub package upload request ./plugin-lab.coreblow-plugin.tgz --dry-run
+corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --dry-run
+```
+
+`artifactUploads[].upload` records the signed upload contract used for a managed object. The public catalog should only expose verified artifact locators and checksums, not write-side upload signatures.
