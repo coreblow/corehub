@@ -105,3 +105,21 @@ corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upl
 ```
 
 `artifactUploads[].upload` records the signed upload contract used for a managed object. The public catalog should only expose verified artifact locators and checksums, not write-side upload signatures.
+
+## API and Storage Boundary
+
+Phase 18 adds the server-side shape before wiring production R2 or S3 credentials. The API handler accepts the same write-side payload that the CLI dry run emits, stores uploaded bytes through a storage adapter, and verifies the stored object before a submission can reference it.
+
+| Route | Behavior |
+| --- | --- |
+| `POST /corehub/api/v2/artifacts/uploads` | Validates publisher, package, artifact metadata, expected size, expected SHA-256, storage provider, and max byte limit, then returns an upload slot. |
+| `PUT /corehub/api/v2/artifacts/uploads/:id` | Accepts artifact bytes for the reserved slot and writes them through the configured storage adapter. |
+| `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Reads the stored object, recomputes size and SHA-256, and returns a verified or rejected artifact upload record. |
+
+The current adapter is local and mocked for tests. Its storage key shape is already compatible with managed object storage:
+
+```text
+uploads/<publisher>/<package>/<version>/<artifact>
+```
+
+Future production binding should replace only the adapter internals with R2 or S3 operations. The route contract, signed upload fields, checksum verification result, and artifact upload status graph should remain stable.

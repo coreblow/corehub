@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
+import { CoreHubLocalStorageAdapter, createCoreHubApiHandler } from "../src/api-server.mjs";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
 
@@ -356,6 +357,74 @@ const skillPublish = await execFileAsync(process.execPath, [
   new URL("../fixtures/example-skill", import.meta.url).pathname,
 ]);
 assert.equal(JSON.parse(skillPublish.stdout).dryRun, true);
+
+const apiStorageDir = await mkdtemp(join(tmpdir(), "corehub-api-storage-"));
+const apiStorage = new CoreHubLocalStorageAdapter({ root: apiStorageDir });
+const apiServer = createServer(
+  createCoreHubApiHandler({
+    storage: apiStorage,
+    now: () => new Date("2026-05-21T00:00:00Z"),
+  }),
+);
+await new Promise((resolve) => apiServer.listen(0, "127.0.0.1", resolve));
+try {
+  const apiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/corehub/api/v2`;
+  const uploadRequestResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:coreblow-admin",
+    },
+    body: JSON.stringify({
+      packageId: "plugin-lab",
+      version: "0.1.0",
+      publisherHandle: "coreblow",
+      provider: "r2",
+      artifact: {
+        name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+        mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+        size: pluginLabArtifactBytes.byteLength,
+        sha256: entries[2].versions[0].artifact.sha256,
+      },
+    }),
+  });
+  assert.equal(uploadRequestResponse.status, 201);
+  const uploadRequestPayload = await uploadRequestResponse.json();
+  const uploadSlot = uploadRequestPayload.data.uploadSlot;
+  assert.equal(uploadSlot.id, "upload-plugin-lab-0-1-0");
+  assert.equal(uploadSlot.artifactUpload.status, "requested");
+  assert.equal(uploadSlot.upload.method, "PUT");
+  assert.equal(uploadSlot.storage.provider, "r2");
+
+  const uploadPutResponse = await fetch(`${apiBaseUrl}/artifacts/uploads/${uploadSlot.id}`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/vnd.coreblow.plugin-archive+gzip",
+      "x-corehub-artifact-sha256": entries[2].versions[0].artifact.sha256,
+    },
+    body: pluginLabArtifactBytes,
+  });
+  assert.equal(uploadPutResponse.status, 200);
+  const uploadPutPayload = await uploadPutResponse.json();
+  assert.equal(uploadPutPayload.data.artifactUpload.status, "uploaded");
+  assert.equal(uploadPutPayload.data.uploaded.size, pluginLabArtifactBytes.byteLength);
+
+  const uploadVerifyResponse = await fetch(`${apiBaseUrl}/artifacts/uploads/${uploadSlot.id}/verify`, {
+    method: "POST",
+    headers: {
+      "x-corehub-user": "github:coreblow-admin",
+    },
+  });
+  assert.equal(uploadVerifyResponse.status, 200);
+  const uploadVerifyPayload = await uploadVerifyResponse.json();
+  assert.equal(uploadVerifyPayload.data.status, "verified");
+  assert.equal(uploadVerifyPayload.data.artifactUpload.status, "verified");
+  assert.equal(uploadVerifyPayload.data.verification.checksumMatches, true);
+  assert.equal(uploadVerifyPayload.data.verification.sizeMatches, true);
+} finally {
+  await new Promise((resolve) => apiServer.close(resolve));
+  await rm(apiStorageDir, { recursive: true, force: true });
+}
 
 const registryServer = createServer((request, response) => {
   const url = new URL(request.url, "http://127.0.0.1");
