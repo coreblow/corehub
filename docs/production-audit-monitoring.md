@@ -112,6 +112,7 @@ Alert delivery reliability variables:
 | `COREHUB_AUDIT_ALERT_RETRY_DELAY_MS` | `250` | Delay between delivery attempts. |
 | `COREHUB_AUDIT_ALERT_TIMEOUT_MS` | `5000` | Per-attempt request timeout. |
 | `COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH` | unset | Node runner path for the dead-letter JSON when delivery still fails after retries. |
+| `COREHUB_AUDIT_ALERT_METRICS_PATH` | unset | Node runner path for alert delivery JSONL metrics. |
 
 The Cloudflare Worker implementation lives in `ops/cloudflare/audit-alert-adapters.mjs`. It is intentionally provider-light: Slack and Teams use their webhook JSON formats, while email is shaped for a generic mail gateway such as a transactional email Worker, Queue consumer, or provider webhook.
 
@@ -126,6 +127,21 @@ The incident report includes `alertDelivery` so operators can inspect delivery s
 | `alertDelivery.attempts` | Number of outbound delivery attempts. |
 | `alertDelivery.delivered` | Whether the alert endpoint accepted the payload. |
 | `alertDelivery.deadLetter` | Present when delivery failed after retries. |
+
+Each delivery attempt also emits a JSONL metric using `corehub.audit-alert-delivery-metric.v1`. The Node runner writes these lines to stderr and optionally to `COREHUB_AUDIT_ALERT_METRICS_PATH`; the Worker writes the same JSONL lines to scheduled-run logs.
+
+Metric fields:
+
+| Field | Meaning |
+| --- | --- |
+| `eventType` | `alert.delivery.attempt` or `alert.delivery.final`. |
+| `status` | `delivered`, `retry`, `failed`, `dead_letter`, or `not_configured`. |
+| `attempt` | Attempt number for attempt events. |
+| `maxAttempts` | Maximum delivery attempts for attempt events. |
+| `attempts` | Final number of attempts for final events. |
+| `httpStatus` | HTTP status returned by the destination when available. |
+| `durationMs` | Per-attempt delivery duration. |
+| `error` | Delivery error text when available. |
 
 ## Cloudflare Scheduled Worker
 

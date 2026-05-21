@@ -25,6 +25,7 @@ jobs:
           COREHUB_AUDIT_ALERT_RETRY_DELAY_MS: "250"
           COREHUB_AUDIT_ALERT_TIMEOUT_MS: "5000"
           COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH: ./corehub-audit-alert-dead-letter.json
+          COREHUB_AUDIT_ALERT_METRICS_PATH: ./corehub-audit-alert-delivery-metrics.jsonl
         run: npm run audit:incident -- --output ./corehub-audit-incident.md --limit 50
       - name: Upload audit incident report
         if: always()
@@ -34,3 +35,4 @@ jobs:
           path: |
             ./corehub-audit-incident.md
             ./corehub-audit-alert-dead-letter.json
+            ./corehub-audit-alert-delivery-metrics.jsonl

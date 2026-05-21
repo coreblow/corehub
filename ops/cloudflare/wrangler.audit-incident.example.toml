@@ -14,6 +14,7 @@ COREHUB_AUDIT_RUNBOOK_URL = "https://github.com/coreblow/corehub/blob/main/docs/
 COREHUB_AUDIT_ALERT_RETRIES = "2"
 COREHUB_AUDIT_ALERT_RETRY_DELAY_MS = "250"
 COREHUB_AUDIT_ALERT_TIMEOUT_MS = "5000"
+# Worker scheduled runs emit alert delivery metrics as JSONL lines in Worker logs.
 
 # Configure secrets out-of-band:
 # wrangler secret put COREHUB_TOKEN

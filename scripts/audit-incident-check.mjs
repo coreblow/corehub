@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { deliverAuditAlert } from "../ops/cloudflare/audit-alert-adapters.mjs";
+import { deliverAuditAlert, formatAuditAlertDeliveryMetricsJsonl } from "../ops/cloudflare/audit-alert-adapters.mjs";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = resolve(new URL("..", import.meta.url).pathname);
@@ -17,6 +17,7 @@ const output =
 const limit = readOption(args, "--limit") ?? process.env.COREHUB_AUDIT_INCIDENT_LIMIT ?? "50";
 const alertWebhook = process.env.COREHUB_AUDIT_ALERT_WEBHOOK;
 const deadLetterPath = process.env.COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH;
+const metricsPath = process.env.COREHUB_AUDIT_ALERT_METRICS_PATH;
 
 if (hasFlag(args, "--help") || hasFlag(args, "-h")) {
   printHelp();
@@ -81,6 +82,7 @@ async function handleFailedReport(stdout) {
   const delivery = await deliverAuditAlert(report, process.env);
   const reportWithDelivery = { ...report, alertDelivery: delivery };
   await writeReport(outputPath, format, reportWithDelivery);
+  await writeDeliveryMetrics(delivery.metrics);
   if (delivery.deadLetter) {
     const deadLetter = `${JSON.stringify(delivery.deadLetter, null, 2)}\n`;
     if (deadLetterPath) await writeFile(resolve(deadLetterPath), deadLetter);
@@ -88,6 +90,13 @@ async function handleFailedReport(stdout) {
     console.error(deadLetter);
   }
   writeExportSummary(reportWithDelivery, delivery);
+}
+
+async function writeDeliveryMetrics(metrics = []) {
+  if (!metrics.length) return;
+  const jsonl = `${formatAuditAlertDeliveryMetricsJsonl(metrics)}\n`;
+  process.stderr.write(jsonl);
+  if (metricsPath) await writeFile(resolve(metricsPath), jsonl);
 }
 
 async function writeReport(path, reportFormat, report) {
@@ -173,5 +182,6 @@ Optional reliability variables:
   COREHUB_AUDIT_ALERT_RETRY_DELAY_MS=250
   COREHUB_AUDIT_ALERT_TIMEOUT_MS=5000
   COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH=.corehub-audit/corehub-audit-alert-dead-letter.json
+  COREHUB_AUDIT_ALERT_METRICS_PATH=.corehub-audit/corehub-audit-alert-delivery-metrics.jsonl
 `);
 }

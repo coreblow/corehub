@@ -14,6 +14,7 @@ import { runAuditIncidentCheck } from "../ops/cloudflare/audit-incident-worker.m
 import {
   buildAuditAlertPayload,
   deliverAuditAlert,
+  formatAuditAlertDeliveryMetricsJsonl,
   formatEmailAlert,
   formatSlackAlert,
   formatTeamsAlert,
@@ -179,6 +180,10 @@ try {
   });
   assert.equal(alertedWorkerReport.alertDelivery.delivered, true);
   assert.equal(alertedWorkerReport.alertDelivery.status, "delivered");
+  assert.equal(alertedWorkerReport.alertDelivery.metrics.length, 2);
+  assert.equal(alertedWorkerReport.alertDelivery.metrics[0].eventType, "alert.delivery.attempt");
+  assert.equal(alertedWorkerReport.alertDelivery.metrics[0].status, "delivered");
+  assert.match(formatAuditAlertDeliveryMetricsJsonl(alertedWorkerReport.alertDelivery.metrics), /alert\.delivery\.final/);
   assert.equal(deliveredAlerts[0].text, "CoreHub audit fail_closed");
 
   let retryAttempts = 0;
@@ -195,6 +200,9 @@ try {
   assert.equal(retriedDelivery.delivered, true);
   assert.equal(retriedDelivery.status, "delivered");
   assert.equal(retriedDelivery.attempts, 3);
+  assert.equal(retriedDelivery.metrics.filter((metric) => metric.status === "retry").length, 2);
+  assert.equal(retriedDelivery.metrics.at(-1).eventType, "alert.delivery.final");
+  assert.equal(retriedDelivery.metrics.at(-1).status, "delivered");
 
   globalThis.fetch = async () => new Response("still down", { status: 503, statusText: "Service Unavailable" });
   const deadLetterDelivery = await deliverAuditAlert(failClosedWorkerReport, {
@@ -208,6 +216,8 @@ try {
   assert.equal(deadLetterDelivery.deadLetter.destination, "webhook");
   assert.equal(deadLetterDelivery.deadLetter.webhookHost, "alerts.example.invalid");
   assert.equal(deadLetterDelivery.deadLetter.errors.length, 2);
+  assert.equal(deadLetterDelivery.metrics.at(-1).status, "dead_letter");
+  assert.equal(deadLetterDelivery.metrics.filter((metric) => metric.status === "failed").length, 1);
 
   globalThis.fetch = async (url) => {
     const parsed = new URL(url);

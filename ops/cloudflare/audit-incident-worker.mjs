@@ -1,10 +1,10 @@
-import { deliverAuditAlert } from "./audit-alert-adapters.mjs";
+import { deliverAuditAlert, formatAuditAlertDeliveryMetricsJsonl } from "./audit-alert-adapters.mjs";
 
 const defaultRegistry = "https://coreblow.com/corehub";
 
 export default {
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(runAuditIncidentCheck(env, { throwOnFail: true }));
+    ctx.waitUntil(runAuditIncidentCheck(env, { throwOnFail: true, logAlertMetrics: true }));
   },
 
   async fetch(_request, env) {
@@ -38,6 +38,9 @@ export async function runAuditIncidentCheck(env = {}, options = {}) {
     recentAuditMeta: recent.meta,
   };
   if (failClosed) report.alertDelivery = await deliverAuditAlert(report, env);
+  if (options.logAlertMetrics && report.alertDelivery?.metrics?.length) {
+    console.log(formatAuditAlertDeliveryMetricsJsonl(report.alertDelivery.metrics));
+  }
   if (report.alertDelivery?.deadLetter) {
     console.error(JSON.stringify(report.alertDelivery.deadLetter));
   }

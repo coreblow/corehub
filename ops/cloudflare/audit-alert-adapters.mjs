@@ -25,7 +25,15 @@ export function buildAuditAlertPayload(report, env = {}) {
 
 export async function deliverAuditAlert(report, env = {}) {
   const webhook = env.COREHUB_AUDIT_ALERT_WEBHOOK;
-  if (!webhook) return { status: "not_configured", delivered: false, destination: "none", attempts: 0 };
+  if (!webhook) {
+    return {
+      status: "not_configured",
+      delivered: false,
+      destination: "none",
+      attempts: 0,
+      metrics: [buildAuditAlertDeliveryMetric(report, "none", "final", { status: "not_configured" })],
+    };
+  }
 
   const destination = env.COREHUB_AUDIT_ALERT_DESTINATION ?? "webhook";
   const alert = buildAuditAlertPayload(report, env);
@@ -33,26 +41,71 @@ export async function deliverAuditAlert(report, env = {}) {
   const body = JSON.stringify(outboundPayload);
   const retryConfig = readRetryConfig(env);
   const errors = [];
+  const metrics = [];
 
   for (let attempt = 1; attempt <= retryConfig.maxAttempts; attempt += 1) {
+    const startedAt = Date.now();
     try {
       const response = await postWithTimeout(webhook, body, retryConfig.timeoutMs);
+      const durationMs = Date.now() - startedAt;
       if (response.ok) {
-        return { status: "delivered", delivered: true, destination, attempts: attempt };
+        metrics.push(
+          buildAuditAlertDeliveryMetric(report, destination, "attempt", {
+            attempt,
+            maxAttempts: retryConfig.maxAttempts,
+            status: "delivered",
+            httpStatus: response.status,
+            durationMs,
+          }),
+          buildAuditAlertDeliveryMetric(report, destination, "final", {
+            attempts: attempt,
+            status: "delivered",
+          }),
+        );
+        return { status: "delivered", delivered: true, destination, attempts: attempt, metrics };
       }
-      errors.push(`attempt ${attempt}: HTTP ${response.status} ${response.statusText}`.trim());
+      const error = `HTTP ${response.status} ${response.statusText}`.trim();
+      errors.push(`attempt ${attempt}: ${error}`);
+      metrics.push(
+        buildAuditAlertDeliveryMetric(report, destination, "attempt", {
+          attempt,
+          maxAttempts: retryConfig.maxAttempts,
+          status: attempt < retryConfig.maxAttempts ? "retry" : "failed",
+          httpStatus: response.status,
+          durationMs,
+          error,
+        }),
+      );
     } catch (error) {
-      errors.push(`attempt ${attempt}: ${formatError(error)}`);
+      const durationMs = Date.now() - startedAt;
+      const message = formatError(error);
+      errors.push(`attempt ${attempt}: ${message}`);
+      metrics.push(
+        buildAuditAlertDeliveryMetric(report, destination, "attempt", {
+          attempt,
+          maxAttempts: retryConfig.maxAttempts,
+          status: attempt < retryConfig.maxAttempts ? "retry" : "failed",
+          durationMs,
+          error: message,
+        }),
+      );
     }
 
     if (attempt < retryConfig.maxAttempts) await sleep(retryConfig.retryDelayMs);
   }
 
+  metrics.push(
+    buildAuditAlertDeliveryMetric(report, destination, "final", {
+      attempts: retryConfig.maxAttempts,
+      status: "dead_letter",
+    }),
+  );
   return {
     status: "dead_letter",
     delivered: false,
     destination,
     attempts: retryConfig.maxAttempts,
+    metrics,
     deadLetter: buildAuditAlertDeadLetter(alert, destination, webhook, errors),
   };
 }
@@ -156,6 +209,28 @@ export function buildAuditAlertDeadLetter(alert, destination, webhook, errors) {
     errors,
     retryable: true,
     alert,
+  };
+}
+
+export function formatAuditAlertDeliveryMetricsJsonl(metrics = []) {
+  return metrics.map((metric) => JSON.stringify(metric)).join("\n");
+}
+
+export function buildAuditAlertDeliveryMetric(report, destination, eventType, details = {}) {
+  return {
+    schemaVersion: "corehub.audit-alert-delivery-metric.v1",
+    eventType: `alert.delivery.${eventType}`,
+    registry: report.registry,
+    alertType: "audit.fail_closed",
+    destination,
+    status: details.status,
+    attempt: details.attempt ?? null,
+    maxAttempts: details.maxAttempts ?? null,
+    attempts: details.attempts ?? null,
+    httpStatus: details.httpStatus ?? null,
+    durationMs: details.durationMs ?? null,
+    error: details.error ?? null,
+    createdAt: new Date().toISOString(),
   };
 }
 

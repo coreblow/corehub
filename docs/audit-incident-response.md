@@ -91,6 +91,8 @@ Alert delivery uses retry, timeout, and dead-letter behavior. If the alert webho
 
 Incident reports include `alertDelivery.status`, `alertDelivery.destination`, `alertDelivery.attempts`, and dead-letter presence so the operator can see whether alerting was not configured, delivered, or dead-lettered.
 
+Delivery attempts also emit `corehub.audit-alert-delivery-metric.v1` JSONL records. Use these records from cron, CI, or Worker logs to trend `delivered`, `retry`, `failed`, and `dead_letter` outcomes over time.
+
 ## Enterprise Notes
 
 CoreHub treats audit integrity failures as operational incidents, not routine warnings. The CLI exits non-zero for `fail_closed` so automation can halt retention jobs and alert operators.
