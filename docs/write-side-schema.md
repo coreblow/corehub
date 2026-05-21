@@ -144,3 +144,22 @@ uploads/<publisher>/<package>/<version>/<artifact>
 ```
 
 Future production binding should replace only the adapter internals with R2 or S3 operations. The route contract, signed upload fields, checksum verification result, and artifact upload status graph should remain stable.
+
+## Projection Boundary
+
+Approved write-side versions can now be projected into the read-only Registry API v1 shape before persistence is wired:
+
+```text
+verified artifact upload -> pending submission -> approved review -> available package version -> projected catalog entry
+```
+
+The local projection exposes approved package versions through the same public read contracts used by existing clients:
+
+| Route | Projection behavior |
+| --- | --- |
+| `GET /corehub/api/v1/entries` | Returns projected catalog entries for approved versions only. |
+| `GET /corehub/api/v1/packages/:id` | Returns the projected package entry. |
+| `GET /corehub/api/v1/packages/:id/versions` | Returns projected available versions. |
+| `GET /corehub/api/v1/packages/:id/artifact` | Returns artifact checksum, storage locator, and non-download metadata. |
+
+Blocked versions remain write-side audit records and are intentionally excluded from projected v1 install/search surfaces.

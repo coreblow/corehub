@@ -243,6 +243,70 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  projectCatalogEntries() {
+    const entries = [];
+    for (const version of this.packageVersions.values()) {
+      if (version.status !== "available") continue;
+      const submissionRecord = this.submissions.get(version.submissionId);
+      if (!submissionRecord) continue;
+      const artifactUpload = this.findArtifactUpload(version.artifactUploadId);
+      if (!artifactUpload || artifactUpload.status !== "verified") continue;
+      const submission = submissionRecord.submission;
+      const source = submission.source ?? `https://github.com/${version.publisherHandle}/${version.packageId}`;
+      entries.push({
+        id: version.packageId,
+        kind: submission.kind,
+        name: titleizeHandle(version.packageId),
+        summary: `CoreHub projected ${submission.kind} package ${version.packageId}.`,
+        source,
+        homepage: source,
+        version: version.version,
+        tags: [submission.kind, "published"],
+        capabilities: [],
+        publisher: {
+          handle: version.publisherHandle,
+          displayName: titleizeHandle(version.publisherHandle),
+          url: `https://github.com/${version.publisherHandle}`,
+          verified: true,
+        },
+        review: {
+          state: "verified",
+          checkedAt: version.publishedAt ?? version.createdAt,
+          notes: "Projected from approved CoreHub write-side review.",
+        },
+        coreblow: {
+          minCoreblowVersion: "1.0.0",
+          platforms: ["linux", "macos", "windows"],
+        },
+        versions: [
+          {
+            version: version.version,
+            tag: version.tag ?? "latest",
+            publishedAt: version.publishedAt ?? version.createdAt,
+            publisher: {
+              handle: version.publisherHandle,
+            },
+            status: "available",
+            artifact: {
+              name: artifactUpload.storage.key.split("/").at(-1) ?? `${version.packageId}-${version.version}.artifact`,
+              mediaType: artifactUpload.mediaType ?? "application/octet-stream",
+              size: artifactUpload.size,
+              sha256: artifactUpload.sha256,
+              downloadEnabled: true,
+              storage: artifactUpload.storage,
+              provenance: {
+                source,
+                reviewState: "verified",
+              },
+              files: [],
+            },
+          },
+        ],
+      });
+    }
+    return entries.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   requireSlot(uploadSlotId) {
     const slot = this.slots.get(uploadSlotId);
     if (!slot) throw httpError(404, "Upload slot not found");
@@ -274,6 +338,12 @@ export function createCoreHubApiHandler({
   return async function coreHubApiHandler(request, response) {
     try {
       const url = new URL(request.url, "http://127.0.0.1");
+      const v1Segments = trimBasePath(url.pathname, "/corehub/api/v1");
+      if (v1Segments) {
+        const result = handleProjectedRegistryV1(storage, request, url, v1Segments);
+        if (result) return json(response, result.statusCode, result.payload);
+      }
+
       const segments = trimBasePath(url.pathname, basePath);
       if (!segments) return json(response, 404, { error: "Not found" });
 
@@ -335,6 +405,82 @@ export function createCoreHubApiHandler({
         error: error instanceof Error ? error.message : "CoreHub API error",
       });
     }
+  };
+}
+
+function handleProjectedRegistryV1(storage, request, url, segments) {
+  if (request.method !== "GET") return null;
+  const entries = storage.projectCatalogEntries();
+
+  if (segments.length === 0) {
+    return dataResponse({
+      name: "CoreHub Registry API",
+      entries: "/corehub/api/v1/entries",
+      packages: "/corehub/api/v1/packages",
+    });
+  }
+
+  if (segments[0] === "catalog" && segments.length === 1) return dataResponse(entries, entries.length);
+  if (segments[0] === "entries" && segments.length === 1) {
+    const kind = url.searchParams.get("kind");
+    const filtered = kind ? entries.filter((entry) => entry.kind === kind) : entries;
+    return dataResponse(filtered, filtered.length);
+  }
+  if (segments[0] === "entries" && segments.length === 2) {
+    const entry = findProjectedEntry(entries, segments[1]);
+    return entry ? dataResponse(entry) : dataResponse(null, 0, 404);
+  }
+  if (segments[0] === "packages" && segments.length === 1) return dataResponse(entries, entries.length);
+  if (segments[0] === "packages" && segments[1] === "search" && segments.length === 2) {
+    const query = (url.searchParams.get("q") ?? "").toLowerCase();
+    const results = entries
+      .filter((entry) => JSON.stringify(entry).toLowerCase().includes(query))
+      .map((entry) => ({ ...entry, score: query ? 1 : 0 }));
+    return dataResponse(results, results.length);
+  }
+  if (segments[0] === "packages" && segments.length >= 2) {
+    const entry = findProjectedEntry(entries, segments[1]);
+    if (!entry) return dataResponse(null, 0, 404);
+    if (segments.length === 2) return dataResponse(entry);
+    if (segments[2] === "versions" && segments.length === 3) return dataResponse(entry.versions, entry.versions.length);
+    if (segments[2] === "artifact" && segments.length === 3) {
+      const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
+      return dataResponse({
+        package: { id: entry.id, kind: entry.kind, name: entry.name },
+        version: version.version,
+        publisher: entry.publisher,
+        artifact: version.artifact,
+        files: version.artifact.files,
+        download: { available: false, reason: "Projected local storage does not expose signed downloads yet." },
+      });
+    }
+    if (segments[2] === "download" && segments.length === 3) {
+      const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
+      return dataResponse({
+        package: { id: entry.id, kind: entry.kind, name: entry.name },
+        version: version.version,
+        publisher: entry.publisher,
+        artifact: version.artifact,
+        download: { available: false, reason: "Projected local storage does not expose signed downloads yet." },
+      });
+    }
+  }
+  return null;
+}
+
+function findProjectedEntry(entries, id) {
+  const decoded = decodeURIComponent(id);
+  return entries.find((entry) => entry.id === decoded) ?? null;
+}
+
+function dataResponse(data, count = data === null ? 0 : 1, statusCode = data === null ? 404 : 200) {
+  return {
+    statusCode,
+    payload: {
+      apiVersion: "v1",
+      data,
+      meta: { count },
+    },
   };
 }
 
@@ -465,6 +611,14 @@ function storageKey(publisherHandle, packageId, version, artifactName) {
 
 function slugVersion(version) {
   return version.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+}
+
+function titleizeHandle(handle) {
+  return handle
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 function json(response, statusCode, payload) {

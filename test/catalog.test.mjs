@@ -520,6 +520,27 @@ try {
     assert.equal(approvePayload.data.submission.status, "approved");
     assert.equal(approvePayload.data.packageVersion.status, "available");
     assert.equal(approvePayload.data.packageVersion.moderationStatus, "approved");
+
+    const projectedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
+    assert.equal(projectedEntriesResponse.status, 200);
+    const projectedEntriesPayload = await projectedEntriesResponse.json();
+    assert.equal(projectedEntriesPayload.apiVersion, "v1");
+    assert.equal(projectedEntriesPayload.data.length, 1);
+    assert.equal(projectedEntriesPayload.data[0].id, "plugin-lab");
+    assert.equal(projectedEntriesPayload.data[0].review.state, "verified");
+    assert.equal(projectedEntriesPayload.data[0].versions[0].status, "available");
+    assert.equal(projectedEntriesPayload.data[0].versions[0].artifact.sha256, entries[2].versions[0].artifact.sha256);
+
+    const projectedPackageResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab`);
+    assert.equal(projectedPackageResponse.status, 200);
+    const projectedPackagePayload = await projectedPackageResponse.json();
+    assert.equal(projectedPackagePayload.data.publisher.handle, "coreblow");
+    assert.equal(projectedPackagePayload.data.versions[0].artifact.storage.provider, "r2");
+
+    const projectedVersionsResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/versions`);
+    assert.equal(projectedVersionsResponse.status, 200);
+    const projectedVersionsPayload = await projectedVersionsResponse.json();
+    assert.equal(projectedVersionsPayload.data[0].tag, "latest");
   } finally {
     await rm(apiAuthHome, { recursive: true, force: true });
   }
@@ -604,6 +625,8 @@ try {
   assert.equal(blockPayload.data.submission.status, "rejected");
   assert.equal(blockPayload.data.packageVersion.status, "blocked");
   assert.equal(blockPayload.data.packageVersion.moderationStatus, "blocked");
+  const blockedEntries = await fetch(`${blockApiBaseUrl.replace("/api/v2", "/api/v1")}/entries`);
+  assert.equal((await blockedEntries.json()).data.length, 0);
 } finally {
   await new Promise((resolve) => blockServer.close(resolve));
   await rm(blockStorageDir, { recursive: true, force: true });
