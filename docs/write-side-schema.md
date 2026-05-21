@@ -102,9 +102,13 @@ The dry-run CLI shape is:
 ```sh
 corehub package upload request ./plugin-lab.coreblow-plugin.tgz --dry-run
 corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --dry-run
+corehub package upload request ./plugin-lab.coreblow-plugin.tgz --registry https://coreblow.com/corehub --dry-run
+corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --registry https://coreblow.com/corehub --dry-run
 ```
 
 `artifactUploads[].upload` records the signed upload contract used for a managed object. The public catalog should only expose verified artifact locators and checksums, not write-side upload signatures.
+
+When `--registry` is provided, the CLI uses the API v2 upload boundary. Without `--registry`, it keeps the local dry-run fallback so publishers can inspect the planned payload before the hosted write API is available.
 
 ## API and Storage Boundary
 

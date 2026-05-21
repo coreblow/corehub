@@ -696,6 +696,7 @@ function printInstallResult(result) {
 async function runPackageUploadCommand(values) {
   const subcommand = values[0] ?? "help";
   const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
 
   if (subcommand === "request") {
     const source = positionalArgs(args)[0];
@@ -703,7 +704,10 @@ async function runPackageUploadCommand(values) {
     if (!hasFlag(args, "--dry-run")) {
       throw new Error("package upload request is a dry-run contract in this phase. Re-run with --dry-run.");
     }
-    console.log(JSON.stringify(await createArtifactUploadRequestDryRun(source, args), null, 2));
+    const result = registry
+      ? await createArtifactUploadRequestViaRegistry(source, args, registry)
+      : await createArtifactUploadRequestDryRun(source, args);
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 
@@ -715,7 +719,10 @@ async function runPackageUploadCommand(values) {
     }
     const uploadSlotId = readOption(args, "--upload-slot");
     if (!uploadSlotId) throw new Error("package upload verify requires --upload-slot <id>");
-    console.log(JSON.stringify(await createArtifactUploadVerificationDryRun(source, args), null, 2));
+    const result = registry
+      ? await createArtifactUploadVerificationViaRegistry(source, args, registry)
+      : await createArtifactUploadVerificationDryRun(source, args);
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 
@@ -881,6 +888,81 @@ async function createArtifactUploadRequestDryRun(source, values) {
       ],
     },
     nextStep: `Upload artifact bytes with ${upload.method}, then run corehub package upload verify ${inspected.artifact.name} --upload-slot ${uploadSlotId} --dry-run.`,
+  };
+}
+
+async function createArtifactUploadRequestViaRegistry(source, values, registry) {
+  const auth = await requireAuthState();
+  const inspected = await inspectPackageSubmitSource(source);
+  const publisherHandle = resolvePackagePublisherHandle(values, inspected, auth, "package upload request");
+  const provider = readOption(values, "--provider") ?? "r2";
+  if (!["r2", "s3"].includes(provider)) {
+    throw new Error("package upload request --provider must be r2 or s3");
+  }
+  const maxBytes = Number.parseInt(readOption(values, "--max-bytes") ?? "104857600", 10);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < inspected.artifact.size) {
+    throw new Error("package upload request --max-bytes must be an integer greater than or equal to artifact size");
+  }
+  const uploadSlot = await new CoreHubRegistryClient(registry).requestArtifactUpload(
+    {
+      packageId: inspected.package.id,
+      version: inspected.package.version,
+      publisherHandle,
+      provider,
+      region: readOption(values, "--region"),
+      maxBytes,
+      artifact: {
+        name: inspected.artifact.name,
+        mediaType: inspected.artifact.mediaType,
+        size: inspected.artifact.size,
+        sha256: inspected.artifact.sha256,
+      },
+    },
+    { auth },
+  );
+  return {
+    dryRun: true,
+    status: "remote_planned",
+    registry: normalizeRegistry(registry),
+    actor: auth.actor,
+    source: {
+      path: resolve(source),
+      type: inspected.type,
+    },
+    uploadSlot,
+    nextStep: `Upload artifact bytes with ${uploadSlot.upload.method}, then run corehub package upload verify ${inspected.artifact.name} --upload-slot ${uploadSlot.id} --registry ${normalizeRegistry(registry)} --dry-run.`,
+  };
+}
+
+async function createArtifactUploadVerificationViaRegistry(source, values, registry) {
+  const auth = await requireAuthState();
+  const inspected = await inspectPackageSubmitSource(source);
+  if (inspected.type !== "archive") {
+    throw new Error("package upload verify with --registry requires an archive artifact file");
+  }
+  const uploadSlotId = readOption(values, "--upload-slot");
+  const bytes = await readFile(resolve(source));
+  const client = new CoreHubRegistryClient(registry);
+  const uploaded = await client.putArtifactUpload(uploadSlotId, bytes, {
+    auth,
+    mediaType: inspected.artifact.mediaType,
+    sha256: inspected.artifact.sha256,
+  });
+  const verified = await client.verifyArtifactUpload(uploadSlotId, { auth });
+  return {
+    dryRun: true,
+    status: verified.status,
+    registry: normalizeRegistry(registry),
+    actor: auth.actor,
+    uploadSlotId,
+    source: {
+      path: resolve(source),
+      type: inspected.type,
+    },
+    uploaded,
+    artifactUpload: verified.artifactUpload,
+    verification: verified.verification,
+    nextStep: "Create a package submission that references this verified artifact upload.",
   };
 }
 
@@ -1266,8 +1348,43 @@ class CoreHubRegistryClient {
     return this.readData(this.apiUrl(`/publishers/${encodeURIComponent(handle)}`));
   }
 
+  async requestArtifactUpload(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/artifacts/uploads"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    }).then((data) => data.uploadSlot);
+  }
+
+  async putArtifactUpload(uploadSlotId, bytes, options = {}) {
+    return this.writeData(this.apiV2Url(`/artifacts/uploads/${encodeURIComponent(uploadSlotId)}`), {
+      auth: options.auth,
+      method: "PUT",
+      body: bytes,
+      headers: {
+        "Content-Type": options.mediaType ?? "application/octet-stream",
+        "x-corehub-artifact-sha256": options.sha256,
+      },
+      expectedVersion: "v2",
+    });
+  }
+
+  async verifyArtifactUpload(uploadSlotId, options = {}) {
+    return this.writeData(this.apiV2Url(`/artifacts/uploads/${encodeURIComponent(uploadSlotId)}/verify`), {
+      auth: options.auth,
+      method: "POST",
+      expectedVersion: "v2",
+    });
+  }
+
   apiUrl(path) {
     return new URL(`${this.registry}/api/v1${path}`);
+  }
+
+  apiV2Url(path) {
+    return new URL(`${this.registry}/api/v2${path}`);
   }
 
   async readData(url, options = {}) {
@@ -1283,6 +1400,32 @@ class CoreHubRegistryClient {
       throw new Error("CoreHub registry returned an invalid v1 response");
     }
     return payload.data;
+  }
+
+  async writeData(url, options = {}) {
+    const response = await fetch(url, {
+      method: options.method,
+      headers: this.authHeaders(options.auth, options.headers),
+      body: options.body,
+    });
+    if (!response.ok) {
+      throw new Error(`CoreHub registry request failed: ${response.status} ${response.statusText}`);
+    }
+    const payload = await response.json();
+    if (!payload || payload.apiVersion !== options.expectedVersion || !("data" in payload)) {
+      throw new Error(`CoreHub registry returned an invalid ${options.expectedVersion} response`);
+    }
+    return payload.data;
+  }
+
+  authHeaders(auth, headers = {}) {
+    return {
+      Accept: "application/json",
+      "User-Agent": "corehub-cli",
+      ...(auth?.token ? { Authorization: `Bearer ${auth.token}` } : {}),
+      ...(auth?.actor?.id ? { "x-corehub-user": auth.actor.id } : {}),
+      ...headers,
+    };
   }
 }
 

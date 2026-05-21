@@ -421,6 +421,68 @@ try {
   assert.equal(uploadVerifyPayload.data.artifactUpload.status, "verified");
   assert.equal(uploadVerifyPayload.data.verification.checksumMatches, true);
   assert.equal(uploadVerifyPayload.data.verification.sizeMatches, true);
+
+  const apiAuthHome = await mkdtemp(join(tmpdir(), "corehub-api-auth-"));
+  try {
+    const apiRegistryUrl = `http://127.0.0.1:${apiServer.address().port}/corehub`;
+    const apiAuthEnv = { ...process.env, COREHUB_HOME: apiAuthHome };
+    await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "login",
+        "--token",
+        "local-dev-token",
+        "--user",
+        "github:coreblow-admin",
+        "--publisher",
+        "coreblow",
+      ],
+      { env: apiAuthEnv },
+    );
+    const remoteUploadRequest = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "upload",
+        "request",
+        new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+        "--registry",
+        apiRegistryUrl,
+        "--dry-run",
+      ],
+      { env: apiAuthEnv },
+    );
+    const remoteUploadRequestPayload = JSON.parse(remoteUploadRequest.stdout);
+    assert.equal(remoteUploadRequestPayload.status, "remote_planned");
+    assert.equal(remoteUploadRequestPayload.uploadSlot.id, "upload-plugin-lab-0-1-0");
+    assert.equal(remoteUploadRequestPayload.uploadSlot.artifactUpload.status, "requested");
+
+    const remoteUploadVerify = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "upload",
+        "verify",
+        new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+        "--upload-slot",
+        remoteUploadRequestPayload.uploadSlot.id,
+        "--registry",
+        apiRegistryUrl,
+        "--dry-run",
+      ],
+      { env: apiAuthEnv },
+    );
+    const remoteUploadVerifyPayload = JSON.parse(remoteUploadVerify.stdout);
+    assert.equal(remoteUploadVerifyPayload.status, "verified");
+    assert.equal(remoteUploadVerifyPayload.uploaded.uploaded.size, pluginLabArtifactBytes.byteLength);
+    assert.equal(remoteUploadVerifyPayload.artifactUpload.status, "verified");
+    assert.equal(remoteUploadVerifyPayload.verification.checksumMatches, true);
+  } finally {
+    await rm(apiAuthHome, { recursive: true, force: true });
+  }
 } finally {
   await new Promise((resolve) => apiServer.close(resolve));
   await rm(apiStorageDir, { recursive: true, force: true });
