@@ -38,6 +38,14 @@ npm run serve
 
 By default it listens at `http://127.0.0.1:8787/corehub`, writes metadata to `.corehub-local/write-side-state.json`, and stores uploaded artifact bytes under `.corehub-local/storage`.
 
+Run the full local publish smoke:
+
+```sh
+npm run smoke:local-publish
+```
+
+For manual steps, see `docs/local-publish-runbook.md`.
+
 Use the hosted Registry API v1 by passing `--registry`:
 
 ```sh

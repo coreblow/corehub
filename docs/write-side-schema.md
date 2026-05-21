@@ -204,3 +204,15 @@ Defaults:
 | `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` |
 
 This lets the upload, submit, review, and projected Registry API v1 flow run over HTTP without a test harness while still keeping production R2/S3 and database persistence out of scope.
+
+## Local Publish Smoke
+
+Phase 26 adds an end-to-end smoke script for the local server:
+
+```sh
+npm run smoke:local-publish
+```
+
+The smoke starts a local server on an ephemeral port, logs in with local test credentials, requests and verifies an upload slot, submits the package, approves the moderation review, and checks the projected Registry API v1 package entry.
+
+For the manual command sequence, see `docs/local-publish-runbook.md`.

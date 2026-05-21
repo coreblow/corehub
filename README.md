@@ -75,6 +75,14 @@ npm run serve
 
 The local server defaults to `http://127.0.0.1:8787/corehub`, persists write-side state under `.corehub-local/write-side-state.json`, and stores uploaded bytes under `.corehub-local/storage`. Override with `COREHUB_PORT`, `COREHUB_DATA_ROOT`, `COREHUB_STATE_PATH`, `COREHUB_STORAGE_ROOT`, and `COREHUB_PUBLIC_BASE_URL`.
 
+Run the local publish smoke:
+
+```sh
+npm run smoke:local-publish
+```
+
+See `docs/local-publish-runbook.md` for the manual command flow.
+
 ### CLI
 
 ```sh

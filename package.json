@@ -17,6 +17,7 @@
     "build:artifacts": "node scripts/build-plugin-artifacts.mjs",
     "corehub": "node src/cli.mjs",
     "serve": "node src/server.mjs",
+    "smoke:local-publish": "node scripts/smoke-local-publish.mjs",
     "test": "node test/catalog.test.mjs",
     "validate:schema": "node scripts/validate-catalog-schema.mjs",
     "validate:write-schema": "node scripts/validate-write-side-schema.mjs"
