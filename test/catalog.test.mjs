@@ -532,6 +532,10 @@ try {
         "list",
         "--status",
         "pending_review",
+        "--limit",
+        "1",
+        "--offset",
+        "0",
         "--registry",
         apiRegistryUrl,
       ],
@@ -540,6 +544,9 @@ try {
     const pendingSubmissionsListPayload = JSON.parse(pendingSubmissionsList.stdout);
     assert.equal(pendingSubmissionsListPayload.status, "ok");
     assert.equal(pendingSubmissionsListPayload.count, 1);
+    assert.equal(pendingSubmissionsListPayload.total, 1);
+    assert.equal(pendingSubmissionsListPayload.limit, 1);
+    assert.equal(pendingSubmissionsListPayload.offset, 0);
     assert.equal(pendingSubmissionsListPayload.submissions[0].submission.id, remoteSubmitPayload.submission.id);
 
     const remoteSubmissionInspect = await execFileAsync(
@@ -586,6 +593,10 @@ try {
         "list",
         "--status",
         "open",
+        "--limit",
+        "1",
+        "--offset",
+        "0",
         "--registry",
         apiRegistryUrl,
       ],
@@ -594,6 +605,9 @@ try {
     const openReviewsListPayload = JSON.parse(openReviewsList.stdout);
     assert.equal(openReviewsListPayload.status, "ok");
     assert.equal(openReviewsListPayload.count, 1);
+    assert.equal(openReviewsListPayload.total, 1);
+    assert.equal(openReviewsListPayload.limit, 1);
+    assert.equal(openReviewsListPayload.offset, 0);
     assert.equal(openReviewsListPayload.reviews[0].moderationReview.id, remoteSubmitPayload.moderationReview.id);
 
     const approve = await execFileAsync(
@@ -816,6 +830,64 @@ try {
 } finally {
   await new Promise((resolve) => blockServer.close(resolve));
   await rm(blockStorageDir, { recursive: true, force: true });
+}
+
+const queueStorageDir = await mkdtemp(join(tmpdir(), "corehub-queue-storage-"));
+try {
+  const queueStorage = new CoreHubLocalStorageAdapter({ root: queueStorageDir });
+  for (const item of [
+    { id: "old", submittedAt: "2026-05-21T00:00:00Z", reviewStatus: "open" },
+    { id: "new", submittedAt: "2026-05-21T00:01:00Z", reviewStatus: "open" },
+  ]) {
+    queueStorage.submissions.set(`submission-${item.id}`, {
+      artifactUploadId: `artifact-${item.id}`,
+      submission: {
+        id: `submission-${item.id}`,
+        packageId: `plugin-${item.id}`,
+        kind: "plugin",
+        publisherHandle: "coreblow",
+        version: "0.1.0",
+        status: "pending_review",
+        artifactUploadId: `artifact-${item.id}`,
+        changelog: "Queue ordering fixture.",
+        submittedBy: { type: "user", id: "github:coreblow-admin" },
+        submittedAt: item.submittedAt,
+        reviewId: `review-${item.id}`,
+      },
+      packageVersionPreview: {
+        id: `version-${item.id}`,
+        packageId: `plugin-${item.id}`,
+        version: "0.1.0",
+        tag: "latest",
+        publisherHandle: "coreblow",
+        status: "pending_review",
+        artifactUploadId: `artifact-${item.id}`,
+        submissionId: `submission-${item.id}`,
+        createdAt: item.submittedAt,
+        moderationStatus: "pending",
+      },
+    });
+    queueStorage.reviews.set(`review-${item.id}`, {
+      id: `review-${item.id}`,
+      targetType: "submission",
+      targetId: `submission-${item.id}`,
+      status: item.reviewStatus,
+      decision: "none",
+      reviewedBy: { type: "user", id: "github:coreblow-admin" },
+      createdAt: item.submittedAt,
+    });
+  }
+  const firstSubmissionPage = queueStorage.listSubmissions({ status: "pending_review", limit: 1, offset: 0 });
+  assert.equal(firstSubmissionPage.meta.total, 2);
+  assert.equal(firstSubmissionPage.meta.count, 1);
+  assert.equal(firstSubmissionPage.items[0].submission.id, "submission-new");
+  const secondSubmissionPage = queueStorage.listSubmissions({ status: "pending_review", limit: 1, offset: 1 });
+  assert.equal(secondSubmissionPage.items[0].submission.id, "submission-old");
+  const firstReviewPage = queueStorage.listReviews({ status: "open", limit: 1, offset: 0 });
+  assert.equal(firstReviewPage.meta.total, 2);
+  assert.equal(firstReviewPage.items[0].moderationReview.id, "review-new");
+} finally {
+  await rm(queueStorageDir, { recursive: true, force: true });
 }
 
 const registryServer = createServer((request, response) => {

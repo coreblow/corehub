@@ -85,9 +85,23 @@ try {
   logStep(`submission created: ${submission.submission.id}`);
 
   const pendingSubmissions = JSON.parse(
-    await runCoreHub(["submissions", "list", "--status", "pending_review", "--registry", registry]),
+    await runCoreHub([
+      "submissions",
+      "list",
+      "--status",
+      "pending_review",
+      "--limit",
+      "1",
+      "--offset",
+      "0",
+      "--registry",
+      registry,
+    ]),
   );
   assert.equal(pendingSubmissions.count, 1);
+  assert.equal(pendingSubmissions.total, 1);
+  assert.equal(pendingSubmissions.limit, 1);
+  assert.equal(pendingSubmissions.offset, 0);
   assert.equal(pendingSubmissions.submissions[0].submission.id, submission.submission.id);
   logStep(`pending submissions listed: ${pendingSubmissions.count}`);
 
@@ -105,8 +119,11 @@ try {
   assert.equal(reviewStatus.submission.status, "pending_review");
   logStep(`review status before approval: ${reviewStatus.status}`);
 
-  const openReviews = JSON.parse(await runCoreHub(["reviews", "list", "--status", "open", "--registry", registry]));
+  const openReviews = JSON.parse(
+    await runCoreHub(["reviews", "list", "--status", "open", "--limit", "1", "--offset", "0", "--registry", registry]),
+  );
   assert.equal(openReviews.count, 1);
+  assert.equal(openReviews.total, 1);
   assert.equal(openReviews.reviews[0].moderationReview.id, submission.moderationReview.id);
   logStep(`open reviews listed: ${openReviews.count}`);
 

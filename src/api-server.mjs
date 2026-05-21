@@ -255,11 +255,12 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
-  listSubmissions({ status } = {}) {
-    return [...this.submissions.values()]
+  listSubmissions(options = {}) {
+    const records = [...this.submissions.values()]
       .map((record) => this.submissionInspection(record))
-      .filter((record) => !status || record.submission.status === status)
-      .sort((left, right) => left.submission.submittedAt.localeCompare(right.submission.submittedAt));
+      .filter((record) => !options.status || record.submission.status === options.status)
+      .sort((left, right) => right.submission.submittedAt.localeCompare(left.submission.submittedAt));
+    return paginate(records, options);
   }
 
   inspectSubmission(submissionId) {
@@ -268,11 +269,12 @@ export class CoreHubLocalStorageAdapter {
     return this.submissionInspection(record);
   }
 
-  listReviews({ status } = {}) {
-    return [...this.reviews.values()]
-      .filter((review) => !status || review.status === status)
+  listReviews(options = {}) {
+    const records = [...this.reviews.values()]
+      .filter((review) => !options.status || review.status === options.status)
       .map((review) => this.reviewInspection(review))
-      .sort((left, right) => left.moderationReview.createdAt.localeCompare(right.moderationReview.createdAt));
+      .sort((left, right) => right.moderationReview.createdAt.localeCompare(left.moderationReview.createdAt));
+    return paginate(records, options);
   }
 
   inspectReview(reviewId) {
@@ -468,8 +470,8 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 1) {
-        const result = storage.listSubmissions({ status: url.searchParams.get("status") });
-        return json(response, 200, { apiVersion: "v2", data: result, meta: { count: result.length } });
+        const result = storage.listSubmissions(readListOptions(url));
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
       }
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 2) {
@@ -478,8 +480,8 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 1) {
-        const result = storage.listReviews({ status: url.searchParams.get("status") });
-        return json(response, 200, { apiVersion: "v2", data: result, meta: { count: result.length } });
+        const result = storage.listReviews(readListOptions(url));
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
       }
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 2) {
@@ -671,6 +673,33 @@ function normalizeRequiredString(value, name) {
     throw httpError(400, `${name} is required`);
   }
   return value.trim();
+}
+
+function readListOptions(url) {
+  return {
+    status: url.searchParams.get("status") ?? undefined,
+    limit: parseNonNegativeInteger(url.searchParams.get("limit"), "limit", 50),
+    offset: parseNonNegativeInteger(url.searchParams.get("offset"), "offset", 0),
+  };
+}
+
+function paginate(items, { limit = 50, offset = 0 } = {}) {
+  return {
+    items: items.slice(offset, offset + limit),
+    meta: {
+      count: Math.min(Math.max(items.length - offset, 0), limit),
+      total: items.length,
+      limit,
+      offset,
+    },
+  };
+}
+
+function parseNonNegativeInteger(value, name, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw httpError(400, `${name} must be a non-negative integer`);
+  return parsed;
 }
 
 function trimBasePath(pathname, basePath) {

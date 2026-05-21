@@ -25,13 +25,13 @@ npm run corehub -- login --token local-dev-token --user github:coreblow-admin --
 npm run corehub -- package upload request artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --registry http://127.0.0.1:8787/corehub --dry-run
 npm run corehub -- package upload verify artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub --dry-run
 npm run corehub -- package submit artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --registry http://127.0.0.1:8787/corehub --dry-run
-npm run corehub -- submissions list --status pending_review --registry http://127.0.0.1:8787/corehub
+npm run corehub -- submissions list --status pending_review --limit 20 --offset 0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- submissions inspect submission-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
-npm run corehub -- reviews list --status open --registry http://127.0.0.1:8787/corehub
+npm run corehub -- reviews list --status open --limit 20 --offset 0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- review status review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- review approve review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub --notes "Local review approved."
 npm run corehub -- reviews status review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
-npm run corehub -- reviews list --status approved --registry http://127.0.0.1:8787/corehub
+npm run corehub -- reviews list --status approved --limit 20 --offset 0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package inspect plugin-lab --registry http://127.0.0.1:8787/corehub
 ```
 

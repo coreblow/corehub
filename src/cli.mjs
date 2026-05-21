@@ -311,14 +311,14 @@ async function runReviewCommand(values) {
 
   if (subcommand === "list") {
     if (!registry) throw new Error("review list requires --registry or COREHUB_REGISTRY");
-    const result = await new CoreHubRegistryClient(registry).reviews({ status: readOption(args, "--status") });
+    const result = await new CoreHubRegistryClient(registry).reviews(readQueueListOptions(args));
     console.log(
       JSON.stringify(
         {
           status: "ok",
           registry: normalizeRegistry(registry),
-          count: result.length,
-          reviews: result,
+          ...result.meta,
+          reviews: result.data,
         },
         null,
         2,
@@ -382,14 +382,14 @@ async function runSubmissionCommand(values) {
 
   if (subcommand === "list") {
     if (!registry) throw new Error("submissions list requires --registry or COREHUB_REGISTRY");
-    const result = await new CoreHubRegistryClient(registry).submissions({ status: readOption(args, "--status") });
+    const result = await new CoreHubRegistryClient(registry).submissions(readQueueListOptions(args));
     console.log(
       JSON.stringify(
         {
           status: "ok",
           registry: normalizeRegistry(registry),
-          count: result.length,
-          submissions: result,
+          ...result.meta,
+          submissions: result.data,
         },
         null,
         2,
@@ -743,6 +743,24 @@ function readOption(values, name) {
   return values[index + 1];
 }
 
+function readQueueListOptions(values) {
+  return {
+    status: readOption(values, "--status"),
+    limit: readOptionalNonNegativeInteger(values, "--limit"),
+    offset: readOptionalNonNegativeInteger(values, "--offset"),
+  };
+}
+
+function readOptionalNonNegativeInteger(values, name) {
+  const value = readOption(values, name);
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
 function hasFlag(values, name) {
   return values.includes(name);
 }
@@ -768,8 +786,10 @@ function optionTakesValue(name) {
     "--changelog",
     "--display-name",
     "--kind",
+    "--limit",
     "--max-bytes",
     "--notes",
+    "--offset",
     "--output",
     "--publisher",
     "--provider",
@@ -1529,7 +1549,9 @@ class CoreHubRegistryClient {
   async submissions(options = {}) {
     const url = this.apiV2Url("/submissions");
     if (options.status) url.searchParams.set("status", options.status);
-    return this.readV2Data(url);
+    if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+    if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
+    return this.readV2Envelope(url);
   }
 
   async submission(submissionId) {
@@ -1539,7 +1561,9 @@ class CoreHubRegistryClient {
   async reviews(options = {}) {
     const url = this.apiV2Url("/reviews");
     if (options.status) url.searchParams.set("status", options.status);
-    return this.readV2Data(url);
+    if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+    if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
+    return this.readV2Envelope(url);
   }
 
   async review(reviewId) {
@@ -1621,6 +1645,10 @@ class CoreHubRegistryClient {
   }
 
   async readV2Data(url) {
+    return (await this.readV2Envelope(url)).data;
+  }
+
+  async readV2Envelope(url) {
     const response = await fetch(url, {
       headers: { Accept: "application/json", "User-Agent": "corehub-cli" },
     });
@@ -1631,7 +1659,7 @@ class CoreHubRegistryClient {
     if (!payload || payload.apiVersion !== "v2" || !("data" in payload)) {
       throw new Error("CoreHub registry returned an invalid v2 response");
     }
-    return payload.data;
+    return { data: payload.data, meta: payload.meta ?? {} };
   }
 
   async writeData(url, options = {}) {
@@ -1687,9 +1715,9 @@ Usage:
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
-  corehub submissions list [--status pending_review|approved|rejected] --registry https://coreblow.com/corehub
+  corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
-  corehub review list [--status open|approved|blocked] --registry https://coreblow.com/corehub
+  corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub review status <review-id> --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
@@ -1741,7 +1769,7 @@ function printReviewHelp() {
   console.log(`CoreHub review commands
 
 Usage:
-  corehub review list [--status open|approved|blocked] --registry https://coreblow.com/corehub
+  corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub review status <review-id> --registry https://coreblow.com/corehub
   corehub review inspect <review-id> --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
@@ -1753,7 +1781,7 @@ function printSubmissionHelp() {
   console.log(`CoreHub submission commands
 
 Usage:
-  corehub submissions list [--status pending_review|approved|rejected] --registry https://coreblow.com/corehub
+  corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub submissions status <submission-id> --registry https://coreblow.com/corehub
 `);
