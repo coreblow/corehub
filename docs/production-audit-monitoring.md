@@ -167,6 +167,14 @@ The assert command prints a JSON result and exits non-zero when any configured t
 
 The GitHub Actions template runs this assertion only when `corehub-audit-alert-delivery-metrics.jsonl` exists, so normal runs without a `fail_closed` alert do not fail just because no metric artifact was produced.
 
+Run the local pipeline smoke before changing alert delivery or metrics gates:
+
+```sh
+npm run smoke:audit-alert-pipeline
+```
+
+The smoke simulates `fail_closed`, a temporary alert delivery failure, metrics JSONL export, metrics summary, and threshold assertion.
+
 ## Cloudflare Scheduled Worker
 
 Use the Worker template:
