@@ -722,6 +722,70 @@ try {
     assert.equal(uploadAuditListPayload.auditEvents.some((event) => event.action === "artifact.upload.request"), true);
     assert.equal(uploadAuditListPayload.auditEvents.some((event) => event.action === "artifact.upload.verify"), true);
 
+    const filteredAuditJsonl = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "audit",
+        "list",
+        "--action",
+        "review.approve",
+        "--actor",
+        "github:coreblow-admin",
+        "--target-type",
+        "review",
+        "--format",
+        "jsonl",
+        "--limit",
+        "20",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const filteredAuditEvents = filteredAuditJsonl.stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    assert.equal(filteredAuditEvents.length, 1);
+    assert.equal(filteredAuditEvents[0].action, "review.approve");
+    assert.equal(filteredAuditEvents[0].actor.id, "github:coreblow-admin");
+    assert.equal(filteredAuditEvents[0].targetType, "review");
+
+    const auditExportDir = await mkdtemp(join(tmpdir(), "corehub-audit-export-"));
+    try {
+      const outputPath = join(auditExportDir, "review-approve.audit.jsonl");
+      const auditExport = await execFileAsync(
+        process.execPath,
+        [
+          cliPath,
+          "audit",
+          "list",
+          "--action",
+          "review.approve",
+          "--format",
+          "jsonl",
+          "--output",
+          outputPath,
+          "--registry",
+          apiRegistryUrl,
+        ],
+        { env: apiAuthEnv },
+      );
+      const auditExportPayload = JSON.parse(auditExport.stdout);
+      assert.equal(auditExportPayload.status, "exported");
+      assert.equal(auditExportPayload.format, "jsonl");
+      const exportedEvents = (await readFile(outputPath, "utf8"))
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      assert.equal(exportedEvents.some((event) => event.action === "review.approve"), true);
+    } finally {
+      await rm(auditExportDir, { recursive: true, force: true });
+    }
+
     const projectedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
     assert.equal(projectedEntriesResponse.status, 200);
     const projectedEntriesPayload = await projectedEntriesResponse.json();

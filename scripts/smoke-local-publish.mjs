@@ -166,6 +166,30 @@ try {
   assert.equal(reviewAudit.auditEvents.some((event) => event.action === "review.inspect"), true);
   logStep(`review audit events listed: ${reviewAudit.count}`);
 
+  const approvalAuditJsonl = await runCoreHub([
+    "audit",
+    "list",
+    "--action",
+    "review.approve",
+    "--actor",
+    "github:coreblow-admin",
+    "--target-type",
+    "review",
+    "--format",
+    "jsonl",
+    "--limit",
+    "20",
+    "--registry",
+    registry,
+  ]);
+  const approvalAuditEvents = approvalAuditJsonl
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  assert.equal(approvalAuditEvents.length, 1);
+  assert.equal(approvalAuditEvents[0].targetId, submission.moderationReview.id);
+  logStep(`approval audit jsonl exported: ${approvalAuditEvents.length}`);
+
   const projected = await fetch(`${registry}/api/v1/packages/plugin-lab`);
   assert.equal(projected.status, 200);
   const projectedPayload = await projected.json();

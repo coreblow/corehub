@@ -432,6 +432,9 @@ async function runAuditCommand(values) {
   if (subcommand === "list" || subcommand === "events") {
     if (!registry) throw new Error("audit list requires --registry or COREHUB_REGISTRY");
     const auth = await readAuthState();
+    const format = readOption(args, "--format") ?? "json";
+    if (!new Set(["json", "jsonl"]).has(format)) throw new Error("--format must be json or jsonl");
+    const output = readOption(args, "--output");
     const result = await new CoreHubRegistryClient(registry).auditEvents({
       ...readQueueListOptions(args),
       actor: readOption(args, "--actor"),
@@ -440,18 +443,32 @@ async function runAuditCommand(values) {
       targetType: readOption(args, "--target-type"),
       auth,
     });
-    console.log(
-      JSON.stringify(
-        {
-          status: "ok",
-          registry: normalizeRegistry(registry),
-          ...result.meta,
-          auditEvents: result.data,
-        },
-        null,
-        2,
-      ),
-    );
+    const payload = {
+      status: "ok",
+      registry: normalizeRegistry(registry),
+      ...result.meta,
+      auditEvents: result.data,
+    };
+    const rendered = formatAuditOutput(payload, format);
+    if (output) {
+      await writeTextOutput(output, rendered);
+      console.log(
+        JSON.stringify(
+          {
+            status: "exported",
+            registry: payload.registry,
+            format,
+            output: resolve(output),
+            count: payload.count,
+            total: payload.total,
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log(rendered);
+    }
     return;
   }
 
@@ -799,6 +816,19 @@ function readOptionalNonNegativeInteger(values, name) {
   return parsed;
 }
 
+function formatAuditOutput(payload, format) {
+  if (format === "jsonl") {
+    return `${payload.auditEvents.map((event) => JSON.stringify(event)).join("\n")}\n`;
+  }
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+async function writeTextOutput(outputPath, text) {
+  const target = resolve(outputPath);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, text);
+}
+
 function hasFlag(values, name) {
   return values.includes(name);
 }
@@ -825,6 +855,7 @@ function optionTakesValue(name) {
     "--actor",
     "--changelog",
     "--display-name",
+    "--format",
     "--kind",
     "--limit",
     "--max-bytes",
@@ -1772,7 +1803,7 @@ Usage:
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
-  corehub audit list [--target id] [--action action] [--actor actor-id] [--limit n] [--offset n] --registry https://coreblow.com/corehub
+  corehub audit list [--target id] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -1827,7 +1858,7 @@ function printAuditHelp() {
   console.log(`CoreHub audit commands
 
 Usage:
-  corehub audit list [--target id] [--target-type type] [--action action] [--actor actor-id] [--limit n] [--offset n] --registry https://coreblow.com/corehub
+  corehub audit list [--target id] [--target-type type] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
 `);
 }
 

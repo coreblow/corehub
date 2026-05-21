@@ -209,7 +209,10 @@ Operators can inspect the trail through the read-only CLI surface:
 ```sh
 corehub audit list --target review-plugin-lab-0-1-0 --limit 20 --registry http://127.0.0.1:8787/corehub
 corehub audit list --action review.approve --limit 20 --registry http://127.0.0.1:8787/corehub
+corehub audit list --action review.approve --actor github:coreblow-admin --target-type review --format jsonl --output ./review-approvals.audit.jsonl --registry http://127.0.0.1:8787/corehub
 ```
+
+For enterprise export examples, see `docs/audit-runbook.md`.
 
 ## Server Bootstrap
 

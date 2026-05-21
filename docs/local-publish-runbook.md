@@ -33,6 +33,7 @@ npm run corehub -- review approve review-plugin-lab-0-1-0 --registry http://127.
 npm run corehub -- reviews status review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- reviews list --status approved --limit 20 --offset 0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- audit list --target review-plugin-lab-0-1-0 --limit 20 --registry http://127.0.0.1:8787/corehub
+npm run corehub -- audit list --action review.approve --actor github:coreblow-admin --target-type review --format jsonl --output ./review-approvals.audit.jsonl --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package inspect plugin-lab --registry http://127.0.0.1:8787/corehub
 ```
 
