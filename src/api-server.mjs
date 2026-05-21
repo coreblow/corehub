@@ -392,6 +392,28 @@ export class CoreHubLocalStorageAdapter {
     return paginate(records, options);
   }
 
+  verifyAuditEvents() {
+    const events = [...this.auditEvents].sort((left, right) => left.sequence - right.sequence);
+    let previousHash = "0".repeat(64);
+    const errors = [];
+    for (const event of events) {
+      if (event.previousHash !== previousHash) {
+        errors.push(`${event.id}.previousHash expected ${previousHash}`);
+      }
+      const eventHash = hashAuditEvent({ ...event, previousHash, eventHash: undefined });
+      if (event.eventHash !== eventHash) {
+        errors.push(`${event.id}.eventHash expected ${eventHash}`);
+      }
+      previousHash = event.eventHash ?? "";
+    }
+    return {
+      valid: errors.length === 0,
+      count: events.length,
+      head: previousHash,
+      errors,
+    };
+  }
+
   async auditRead({ actor = defaultActor(), action, targetType, targetId, metadata = {}, now = new Date() }) {
     this.recordAuditEvent({
       actor,
@@ -405,15 +427,20 @@ export class CoreHubLocalStorageAdapter {
   }
 
   recordAuditEvent({ actor, action, targetType, targetId, metadata = {}, createdAt }) {
+    const previousHash = this.auditEvents.at(-1)?.eventHash ?? "0".repeat(64);
+    const sequence = this.auditEvents.length + 1;
     const event = {
-      id: `audit-${String(this.auditEvents.length + 1).padStart(6, "0")}-${slugId(action)}-${slugId(targetId).slice(0, 48)}`,
+      id: `audit-${String(sequence).padStart(6, "0")}-${slugId(action)}-${slugId(targetId).slice(0, 48)}`,
+      sequence,
       actor,
       action,
       targetType,
       targetId,
       metadata,
       createdAt,
+      previousHash,
     };
+    event.eventHash = hashAuditEvent(event);
     this.auditEvents.push(event);
     return event;
   }
@@ -655,6 +682,19 @@ export function createCoreHubApiHandler({
         return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
       }
 
+      if (request.method === "GET" && segments[0] === "audit" && segments[1] === "verify" && segments.length === 2) {
+        const result = storage.verifyAuditEvents();
+        await storage.auditRead({
+          actor: actorFromRequest(request),
+          action: "audit.verify",
+          targetType: "audit",
+          targetId: result.head,
+          metadata: { count: result.count, valid: result.valid },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (
         request.method === "POST" &&
         segments[0] === "reviews" &&
@@ -887,6 +927,34 @@ function slugId(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "unknown";
+}
+
+function hashAuditEvent(event) {
+  const canonical = {
+    id: event.id,
+    sequence: event.sequence,
+    actor: event.actor,
+    action: event.action,
+    targetType: event.targetType,
+    targetId: event.targetId,
+    metadata: event.metadata ?? {},
+    createdAt: event.createdAt,
+    previousHash: event.previousHash,
+  };
+  return createHash("sha256").update(stableStringify(canonical)).digest("hex");
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item) ?? "null").join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  if (value === undefined) return undefined;
+  return JSON.stringify(value);
 }
 
 function trimBasePath(pathname, basePath) {

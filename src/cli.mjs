@@ -472,6 +472,25 @@ async function runAuditCommand(values) {
     return;
   }
 
+  if (subcommand === "verify") {
+    if (!registry) throw new Error("audit verify requires --registry or COREHUB_REGISTRY");
+    const auth = await readAuthState();
+    const result = await new CoreHubRegistryClient(registry).verifyAuditEvents({ auth });
+    console.log(
+      JSON.stringify(
+        {
+          status: result.valid ? "valid" : "invalid",
+          registry: normalizeRegistry(registry),
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    if (!result.valid) process.exitCode = 1;
+    return;
+  }
+
   printAuditHelp();
 }
 
@@ -1658,6 +1677,10 @@ class CoreHubRegistryClient {
     return this.readV2Envelope(url, { auth: options.auth });
   }
 
+  async verifyAuditEvents(options = {}) {
+    return this.readV2Data(this.apiV2Url("/audit/verify"), { auth: options.auth });
+  }
+
   async requestArtifactUpload(payload, options = {}) {
     return this.writeData(this.apiV2Url("/artifacts/uploads"), {
       auth: options.auth,
@@ -1804,6 +1827,7 @@ Usage:
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
   corehub audit list [--target id] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
+  corehub audit verify --registry https://coreblow.com/corehub
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -1859,6 +1883,7 @@ function printAuditHelp() {
 
 Usage:
   corehub audit list [--target id] [--target-type type] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
+  corehub audit verify --registry https://coreblow.com/corehub
 `);
 }
 

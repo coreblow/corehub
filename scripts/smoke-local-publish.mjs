@@ -188,7 +188,15 @@ try {
     .map((line) => JSON.parse(line));
   assert.equal(approvalAuditEvents.length, 1);
   assert.equal(approvalAuditEvents[0].targetId, submission.moderationReview.id);
+  assert.match(approvalAuditEvents[0].eventHash, /^[a-f0-9]{64}$/);
+  assert.match(approvalAuditEvents[0].previousHash, /^[a-f0-9]{64}$/);
   logStep(`approval audit jsonl exported: ${approvalAuditEvents.length}`);
+
+  const auditVerify = JSON.parse(await runCoreHub(["audit", "verify", "--registry", registry]));
+  assert.equal(auditVerify.status, "valid");
+  assert.equal(auditVerify.valid, true);
+  assert.match(auditVerify.head, /^[a-f0-9]{64}$/);
+  logStep(`audit hash chain verified: ${auditVerify.count}`);
 
   const projected = await fetch(`${registry}/api/v1/packages/plugin-lab`);
   assert.equal(projected.status, 200);

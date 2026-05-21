@@ -628,10 +628,24 @@
     "auditEvent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "actor", "action", "targetType", "targetId", "createdAt"],
+      "required": [
+        "id",
+        "sequence",
+        "actor",
+        "action",
+        "targetType",
+        "targetId",
+        "createdAt",
+        "previousHash",
+        "eventHash"
+      ],
       "properties": {
         "id": {
           "$ref": "#/$defs/id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
         },
         "actor": {
           "$ref": "#/$defs/actor"
@@ -653,6 +667,12 @@
         },
         "createdAt": {
           "$ref": "#/$defs/timestamp"
+        },
+        "previousHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "eventHash": {
+          "$ref": "#/$defs/sha256"
         }
       }
     }

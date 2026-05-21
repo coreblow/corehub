@@ -54,6 +54,8 @@ assert.equal(writeSideState.packageVersions[0].status, "available");
 assert.equal(writeSideState.artifactUploads[0].sha256, pluginLabEntry.versions[0].artifact.sha256);
 assert.equal(writeSideState.artifactUploads[0].size, pluginLabEntry.versions[0].artifact.size);
 assert.equal(writeSideState.auditEvents.some((event) => event.action === "review.approve"), true);
+assert.match(writeSideState.auditEvents[0].eventHash, /^[a-f0-9]{64}$/);
+assert.equal(writeSideState.auditEvents[1].previousHash, writeSideState.auditEvents[0].eventHash);
 
 const catalog = new CoreHubCatalog(entries);
 assert.equal(catalog.findById("plugin-lab").kind, "plugin");
@@ -752,6 +754,7 @@ try {
     assert.equal(filteredAuditEvents[0].action, "review.approve");
     assert.equal(filteredAuditEvents[0].actor.id, "github:coreblow-admin");
     assert.equal(filteredAuditEvents[0].targetType, "review");
+    assert.match(filteredAuditEvents[0].eventHash, /^[a-f0-9]{64}$/);
 
     const auditExportDir = await mkdtemp(join(tmpdir(), "corehub-audit-export-"));
     try {
@@ -786,6 +789,16 @@ try {
       await rm(auditExportDir, { recursive: true, force: true });
     }
 
+    const auditVerify = await execFileAsync(
+      process.execPath,
+      [cliPath, "audit", "verify", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const auditVerifyPayload = JSON.parse(auditVerify.stdout);
+    assert.equal(auditVerifyPayload.status, "valid");
+    assert.equal(auditVerifyPayload.valid, true);
+    assert.match(auditVerifyPayload.head, /^[a-f0-9]{64}$/);
+
     const projectedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
     assert.equal(projectedEntriesResponse.status, 200);
     const projectedEntriesPayload = await projectedEntriesResponse.json();
@@ -814,6 +827,7 @@ try {
     assert.equal(persistedState.packageVersions[0].status, "available");
     assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);
+    assert.equal(persistedState.auditEvents.every((event) => /^[a-f0-9]{64}$/.test(event.eventHash)), true);
 
     const reloadedStorage = await CoreHubLocalStorageAdapter.open({
       root: apiStorageDir,
@@ -824,6 +838,7 @@ try {
     assert.equal(reloadedEntries[0].id, "plugin-lab");
     assert.equal(reloadedEntries[0].versions[0].artifact.sha256, entries[2].versions[0].artifact.sha256);
     assert.ok(reloadedStorage.listAuditEvents({ target: remoteSubmitPayload.moderationReview.id }).items.length > 0);
+    assert.equal(reloadedStorage.verifyAuditEvents().valid, true);
   } finally {
     await rm(apiAuthHome, { recursive: true, force: true });
   }

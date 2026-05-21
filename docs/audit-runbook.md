@@ -22,6 +22,12 @@ Inspect every event for a single review id:
 npm run corehub -- audit list --target review-plugin-lab-0-1-0 --limit 20 --registry http://127.0.0.1:8787/corehub
 ```
 
+Verify the audit hash chain:
+
+```sh
+npm run corehub -- audit verify --registry http://127.0.0.1:8787/corehub
+```
+
 ## Artifact Verification Evidence
 
 Export upload and verification events for an artifact upload:
@@ -43,3 +49,5 @@ Each audit event contains:
 | `targetId` | Target record id. |
 | `metadata` | Action-specific context for investigation. |
 | `createdAt` | Event timestamp. |
+| `previousHash` | Previous event hash, or 64 zeroes for the first event. |
+| `eventHash` | SHA-256 hash over the canonical event payload. |

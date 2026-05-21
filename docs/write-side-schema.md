@@ -65,6 +65,7 @@ The future authenticated API should expose these resources under a new versioned
 | `POST /corehub/api/v2/reviews/:id/approve` | Approve a submission or version for install surfaces. |
 | `POST /corehub/api/v2/reviews/:id/block` | Block a submission, version, artifact, or publisher. |
 | `GET /corehub/api/v2/audit/events` | List write-side audit events with target, action, actor, and pagination filters. |
+| `GET /corehub/api/v2/audit/verify` | Verify the append-only audit hash chain and return the current head hash. |
 | `POST /corehub/api/v2/transfers` | Request package ownership transfer. |
 | `POST /corehub/api/v2/install-events` | Record opt-in aggregate install telemetry. |
 
@@ -189,7 +190,9 @@ The local state file uses `schemaVersion: corehub.local-state.v1`. Future produc
 
 ## Audit Trail Boundary
 
-CoreHub records audit events in the same spirit as ClawHub's general `auditLogs` and moderation event logs. Each event includes `id`, `actor`, `action`, `targetType`, `targetId`, `metadata`, and `createdAt`.
+CoreHub records audit events in the same spirit as ClawHub's general `auditLogs` and moderation event logs. Each event includes `id`, `sequence`, `actor`, `action`, `targetType`, `targetId`, `metadata`, `createdAt`, `previousHash`, and `eventHash`.
+
+The audit trail is lightly tamper-evident. Every event hashes a canonical payload that includes its sequence number and the previous event hash. The first event uses 64 zeroes as `previousHash`, and `corehub audit verify` recomputes the chain to prove the current log has not been edited out of order.
 
 The local API currently records:
 
@@ -203,6 +206,7 @@ The local API currently records:
 | `submission.list` / `submission.inspect` | Submission queue or submission id. |
 | `review.list` / `review.inspect` | Review queue or review id. |
 | `audit.list` | Audit query target or filter. |
+| `audit.verify` | Audit chain verification read. |
 
 Operators can inspect the trail through the read-only CLI surface:
 
@@ -210,6 +214,7 @@ Operators can inspect the trail through the read-only CLI surface:
 corehub audit list --target review-plugin-lab-0-1-0 --limit 20 --registry http://127.0.0.1:8787/corehub
 corehub audit list --action review.approve --limit 20 --registry http://127.0.0.1:8787/corehub
 corehub audit list --action review.approve --actor github:coreblow-admin --target-type review --format jsonl --output ./review-approvals.audit.jsonl --registry http://127.0.0.1:8787/corehub
+corehub audit verify --registry http://127.0.0.1:8787/corehub
 ```
 
 For enterprise export examples, see `docs/audit-runbook.md`.

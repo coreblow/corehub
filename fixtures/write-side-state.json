@@ -189,6 +189,7 @@
   "auditEvents": [
     {
       "id": "audit-plugin-lab-upload-request",
+      "sequence": 1,
       "actor": {
         "type": "publisher",
         "id": "publisher-coreblow",
@@ -202,10 +203,13 @@
         "packageId": "plugin-lab",
         "version": "0.1.0"
       },
-      "createdAt": "2026-05-21T00:00:00Z"
+      "createdAt": "2026-05-21T00:00:00Z",
+      "previousHash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "eventHash": "0d07a2abd801d332656f7fd884c6a6a54c22cc5cd954e8149380754463c26ec3"
     },
     {
       "id": "audit-plugin-lab-review-approve",
+      "sequence": 2,
       "actor": {
         "type": "moderator",
         "id": "moderator:corehub"
@@ -217,7 +221,9 @@
         "submissionId": "submission-plugin-lab-010",
         "packageVersionId": "version-plugin-lab-010"
       },
-      "createdAt": "2026-05-21T00:00:00Z"
+      "createdAt": "2026-05-21T00:00:00Z",
+      "previousHash": "0d07a2abd801d332656f7fd884c6a6a54c22cc5cd954e8149380754463c26ec3",
+      "eventHash": "0e9fc845cc76454cde08503a3deac48787c8f8543c8ccbd100bf317b1bac5082"
     }
   ]
 }
