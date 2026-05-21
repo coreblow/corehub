@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "corehub.write.v1",
+  "generatedAt": "2026-05-21T00:00:00Z",
+  "publisherAccounts": [
+    {
+      "id": "publisher-coreblow",
+      "handle": "coreblow",
+      "displayName": "CoreBlow",
+      "kind": "organization",
+      "status": "verified",
+      "source": "https://github.com/coreblow",
+      "contact": "https://github.com/coreblow/corehub/security/policy",
+      "createdAt": "2026-05-21T00:00:00Z",
+      "verifiedAt": "2026-05-21T00:00:00Z"
+    }
+  ],
+  "publisherMembers": [
+    {
+      "id": "member-coreblow-owner",
+      "publisherHandle": "coreblow",
+      "userId": "github:coreblow-admin",
+      "role": "owner",
+      "status": "active",
+      "createdAt": "2026-05-21T00:00:00Z"
+    }
+  ],
+  "packageSubmissions": [
+    {
+      "id": "submission-plugin-lab-010",
+      "packageId": "plugin-lab",
+      "kind": "plugin",
+      "publisherHandle": "coreblow",
+      "version": "0.1.0",
+      "status": "approved",
+      "artifactUploadId": "artifact-plugin-lab-010",
+      "source": "https://github.com/coreblow/plugin-lab",
+      "changelog": "Initial CoreHub installer fixture.",
+      "submittedBy": {
+        "type": "publisher",
+        "id": "publisher-coreblow",
+        "publisherHandle": "coreblow"
+      },
+      "submittedAt": "2026-05-21T00:00:00Z",
+      "reviewId": "review-plugin-lab-010"
+    }
+  ],
+  "packageVersions": [
+    {
+      "id": "version-plugin-lab-010",
+      "packageId": "plugin-lab",
+      "version": "0.1.0",
+      "tag": "latest",
+      "publisherHandle": "coreblow",
+      "status": "available",
+      "artifactUploadId": "artifact-plugin-lab-010",
+      "submissionId": "submission-plugin-lab-010",
+      "createdAt": "2026-05-21T00:00:00Z",
+      "publishedAt": "2026-05-21T00:00:00Z",
+      "moderationStatus": "approved"
+    }
+  ],
+  "artifactUploads": [
+    {
+      "id": "artifact-plugin-lab-010",
+      "packageId": "plugin-lab",
+      "version": "0.1.0",
+      "publisherHandle": "coreblow",
+      "status": "verified",
+      "storage": {
+        "provider": "github-raw",
+        "key": "artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz",
+        "url": "https://raw.githubusercontent.com/coreblow/corehub/main/artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz"
+      },
+      "mediaType": "application/gzip",
+      "size": 736,
+      "sha256": "4de3b0826298645b080a471904b5bfb7731aaed67a6b6da2bad26402e91a6c90",
+      "uploadedBy": {
+        "type": "publisher",
+        "id": "publisher-coreblow",
+        "publisherHandle": "coreblow"
+      },
+      "createdAt": "2026-05-21T00:00:00Z",
+      "verifiedAt": "2026-05-21T00:00:00Z"
+    }
+  ],
+  "moderationReviews": [
+    {
+      "id": "review-plugin-lab-010",
+      "targetType": "submission",
+      "targetId": "submission-plugin-lab-010",
+      "status": "approved",
+      "decision": "approve",
+      "notes": "Fixture artifact matches checksum and package ownership.",
+      "reviewedBy": {
+        "type": "moderator",
+        "id": "moderator:corehub"
+      },
+      "createdAt": "2026-05-21T00:00:00Z",
+      "decidedAt": "2026-05-21T00:00:00Z"
+    }
+  ],
+  "ownershipTransfers": [
+    {
+      "id": "transfer-plugin-lab-example",
+      "packageId": "plugin-lab",
+      "fromPublisherHandle": "coreblow",
+      "toPublisherHandle": "coreblow",
+      "status": "completed",
+      "requestedBy": {
+        "type": "publisher",
+        "id": "publisher-coreblow",
+        "publisherHandle": "coreblow"
+      },
+      "acceptedBy": {
+        "type": "publisher",
+        "id": "publisher-coreblow",
+        "publisherHandle": "coreblow"
+      },
+      "requestedAt": "2026-05-21T00:00:00Z",
+      "acceptedAt": "2026-05-21T00:00:00Z",
+      "completedAt": "2026-05-21T00:00:00Z"
+    }
+  ],
+  "installEvents": [
+    {
+      "id": "install-plugin-lab-010-smoke",
+      "packageId": "plugin-lab",
+      "version": "0.1.0",
+      "publisherHandle": "coreblow",
+      "event": "verified",
+      "source": "ci",
+      "reason": "Phase 14 schema fixture",
+      "createdAt": "2026-05-21T00:00:00Z"
+    }
+  ]
+}

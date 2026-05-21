@@ -14,6 +14,13 @@ const entries = JSON.parse(await readFile(new URL("../catalog.json", import.meta
 const schema = JSON.parse(
   await readFile(new URL("../schemas/corehub.catalog.schema.json", import.meta.url), "utf-8"),
 );
+const writeSideSchema = JSON.parse(
+  await readFile(new URL("../schemas/corehub.write-side.schema.json", import.meta.url), "utf-8"),
+);
+const writeSideState = JSON.parse(
+  await readFile(new URL("../fixtures/write-side-state.json", import.meta.url), "utf-8"),
+);
+const pluginLabEntry = entries.find((entry) => entry.id === "plugin-lab");
 const errors = validateCatalog(entries);
 const pluginLabArtifactBytes = await readFile(
   new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url),
@@ -35,7 +42,13 @@ const pluginLabRemoteArtifact = {
 
 assert.deepEqual(errors, []);
 assert.deepEqual(new CoreHubCatalogSchemaValidator(schema).validate(entries), []);
+assert.deepEqual(new CoreHubCatalogSchemaValidator(writeSideSchema).validate(writeSideState), []);
 assert.equal(entries[0].id, "coreblow");
+assert.equal(writeSideState.schemaVersion, "corehub.write.v1");
+assert.equal(writeSideState.packageSubmissions[0].status, "approved");
+assert.equal(writeSideState.packageVersions[0].status, "available");
+assert.equal(writeSideState.artifactUploads[0].sha256, pluginLabEntry.versions[0].artifact.sha256);
+assert.equal(writeSideState.artifactUploads[0].size, pluginLabEntry.versions[0].artifact.size);
 
 const catalog = new CoreHubCatalog(entries);
 assert.equal(catalog.findById("plugin-lab").kind, "plugin");

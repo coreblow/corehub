@@ -40,7 +40,9 @@ The current implementation is the registry foundation: catalog validation, deter
 - `docs/skill-format.md`
 - `docs/plugin-format.md`
 - `docs/directory-api.md`
+- `docs/write-side-schema.md`
 - `package.json`
+- `schemas/corehub.write-side.schema.json`
 - `src/catalog.mjs`
 - `src/cli.mjs`
 - `src/corehub.mjs`
@@ -61,6 +63,7 @@ npm test
 
 ```sh
 npm run validate:schema
+npm run validate:write-schema
 ```
 
 ### CLI
@@ -101,7 +104,7 @@ Review states:
 - `verified`
 - `deprecated`
 
-See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), and [ClawHub Parity](docs/clawhub-parity.md).
+See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), [Write-Side Schema](docs/write-side-schema.md), and [ClawHub Parity](docs/clawhub-parity.md).
 
 ## Public Web Surface
 
@@ -116,6 +119,8 @@ https://coreblow.com/corehub
 `catalog.json` is the canonical CoreHub directory source. The `coreblow.com` repository serves a generated copy at `https://coreblow.com/corehub/catalog.json` and checks for drift in CI.
 
 `schemas/corehub.catalog.schema.json` is the public catalog schema.
+
+`schemas/corehub.write-side.schema.json` is the planned authenticated marketplace schema for future publisher writes. It is intentionally separate from the read-only catalog schema so Registry API v1 stays stable while API v2 publishing work is built.
 
 ## Release Policy
 

@@ -1,0 +1,494 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coreblow.com/schemas/corehub.write-side.schema.json",
+  "title": "CoreHub Write-Side Registry State",
+  "description": "Planned write-side registry schema for CoreHub publisher accounts, package submissions, artifact uploads, moderation, ownership transfers, and install analytics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "generatedAt",
+    "publisherAccounts",
+    "publisherMembers",
+    "packageSubmissions",
+    "packageVersions",
+    "artifactUploads",
+    "moderationReviews",
+    "ownershipTransfers",
+    "installEvents"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": ["corehub.write.v1"]
+    },
+    "generatedAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "publisherAccounts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/publisherAccount"
+      }
+    },
+    "publisherMembers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/publisherMember"
+      }
+    },
+    "packageSubmissions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/packageSubmission"
+      }
+    },
+    "packageVersions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/packageVersion"
+      }
+    },
+    "artifactUploads": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifactUpload"
+      }
+    },
+    "moderationReviews": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/moderationReview"
+      }
+    },
+    "ownershipTransfers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ownershipTransfer"
+      }
+    },
+    "installEvents": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/installEvent"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "handle": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "packageId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "timestamp": {
+      "type": "string",
+      "minLength": 1
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https?://"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["user", "publisher", "moderator", "system"]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "publisherHandle": {
+          "$ref": "#/$defs/handle"
+        }
+      }
+    },
+    "publisherAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "handle", "displayName", "kind", "status", "createdAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "handle": {
+          "$ref": "#/$defs/handle"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["user", "organization"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "verified", "suspended", "blocked"]
+        },
+        "source": {
+          "$ref": "#/$defs/url"
+        },
+        "contact": {
+          "$ref": "#/$defs/url"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "verifiedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "publisherMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "publisherHandle", "userId", "role", "status", "createdAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "publisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "admin", "maintainer", "reviewer"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "invited", "removed"]
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "packageSubmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "packageId",
+        "kind",
+        "publisherHandle",
+        "version",
+        "status",
+        "artifactUploadId",
+        "submittedBy",
+        "submittedAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "packageId": {
+          "$ref": "#/$defs/packageId"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["skill", "plugin", "provider", "channel"]
+        },
+        "publisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "pending_review", "approved", "rejected", "cancelled"]
+        },
+        "artifactUploadId": {
+          "$ref": "#/$defs/id"
+        },
+        "source": {
+          "$ref": "#/$defs/url"
+        },
+        "changelog": {
+          "type": "string",
+          "minLength": 1
+        },
+        "submittedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "submittedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reviewId": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "packageVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "packageId",
+        "version",
+        "publisherHandle",
+        "status",
+        "artifactUploadId",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "packageId": {
+          "$ref": "#/$defs/packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "tag": {
+          "$ref": "#/$defs/id"
+        },
+        "publisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending_review", "available", "deprecated", "blocked", "rejected"]
+        },
+        "artifactUploadId": {
+          "$ref": "#/$defs/id"
+        },
+        "submissionId": {
+          "$ref": "#/$defs/id"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "publishedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "moderationStatus": {
+          "type": "string",
+          "enum": ["pending", "approved", "held", "blocked"]
+        }
+      }
+    },
+    "artifactUpload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "packageId",
+        "version",
+        "publisherHandle",
+        "status",
+        "storage",
+        "size",
+        "sha256",
+        "uploadedBy",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "packageId": {
+          "$ref": "#/$defs/packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "publisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["requested", "uploaded", "verified", "rejected", "deleted"]
+        },
+        "storage": {
+          "$ref": "#/$defs/storage"
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "uploadedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "verifiedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "key"],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["r2", "s3", "github-raw"]
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "region": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "$ref": "#/$defs/url"
+        }
+      }
+    },
+    "moderationReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "targetType", "targetId", "status", "decision", "reviewedBy", "createdAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "targetType": {
+          "type": "string",
+          "enum": ["publisher", "package", "version", "artifact", "submission"]
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "approved", "rejected", "blocked", "held"]
+        },
+        "decision": {
+          "type": "string",
+          "enum": ["none", "approve", "reject", "block", "hold", "deprecate"]
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reviewedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "decidedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "ownershipTransfer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "packageId",
+        "fromPublisherHandle",
+        "toPublisherHandle",
+        "status",
+        "requestedBy",
+        "requestedAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "packageId": {
+          "$ref": "#/$defs/packageId"
+        },
+        "fromPublisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "toPublisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["requested", "accepted", "rejected", "cancelled", "completed"]
+        },
+        "requestedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "acceptedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "requestedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "acceptedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "completedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "installEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "packageId", "version", "event", "source", "createdAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "packageId": {
+          "$ref": "#/$defs/packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "publisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "event": {
+          "type": "string",
+          "enum": ["resolved", "downloaded", "verified", "installed", "blocked", "failed"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["cli", "coreblow", "api", "ci"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    }
+  }
+}
