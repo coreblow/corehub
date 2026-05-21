@@ -46,6 +46,8 @@ async function main() {
     await runPublisherCommand(args);
   } else if (command === "registry") {
     await runRegistryCommand(args);
+  } else if (command === "submission" || command === "submissions") {
+    await runSubmissionCommand(args);
   } else if (command === "review" || command === "reviews") {
     await runReviewCommand(args);
   } else if (command === "skill") {
@@ -307,6 +309,25 @@ async function runReviewCommand(values) {
   const args = values.slice(1);
   const registry = readOption(args, "--registry") ?? defaultRegistry;
 
+  if (subcommand === "status" || subcommand === "inspect") {
+    if (!registry) throw new Error(`review ${subcommand} requires --registry or COREHUB_REGISTRY`);
+    const reviewId = positionalArgs(args)[0];
+    if (!reviewId) throw new Error(`review ${subcommand} requires a review id`);
+    const result = await new CoreHubRegistryClient(registry).review(reviewId);
+    console.log(
+      JSON.stringify(
+        {
+          status: result.moderationReview.status,
+          registry: normalizeRegistry(registry),
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
   if (subcommand === "approve" || subcommand === "block") {
     if (!registry) throw new Error(`review ${subcommand} requires --registry or COREHUB_REGISTRY`);
     const reviewId = positionalArgs(args)[0];
@@ -334,6 +355,33 @@ async function runReviewCommand(values) {
   }
 
   printReviewHelp();
+}
+
+async function runSubmissionCommand(values) {
+  const subcommand = values[0] ?? "help";
+  const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
+
+  if (subcommand === "inspect" || subcommand === "status") {
+    if (!registry) throw new Error(`submissions ${subcommand} requires --registry or COREHUB_REGISTRY`);
+    const submissionId = positionalArgs(args)[0];
+    if (!submissionId) throw new Error(`submissions ${subcommand} requires a submission id`);
+    const result = await new CoreHubRegistryClient(registry).submission(submissionId);
+    console.log(
+      JSON.stringify(
+        {
+          status: result.submission.status,
+          registry: normalizeRegistry(registry),
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  printSubmissionHelp();
 }
 
 async function runSkillCommand(values) {
@@ -1442,6 +1490,14 @@ class CoreHubRegistryClient {
     return this.readData(this.apiUrl(`/publishers/${encodeURIComponent(handle)}`));
   }
 
+  async submission(submissionId) {
+    return this.readV2Data(this.apiV2Url(`/submissions/${encodeURIComponent(submissionId)}`));
+  }
+
+  async review(reviewId) {
+    return this.readV2Data(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}`));
+  }
+
   async requestArtifactUpload(payload, options = {}) {
     return this.writeData(this.apiV2Url("/artifacts/uploads"), {
       auth: options.auth,
@@ -1516,6 +1572,20 @@ class CoreHubRegistryClient {
     return payload.data;
   }
 
+  async readV2Data(url) {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json", "User-Agent": "corehub-cli" },
+    });
+    if (!response.ok) {
+      throw new Error(`CoreHub registry request failed: ${response.status} ${response.statusText}`);
+    }
+    const payload = await response.json();
+    if (!payload || payload.apiVersion !== "v2" || !("data" in payload)) {
+      throw new Error("CoreHub registry returned an invalid v2 response");
+    }
+    return payload.data;
+  }
+
   async writeData(url, options = {}) {
     const response = await fetch(url, {
       method: options.method,
@@ -1569,6 +1639,8 @@ Usage:
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
+  corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
+  corehub review status <review-id> --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub skill publish <skill-folder>
@@ -1619,8 +1691,19 @@ function printReviewHelp() {
   console.log(`CoreHub review commands
 
 Usage:
+  corehub review status <review-id> --registry https://coreblow.com/corehub
+  corehub review inspect <review-id> --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
+`);
+}
+
+function printSubmissionHelp() {
+  console.log(`CoreHub submission commands
+
+Usage:
+  corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
+  corehub submissions status <submission-id> --registry https://coreblow.com/corehub
 `);
 }
 

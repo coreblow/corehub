@@ -524,6 +524,42 @@ try {
     assert.equal(remoteSubmitPayload.packageVersionPreview.moderationStatus, "pending");
     assert.equal(remoteSubmitPayload.moderationReview.status, "open");
 
+    const remoteSubmissionInspect = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "submissions",
+        "inspect",
+        remoteSubmitPayload.submission.id,
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const remoteSubmissionInspectPayload = JSON.parse(remoteSubmissionInspect.stdout);
+    assert.equal(remoteSubmissionInspectPayload.status, "pending_review");
+    assert.equal(remoteSubmissionInspectPayload.submission.id, remoteSubmitPayload.submission.id);
+    assert.equal(remoteSubmissionInspectPayload.artifactUpload.status, "verified");
+    assert.equal(remoteSubmissionInspectPayload.moderationReview.status, "open");
+    assert.equal(remoteSubmissionInspectPayload.packageVersion, null);
+
+    const remoteReviewStatus = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "review",
+        "status",
+        remoteSubmitPayload.moderationReview.id,
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const remoteReviewStatusPayload = JSON.parse(remoteReviewStatus.stdout);
+    assert.equal(remoteReviewStatusPayload.status, "open");
+    assert.equal(remoteReviewStatusPayload.moderationReview.id, remoteSubmitPayload.moderationReview.id);
+    assert.equal(remoteReviewStatusPayload.submission.status, "pending_review");
+
     const approve = await execFileAsync(
       process.execPath,
       [
@@ -545,6 +581,23 @@ try {
     assert.equal(approvePayload.submission.status, "approved");
     assert.equal(approvePayload.packageVersion.status, "available");
     assert.equal(approvePayload.packageVersion.moderationStatus, "approved");
+
+    const approvedReviewStatus = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "reviews",
+        "status",
+        remoteSubmitPayload.moderationReview.id,
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const approvedReviewStatusPayload = JSON.parse(approvedReviewStatus.stdout);
+    assert.equal(approvedReviewStatusPayload.status, "approved");
+    assert.equal(approvedReviewStatusPayload.submission.status, "approved");
+    assert.equal(approvedReviewStatusPayload.packageVersion.status, "available");
 
     const projectedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
     assert.equal(projectedEntriesResponse.status, 200);

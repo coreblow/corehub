@@ -255,6 +255,33 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  inspectSubmission(submissionId) {
+    const record = this.submissions.get(submissionId);
+    if (!record) throw httpError(404, "Submission not found");
+    return this.submissionInspection(record);
+  }
+
+  inspectReview(reviewId) {
+    const moderationReview = this.reviews.get(reviewId);
+    if (!moderationReview) throw httpError(404, "Moderation review not found");
+    const record = moderationReview.targetType === "submission" ? this.submissions.get(moderationReview.targetId) : null;
+    return {
+      moderationReview,
+      ...(record ? this.submissionInspection(record) : {}),
+    };
+  }
+
+  submissionInspection(record) {
+    const packageVersion = this.packageVersions.get(record.packageVersionPreview.id) ?? null;
+    return {
+      submission: record.submission,
+      artifactUpload: this.findArtifactUpload(record.artifactUploadId),
+      packageVersionPreview: record.packageVersionPreview,
+      packageVersion,
+      moderationReview: this.reviews.get(record.submission.reviewId) ?? null,
+    };
+  }
+
   projectCatalogEntries() {
     const entries = [];
     for (const version of this.packageVersions.values()) {
@@ -420,6 +447,16 @@ export function createCoreHubApiHandler({
         const actor = actorFromRequest(request);
         const result = await storage.createSubmission(body, { actor, now: now() });
         return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "submissions" && segments.length === 2) {
+        const result = storage.inspectSubmission(decodeURIComponent(segments[1]));
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "reviews" && segments.length === 2) {
+        const result = storage.inspectReview(decodeURIComponent(segments[1]));
+        return json(response, 200, { apiVersion: "v2", data: result });
       }
 
       if (

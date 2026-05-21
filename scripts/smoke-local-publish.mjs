@@ -84,6 +84,20 @@ try {
   assert.equal(submission.moderationReview.status, "open");
   logStep(`submission created: ${submission.submission.id}`);
 
+  const submissionInspect = JSON.parse(
+    await runCoreHub(["submissions", "inspect", submission.submission.id, "--registry", registry]),
+  );
+  assert.equal(submissionInspect.status, "pending_review");
+  assert.equal(submissionInspect.artifactUpload.status, "verified");
+  logStep(`submission inspect status: ${submissionInspect.status}`);
+
+  const reviewStatus = JSON.parse(
+    await runCoreHub(["review", "status", submission.moderationReview.id, "--registry", registry]),
+  );
+  assert.equal(reviewStatus.status, "open");
+  assert.equal(reviewStatus.submission.status, "pending_review");
+  logStep(`review status before approval: ${reviewStatus.status}`);
+
   const approval = JSON.parse(
     await runCoreHub([
       "review",
@@ -98,6 +112,13 @@ try {
   assert.equal(approval.status, "approved");
   assert.equal(approval.packageVersion.status, "available");
   logStep(`review approved: ${approval.moderationReview.id}`);
+
+  const approvedReview = JSON.parse(
+    await runCoreHub(["reviews", "status", submission.moderationReview.id, "--registry", registry]),
+  );
+  assert.equal(approvedReview.status, "approved");
+  assert.equal(approvedReview.packageVersion.status, "available");
+  logStep(`review status after approval: ${approvedReview.status}`);
 
   const projected = await fetch(`${registry}/api/v1/packages/plugin-lab`);
   assert.equal(projected.status, 200);
