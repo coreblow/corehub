@@ -15,4 +15,5 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - run: npm run smoke:local-publish
       - run: npm run validate:schema
