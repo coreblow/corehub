@@ -78,15 +78,16 @@ function hasFlag(values, name) {
 
 async function handleFailedReport(stdout) {
   const report = JSON.parse(stdout);
-  await writeReport(outputPath, format, report);
   const delivery = await deliverAuditAlert(report, process.env);
+  const reportWithDelivery = { ...report, alertDelivery: delivery };
+  await writeReport(outputPath, format, reportWithDelivery);
   if (delivery.deadLetter) {
     const deadLetter = `${JSON.stringify(delivery.deadLetter, null, 2)}\n`;
     if (deadLetterPath) await writeFile(resolve(deadLetterPath), deadLetter);
     console.error(`CoreHub audit alert delivery failed after ${delivery.attempts} attempts.`);
     console.error(deadLetter);
   }
-  writeExportSummary(report, delivery);
+  writeExportSummary(reportWithDelivery, delivery);
 }
 
 async function writeReport(path, reportFormat, report) {
@@ -137,6 +138,14 @@ ${errors}
 
 - Status: ${report.retention?.status ?? "unknown"}
 - Integrity failure behavior: ${report.retention?.policy?.integrityFailureBehavior ?? "unknown"}
+
+## Alert Delivery
+
+- Status: ${report.alertDelivery?.status ?? "not_configured"}
+- Destination: ${report.alertDelivery?.destination ?? "none"}
+- Delivered: ${String(report.alertDelivery?.delivered ?? false)}
+- Attempts: ${report.alertDelivery?.attempts ?? 0}
+- Dead-lettered: ${String(Boolean(report.alertDelivery?.deadLetter))}
 
 ## Recent Audit Events
 

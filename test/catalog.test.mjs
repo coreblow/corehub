@@ -178,6 +178,7 @@ try {
     COREHUB_AUDIT_ALERT_DESTINATION: "slack",
   });
   assert.equal(alertedWorkerReport.alertDelivery.delivered, true);
+  assert.equal(alertedWorkerReport.alertDelivery.status, "delivered");
   assert.equal(deliveredAlerts[0].text, "CoreHub audit fail_closed");
 
   let retryAttempts = 0;
@@ -192,6 +193,7 @@ try {
     COREHUB_AUDIT_ALERT_RETRY_DELAY_MS: "0",
   });
   assert.equal(retriedDelivery.delivered, true);
+  assert.equal(retriedDelivery.status, "delivered");
   assert.equal(retriedDelivery.attempts, 3);
 
   globalThis.fetch = async () => new Response("still down", { status: 503, statusText: "Service Unavailable" });
@@ -201,6 +203,7 @@ try {
     COREHUB_AUDIT_ALERT_RETRY_DELAY_MS: "0",
   });
   assert.equal(deadLetterDelivery.delivered, false);
+  assert.equal(deadLetterDelivery.status, "dead_letter");
   assert.equal(deadLetterDelivery.attempts, 2);
   assert.equal(deadLetterDelivery.deadLetter.destination, "webhook");
   assert.equal(deadLetterDelivery.deadLetter.webhookHost, "alerts.example.invalid");
@@ -943,6 +946,8 @@ try {
     assert.equal(auditIncidentPayload.severity, "informational");
     assert.equal(auditIncidentPayload.verification.valid, true);
     assert.equal(auditIncidentPayload.recentAuditEvents.length, 5);
+    assert.equal(auditIncidentPayload.alertDelivery.status, "not_configured");
+    assert.equal(auditIncidentPayload.alertDelivery.attempts, 0);
 
     const retentionExportDir = await mkdtemp(join(tmpdir(), "corehub-retention-export-"));
     try {
@@ -985,7 +990,9 @@ try {
       const auditIncidentExportPayload = JSON.parse(auditIncidentExport.stdout);
       assert.equal(auditIncidentExportPayload.status, "exported");
       assert.equal(auditIncidentExportPayload.incidentStatus, "ok");
-      assert.match(await readFile(incidentOutputPath, "utf8"), /CoreHub Audit Incident Report/);
+      const auditIncidentMarkdown = await readFile(incidentOutputPath, "utf8");
+      assert.match(auditIncidentMarkdown, /CoreHub Audit Incident Report/);
+      assert.match(auditIncidentMarkdown, /Alert Delivery Status: not_configured/);
       const auditIncidentCheck = await execFileAsync(
         process.execPath,
         [

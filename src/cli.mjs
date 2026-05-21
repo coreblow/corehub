@@ -962,6 +962,12 @@ function buildAuditIncidentReport({ registry, verification, retention, recentAud
     retention,
     recentAuditEvents,
     recentAuditMeta: recentMeta,
+    alertDelivery: {
+      status: "not_configured",
+      delivered: false,
+      destination: "none",
+      attempts: 0,
+    },
   };
 }
 
@@ -977,6 +983,10 @@ function formatAuditIncidentMarkdown(report) {
     `- Audit Head: ${report.verification.head}`,
     `- Audit Event Count: ${report.verification.count}`,
     `- Retention Status: ${report.retention.status}`,
+    `- Alert Delivery Status: ${report.alertDelivery?.status ?? "not_configured"}`,
+    `- Alert Delivery Destination: ${report.alertDelivery?.destination ?? "none"}`,
+    `- Alert Delivery Attempts: ${report.alertDelivery?.attempts ?? 0}`,
+    `- Alert Delivery Dead-lettered: ${String(Boolean(report.alertDelivery?.deadLetter))}`,
     "",
     "## Summary",
     "",

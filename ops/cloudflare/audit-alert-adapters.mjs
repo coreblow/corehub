@@ -25,7 +25,7 @@ export function buildAuditAlertPayload(report, env = {}) {
 
 export async function deliverAuditAlert(report, env = {}) {
   const webhook = env.COREHUB_AUDIT_ALERT_WEBHOOK;
-  if (!webhook) return { delivered: false, destination: "none" };
+  if (!webhook) return { status: "not_configured", delivered: false, destination: "none", attempts: 0 };
 
   const destination = env.COREHUB_AUDIT_ALERT_DESTINATION ?? "webhook";
   const alert = buildAuditAlertPayload(report, env);
@@ -38,7 +38,7 @@ export async function deliverAuditAlert(report, env = {}) {
     try {
       const response = await postWithTimeout(webhook, body, retryConfig.timeoutMs);
       if (response.ok) {
-        return { delivered: true, destination, attempts: attempt };
+        return { status: "delivered", delivered: true, destination, attempts: attempt };
       }
       errors.push(`attempt ${attempt}: HTTP ${response.status} ${response.statusText}`.trim());
     } catch (error) {
@@ -49,6 +49,7 @@ export async function deliverAuditAlert(report, env = {}) {
   }
 
   return {
+    status: "dead_letter",
     delivered: false,
     destination,
     attempts: retryConfig.maxAttempts,

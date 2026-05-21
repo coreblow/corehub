@@ -117,6 +117,16 @@ The Cloudflare Worker implementation lives in `ops/cloudflare/audit-alert-adapte
 
 When delivery fails after all retries, CoreHub does not hide the audit incident. The delivery result becomes `delivered: false` with a `corehub.audit-alert-dead-letter.v1` object containing the destination, webhook host, errors, timestamp, and original alert payload. The Node runner logs this object and can persist it with `COREHUB_AUDIT_ALERT_DEAD_LETTER_PATH`; the Worker includes it in the returned report for fetch-based checks and scheduled-run logs.
 
+The incident report includes `alertDelivery` so operators can inspect delivery state without reading raw logs:
+
+| Field | Meaning |
+| --- | --- |
+| `alertDelivery.status` | `not_configured`, `delivered`, or `dead_letter`. |
+| `alertDelivery.destination` | `none`, `webhook`, `slack`, `teams`, or `email`. |
+| `alertDelivery.attempts` | Number of outbound delivery attempts. |
+| `alertDelivery.delivered` | Whether the alert endpoint accepted the payload. |
+| `alertDelivery.deadLetter` | Present when delivery failed after retries. |
+
 ## Cloudflare Scheduled Worker
 
 Use the Worker template:
