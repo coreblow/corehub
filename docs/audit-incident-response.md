@@ -93,6 +93,12 @@ Incident reports include `alertDelivery.status`, `alertDelivery.destination`, `a
 
 Delivery attempts also emit `corehub.audit-alert-delivery-metric.v1` JSONL records. Use these records from cron, CI, or Worker logs to trend `delivered`, `retry`, `failed`, and `dead_letter` outcomes over time.
 
+Summarize an exported metrics artifact with:
+
+```sh
+npm run corehub -- audit alert-metrics summarize ./corehub-audit-alert-delivery-metrics.jsonl
+```
+
 ## Enterprise Notes
 
 CoreHub treats audit integrity failures as operational incidents, not routine warnings. The CLI exits non-zero for `fail_closed` so automation can halt retention jobs and alert operators.

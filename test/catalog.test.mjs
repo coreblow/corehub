@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -218,6 +218,50 @@ try {
   assert.equal(deadLetterDelivery.deadLetter.errors.length, 2);
   assert.equal(deadLetterDelivery.metrics.at(-1).status, "dead_letter");
   assert.equal(deadLetterDelivery.metrics.filter((metric) => metric.status === "failed").length, 1);
+
+  const metricsDir = await mkdtemp(join(tmpdir(), "corehub-alert-metrics-"));
+  try {
+    const metricsPath = join(metricsDir, "delivery-metrics.jsonl");
+    const metricsText = `${formatAuditAlertDeliveryMetricsJsonl([
+      ...retriedDelivery.metrics,
+      ...deadLetterDelivery.metrics,
+    ])}\nignored log line\n`;
+    await writeFile(metricsPath, metricsText);
+    const metricsSummary = await execFileAsync(process.execPath, [
+      new URL("../src/cli.mjs", import.meta.url).pathname,
+      "audit",
+      "alert-metrics",
+      "summarize",
+      metricsPath,
+    ]);
+    const metricsPayload = JSON.parse(metricsSummary.stdout);
+    assert.equal(metricsPayload.parsedMetrics, 7);
+    assert.equal(metricsPayload.ignoredLines, 1);
+    assert.equal(metricsPayload.finalStatusCounts.delivered, 1);
+    assert.equal(metricsPayload.finalStatusCounts.dead_letter, 1);
+    assert.equal(metricsPayload.attemptStatusCounts.retry, 3);
+    assert.equal(metricsPayload.attemptStatusCounts.failed, 1);
+    assert.equal(metricsPayload.rates.delivered, 0.5);
+    assert.equal(metricsPayload.rates.deadLetter, 0.5);
+    assert.equal(metricsPayload.rates.retry, 0.6);
+
+    const metricsMarkdownPath = join(metricsDir, "delivery-metrics.md");
+    const metricsMarkdownSummary = await execFileAsync(process.execPath, [
+      new URL("../src/cli.mjs", import.meta.url).pathname,
+      "audit",
+      "alert-metrics",
+      "summarize",
+      metricsPath,
+      "--format",
+      "markdown",
+      "--output",
+      metricsMarkdownPath,
+    ]);
+    assert.equal(JSON.parse(metricsMarkdownSummary.stdout).status, "exported");
+    assert.match(await readFile(metricsMarkdownPath, "utf8"), /Dead-letter Rate: 50\.00%/);
+  } finally {
+    await rm(metricsDir, { recursive: true, force: true });
+  }
 
   globalThis.fetch = async (url) => {
     const parsed = new URL(url);

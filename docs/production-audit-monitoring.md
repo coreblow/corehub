@@ -143,6 +143,20 @@ Metric fields:
 | `durationMs` | Per-attempt delivery duration. |
 | `error` | Delivery error text when available. |
 
+Summarize a JSONL artifact:
+
+```sh
+npm run corehub -- audit alert-metrics summarize ./corehub-audit-alert-delivery-metrics.jsonl
+```
+
+Export a Markdown summary:
+
+```sh
+npm run corehub -- audit alert-metrics summarize ./corehub-audit-alert-delivery-metrics.jsonl --format markdown --output ./corehub-audit-alert-delivery-summary.md
+```
+
+The summary reports parsed metric count, ignored non-metric lines, destination counts, final delivered/dead-letter rates, retry rate, and failed attempt rate.
+
 ## Cloudflare Scheduled Worker
 
 Use the Worker template:

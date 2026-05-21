@@ -429,6 +429,41 @@ async function runAuditCommand(values) {
   const args = values.slice(1);
   const registry = readOption(args, "--registry") ?? defaultRegistry;
 
+  if (subcommand === "alert-metrics") {
+    const metricsCommand = args[0] ?? "help";
+    const metricsArgs = args.slice(1);
+    if (metricsCommand !== "summarize") {
+      printAuditHelp();
+      return;
+    }
+    const input = positionalArgs(metricsArgs)[0];
+    if (!input) throw new Error("audit alert-metrics summarize requires a JSONL file");
+    const format = readOption(metricsArgs, "--format") ?? "json";
+    if (!new Set(["json", "markdown"]).has(format)) throw new Error("--format must be json or markdown");
+    const output = readOption(metricsArgs, "--output");
+    const summary = summarizeAuditAlertDeliveryMetrics(await readFile(input, "utf8"), { input: resolve(input) });
+    const rendered = format === "markdown" ? formatAlertMetricsSummaryMarkdown(summary) : `${JSON.stringify(summary, null, 2)}\n`;
+    if (output) {
+      await writeTextOutput(output, rendered);
+      console.log(
+        JSON.stringify(
+          {
+            status: "exported",
+            format,
+            input: summary.input,
+            output: resolve(output),
+            parsedMetrics: summary.parsedMetrics,
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log(rendered);
+    }
+    return;
+  }
+
   if (subcommand === "list" || subcommand === "events") {
     if (!registry) throw new Error("audit list requires --registry or COREHUB_REGISTRY");
     const auth = await readAuthState();
@@ -1006,6 +1041,101 @@ function formatAuditIncidentMarkdown(report) {
     "",
   ];
   return `${lines.join("\n")}\n`;
+}
+
+function summarizeAuditAlertDeliveryMetrics(text, { input } = {}) {
+  const lines = text.split(/\r?\n/);
+  const metrics = [];
+  let ignoredLines = 0;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed?.schemaVersion === "corehub.audit-alert-delivery-metric.v1") {
+        metrics.push(parsed);
+      } else {
+        ignoredLines += 1;
+      }
+    } catch {
+      ignoredLines += 1;
+    }
+  }
+
+  const attemptMetrics = metrics.filter((metric) => metric.eventType === "alert.delivery.attempt");
+  const finalMetrics = metrics.filter((metric) => metric.eventType === "alert.delivery.final");
+  const attemptStatusCounts = countBy(attemptMetrics, "status");
+  const finalStatusCounts = countBy(finalMetrics, "status");
+  return {
+    status: "ok",
+    input,
+    totalLines: lines.filter((line) => line.trim()).length,
+    parsedMetrics: metrics.length,
+    ignoredLines,
+    attemptEvents: attemptMetrics.length,
+    finalEvents: finalMetrics.length,
+    destinations: countBy(metrics, "destination"),
+    attemptStatusCounts,
+    finalStatusCounts,
+    rates: {
+      delivered: ratio(finalStatusCounts.delivered ?? 0, finalMetrics.length),
+      deadLetter: ratio(finalStatusCounts.dead_letter ?? 0, finalMetrics.length),
+      notConfigured: ratio(finalStatusCounts.not_configured ?? 0, finalMetrics.length),
+      retry: ratio(attemptStatusCounts.retry ?? 0, attemptMetrics.length),
+      failed: ratio(attemptStatusCounts.failed ?? 0, attemptMetrics.length),
+    },
+    firstMetricAt: metrics[0]?.createdAt ?? null,
+    lastMetricAt: metrics.at(-1)?.createdAt ?? null,
+  };
+}
+
+function formatAlertMetricsSummaryMarkdown(summary) {
+  return `# CoreHub Alert Delivery Metrics Summary
+
+- Status: ${summary.status}
+- Input: ${summary.input}
+- Parsed Metrics: ${summary.parsedMetrics}
+- Ignored Lines: ${summary.ignoredLines}
+- Attempt Events: ${summary.attemptEvents}
+- Final Events: ${summary.finalEvents}
+- Delivered Rate: ${formatRate(summary.rates.delivered)}
+- Retry Rate: ${formatRate(summary.rates.retry)}
+- Dead-letter Rate: ${formatRate(summary.rates.deadLetter)}
+
+## Final Status Counts
+
+${formatCountTable(summary.finalStatusCounts)}
+
+## Attempt Status Counts
+
+${formatCountTable(summary.attemptStatusCounts)}
+
+## Destinations
+
+${formatCountTable(summary.destinations)}
+`;
+}
+
+function countBy(items, key) {
+  return items.reduce((counts, item) => {
+    const value = item?.[key] ?? "unknown";
+    counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function ratio(count, total) {
+  return total > 0 ? count / total : 0;
+}
+
+function formatRate(value) {
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function formatCountTable(counts) {
+  const entries = Object.entries(counts);
+  if (entries.length === 0) return "| Value | Count |\n| --- | --- |\n| none | 0 |";
+  return ["| Value | Count |", "| --- | --- |", ...entries.map(([value, count]) => `| ${value} | ${count} |`)].join("\n");
 }
 
 async function writeTextOutput(outputPath, text) {
@@ -2015,6 +2145,7 @@ Usage:
   corehub audit verify --registry https://coreblow.com/corehub
   corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
   corehub audit incident report [--format json|markdown] [--output file] [--limit n] --registry https://coreblow.com/corehub
+  corehub audit alert-metrics summarize <metrics.jsonl> [--format json|markdown] [--output file]
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -2073,6 +2204,7 @@ Usage:
   corehub audit verify --registry https://coreblow.com/corehub
   corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
   corehub audit incident report [--format json|markdown] [--output file] [--limit n] --registry https://coreblow.com/corehub
+  corehub audit alert-metrics summarize <metrics.jsonl> [--format json|markdown] [--output file]
 `);
 }
 
