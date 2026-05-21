@@ -92,7 +92,7 @@ npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
 
-CoreHub also exposes a server-side upload boundary for future R2/S3-backed publishing. The current implementation keeps storage local/mocked for tests while preserving the API contract for `POST /corehub/api/v2/artifacts/uploads`, signed `PUT /corehub/api/v2/artifacts/uploads/:id`, and `POST /corehub/api/v2/artifacts/uploads/:id/verify`.
+CoreHub also exposes a server-side upload and review boundary for future R2/S3-backed publishing. The current implementation keeps storage local/mocked for tests while preserving the API contract for `POST /corehub/api/v2/artifacts/uploads`, signed `PUT /corehub/api/v2/artifacts/uploads/:id`, `POST /corehub/api/v2/artifacts/uploads/:id/verify`, `POST /corehub/api/v2/submissions`, and `POST /corehub/api/v2/reviews/:id/approve|block`.
 
 Use production Registry API v1:
 

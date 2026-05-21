@@ -850,6 +850,7 @@ async function createPackageSubmissionViaRegistry(source, values, registry) {
     submission: result.submission,
     artifactUpload: result.artifactUpload,
     packageVersionPreview: result.packageVersionPreview,
+    moderationReview: result.moderationReview,
     validation: {
       ready: true,
       checks: [

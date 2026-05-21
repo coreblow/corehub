@@ -500,12 +500,113 @@ try {
     assert.equal(remoteSubmitPayload.submission.artifactUploadId, remoteUploadVerifyPayload.artifactUpload.id);
     assert.equal(remoteSubmitPayload.artifactUpload.status, "verified");
     assert.equal(remoteSubmitPayload.packageVersionPreview.moderationStatus, "pending");
+    assert.equal(remoteSubmitPayload.moderationReview.status, "open");
+
+    const approveResponse = await fetch(
+      `${apiBaseUrl}/reviews/${remoteSubmitPayload.moderationReview.id}/approve`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-corehub-user": "moderator:corehub",
+        },
+        body: JSON.stringify({ notes: "Artifact verified and package scope approved." }),
+      },
+    );
+    assert.equal(approveResponse.status, 200);
+    const approvePayload = await approveResponse.json();
+    assert.equal(approvePayload.data.moderationReview.status, "approved");
+    assert.equal(approvePayload.data.moderationReview.decision, "approve");
+    assert.equal(approvePayload.data.submission.status, "approved");
+    assert.equal(approvePayload.data.packageVersion.status, "available");
+    assert.equal(approvePayload.data.packageVersion.moderationStatus, "approved");
   } finally {
     await rm(apiAuthHome, { recursive: true, force: true });
   }
 } finally {
   await new Promise((resolve) => apiServer.close(resolve));
   await rm(apiStorageDir, { recursive: true, force: true });
+}
+
+const blockStorageDir = await mkdtemp(join(tmpdir(), "corehub-block-storage-"));
+const blockStorage = new CoreHubLocalStorageAdapter({ root: blockStorageDir });
+const blockServer = createServer(
+  createCoreHubApiHandler({
+    storage: blockStorage,
+    now: () => new Date("2026-05-21T01:00:00Z"),
+  }),
+);
+await new Promise((resolve) => blockServer.listen(0, "127.0.0.1", resolve));
+try {
+  const blockApiBaseUrl = `http://127.0.0.1:${blockServer.address().port}/corehub/api/v2`;
+  const uploadRequestResponse = await fetch(`${blockApiBaseUrl}/artifacts/uploads`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:coreblow-admin",
+    },
+    body: JSON.stringify({
+      packageId: "plugin-lab",
+      version: "0.1.0",
+      publisherHandle: "coreblow",
+      provider: "r2",
+      artifact: {
+        name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+        mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+        size: pluginLabArtifactBytes.byteLength,
+        sha256: entries[2].versions[0].artifact.sha256,
+      },
+    }),
+  });
+  const uploadSlot = (await uploadRequestResponse.json()).data.uploadSlot;
+  await fetch(`${blockApiBaseUrl}/artifacts/uploads/${uploadSlot.id}`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/vnd.coreblow.plugin-archive+gzip",
+      "x-corehub-artifact-sha256": entries[2].versions[0].artifact.sha256,
+    },
+    body: pluginLabArtifactBytes,
+  });
+  const verified = await fetch(`${blockApiBaseUrl}/artifacts/uploads/${uploadSlot.id}/verify`, {
+    method: "POST",
+    headers: { "x-corehub-user": "github:coreblow-admin" },
+  });
+  assert.equal((await verified.json()).data.status, "verified");
+  const submissionResponse = await fetch(`${blockApiBaseUrl}/submissions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:coreblow-admin",
+    },
+    body: JSON.stringify({
+      packageId: "plugin-lab",
+      kind: "plugin",
+      publisherHandle: "coreblow",
+      version: "0.1.0",
+      artifactUploadId: uploadSlot.artifactUpload.id,
+      source: "https://github.com/coreblow/plugin-lab",
+      changelog: "Blocked fixture review.",
+    }),
+  });
+  const submissionPayload = await submissionResponse.json();
+  const blockResponse = await fetch(`${blockApiBaseUrl}/reviews/${submissionPayload.data.moderationReview.id}/block`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "moderator:corehub",
+    },
+    body: JSON.stringify({ notes: "Blocked by moderation fixture." }),
+  });
+  assert.equal(blockResponse.status, 200);
+  const blockPayload = await blockResponse.json();
+  assert.equal(blockPayload.data.moderationReview.status, "blocked");
+  assert.equal(blockPayload.data.moderationReview.decision, "block");
+  assert.equal(blockPayload.data.submission.status, "rejected");
+  assert.equal(blockPayload.data.packageVersion.status, "blocked");
+  assert.equal(blockPayload.data.packageVersion.moderationStatus, "blocked");
+} finally {
+  await new Promise((resolve) => blockServer.close(resolve));
+  await rm(blockStorageDir, { recursive: true, force: true });
 }
 
 const registryServer = createServer((request, response) => {

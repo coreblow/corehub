@@ -123,6 +123,19 @@ Phase 18 adds the server-side shape before wiring production R2 or S3 credential
 | `PUT /corehub/api/v2/artifacts/uploads/:id` | Accepts artifact bytes for the reserved slot and writes them through the configured storage adapter. |
 | `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Reads the stored object, recomputes size and SHA-256, and returns a verified or rejected artifact upload record. |
 | `POST /corehub/api/v2/submissions` | Accepts a verified artifact upload id and creates a pending-review package submission. |
+| `POST /corehub/api/v2/reviews/:id/approve` | Approves a pending submission review and creates an `available` package version. |
+| `POST /corehub/api/v2/reviews/:id/block` | Blocks a pending submission review and creates a blocked package version record for audit visibility. |
+
+## Moderation Review Boundary
+
+Each remote submission receives an open moderation review id. Review decisions are explicit write-side events:
+
+| Decision | Submission result | Package version result |
+| --- | --- | --- |
+| `approve` | `approved` | `available` with `moderationStatus: approved` |
+| `block` | `rejected` | `blocked` with `moderationStatus: blocked` |
+
+Review approval is the first point where a submitted artifact can become installable. Blocked versions remain non-installable but auditable, preserving package/version history instead of deleting the failed submission.
 
 The current adapter is local and mocked for tests. Its storage key shape is already compatible with managed object storage:
 

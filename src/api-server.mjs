@@ -12,6 +12,8 @@ export class CoreHubLocalStorageAdapter {
     this.publicBaseUrl = publicBaseUrl.replace(/\/$/, "");
     this.slots = new Map();
     this.submissions = new Map();
+    this.reviews = new Map();
+    this.packageVersions = new Map();
   }
 
   async requestUploadSlot(input, { actor = defaultActor(), now = new Date() } = {}) {
@@ -150,6 +152,7 @@ export class CoreHubLocalStorageAdapter {
     const versionSlug = slugVersion(request.version);
     const submittedAt = now.toISOString();
     const id = `submission-${request.packageId}-${versionSlug}`;
+    const reviewId = `review-${request.packageId}-${versionSlug}`;
     const submission = {
       id,
       packageId: request.packageId,
@@ -162,6 +165,7 @@ export class CoreHubLocalStorageAdapter {
       changelog: request.changelog,
       submittedBy: actor,
       submittedAt,
+      reviewId,
     };
     const packageVersionPreview = {
       id: `version-${request.packageId}-${versionSlug}`,
@@ -175,8 +179,68 @@ export class CoreHubLocalStorageAdapter {
       createdAt: submittedAt,
       moderationStatus: "pending",
     };
-    this.submissions.set(id, { submission, packageVersionPreview });
-    return { submission, artifactUpload, packageVersionPreview };
+    const moderationReview = {
+      id: reviewId,
+      targetType: "submission",
+      targetId: id,
+      status: "open",
+      decision: "none",
+      reviewedBy: actor,
+      createdAt: submittedAt,
+    };
+    this.submissions.set(id, { submission, packageVersionPreview, artifactUploadId: request.artifactUploadId });
+    this.reviews.set(reviewId, moderationReview);
+    return { submission, artifactUpload, packageVersionPreview, moderationReview };
+  }
+
+  async decideReview(reviewId, decision, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    if (!["approve", "block"].includes(decision)) throw httpError(400, "Review decision must be approve or block");
+    const review = this.reviews.get(reviewId);
+    if (!review) throw httpError(404, "Moderation review not found");
+    if (review.targetType !== "submission") throw httpError(400, "Only submission reviews are supported");
+    const record = this.submissions.get(review.targetId);
+    if (!record) throw httpError(404, "Submission not found");
+    if (record.submission.status !== "pending_review") {
+      throw httpError(409, "Submission is not pending review");
+    }
+
+    const decidedAt = now.toISOString();
+    const status = decision === "approve" ? "approved" : "blocked";
+    const submissionStatus = decision === "approve" ? "approved" : "rejected";
+    const packageVersionStatus = decision === "approve" ? "available" : "blocked";
+    const moderationStatus = decision === "approve" ? "approved" : "blocked";
+    const moderationReview = {
+      ...review,
+      status,
+      decision,
+      reviewedBy: actor,
+      ...(typeof input.notes === "string" && input.notes.trim().length > 0 ? { notes: input.notes.trim() } : {}),
+      decidedAt,
+    };
+    const submission = {
+      ...record.submission,
+      status: submissionStatus,
+    };
+    const packageVersion = {
+      ...record.packageVersionPreview,
+      status: packageVersionStatus,
+      moderationStatus,
+      ...(decision === "approve" ? { publishedAt: decidedAt } : {}),
+      createdAt: record.packageVersionPreview.createdAt,
+    };
+    this.reviews.set(reviewId, moderationReview);
+    this.submissions.set(record.submission.id, {
+      ...record,
+      submission,
+      packageVersionPreview: packageVersion,
+    });
+    this.packageVersions.set(packageVersion.id, packageVersion);
+    return {
+      moderationReview,
+      submission,
+      artifactUpload: this.findArtifactUpload(record.artifactUploadId),
+      packageVersion,
+    };
   }
 
   requireSlot(uploadSlotId) {
@@ -225,6 +289,21 @@ export function createCoreHubApiHandler({
         const actor = actorFromRequest(request);
         const result = await storage.createSubmission(body, { actor, now: now() });
         return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "reviews" &&
+        ["approve", "block"].includes(segments[2]) &&
+        segments.length === 3
+      ) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request);
+        const result = await storage.decideReview(decodeURIComponent(segments[1]), segments[2], body, {
+          actor,
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
       }
 
       if (
