@@ -163,3 +163,16 @@ The local projection exposes approved package versions through the same public r
 | `GET /corehub/api/v1/packages/:id/artifact` | Returns artifact checksum, storage locator, and non-download metadata. |
 
 Blocked versions remain write-side audit records and are intentionally excluded from projected v1 install/search surfaces.
+
+## Persistence Adapter Boundary
+
+Phase 23 keeps production persistence out of scope, but the local storage adapter can now persist write-side metadata to a JSON file. This gives the API boundary a durable state shape before replacing the internals with a database or object-storage metadata layer.
+
+| State section | Contents |
+| --- | --- |
+| `slots` | Upload slots, signed upload metadata, expected artifact checksum, and artifact upload status. |
+| `submissions` | Package submission records plus pending or decided package version previews. |
+| `reviews` | Moderation review decisions and reviewer audit metadata. |
+| `packageVersions` | Approved or blocked version records used by projection. |
+
+The local state file uses `schemaVersion: corehub.local-state.v1`. Future production persistence should preserve this logical state model even if storage moves to SQL, KV, Durable Objects, or R2/S3 metadata.

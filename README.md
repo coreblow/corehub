@@ -96,6 +96,8 @@ CoreHub also exposes a server-side upload and review boundary for future R2/S3-b
 
 Approved write-side package versions can be projected into the read-only Registry API v1 shape from local state. Blocked versions stay out of projected install/search surfaces.
 
+The local write-side adapter can persist upload slots, submissions, moderation reviews, and package versions to a JSON state file before production database or object-storage metadata persistence lands.
+
 Use production Registry API v1:
 
 ```sh

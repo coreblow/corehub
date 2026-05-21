@@ -359,7 +359,8 @@ const skillPublish = await execFileAsync(process.execPath, [
 assert.equal(JSON.parse(skillPublish.stdout).dryRun, true);
 
 const apiStorageDir = await mkdtemp(join(tmpdir(), "corehub-api-storage-"));
-const apiStorage = new CoreHubLocalStorageAdapter({ root: apiStorageDir });
+const apiStatePath = join(apiStorageDir, "write-side-state.json");
+const apiStorage = new CoreHubLocalStorageAdapter({ root: apiStorageDir, statePath: apiStatePath });
 const apiServer = createServer(
   createCoreHubApiHandler({
     storage: apiStorage,
@@ -541,6 +542,21 @@ try {
     assert.equal(projectedVersionsResponse.status, 200);
     const projectedVersionsPayload = await projectedVersionsResponse.json();
     assert.equal(projectedVersionsPayload.data[0].tag, "latest");
+
+    const persistedState = JSON.parse(await readFile(apiStatePath, "utf8"));
+    assert.equal(persistedState.schemaVersion, "corehub.local-state.v1");
+    assert.equal(persistedState.slots[0].artifactUpload.status, "verified");
+    assert.equal(persistedState.submissions[0].submission.status, "approved");
+    assert.equal(persistedState.packageVersions[0].status, "available");
+
+    const reloadedStorage = await CoreHubLocalStorageAdapter.open({
+      root: apiStorageDir,
+      statePath: apiStatePath,
+    });
+    const reloadedEntries = reloadedStorage.projectCatalogEntries();
+    assert.equal(reloadedEntries.length, 1);
+    assert.equal(reloadedEntries[0].id, "plugin-lab");
+    assert.equal(reloadedEntries[0].versions[0].artifact.sha256, entries[2].versions[0].artifact.sha256);
   } finally {
     await rm(apiAuthHome, { recursive: true, force: true });
   }

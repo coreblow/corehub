@@ -6,14 +6,21 @@ const defaultApiBasePath = "/corehub/api/v2";
 const defaultPublicBaseUrl = "https://coreblow.com/corehub";
 
 export class CoreHubLocalStorageAdapter {
-  constructor({ root, publicBaseUrl = defaultPublicBaseUrl } = {}) {
+  constructor({ root, publicBaseUrl = defaultPublicBaseUrl, statePath } = {}) {
     if (!root) throw new Error("CoreHubLocalStorageAdapter requires root");
     this.root = resolve(root);
     this.publicBaseUrl = publicBaseUrl.replace(/\/$/, "");
+    this.statePath = statePath ? resolve(statePath) : null;
     this.slots = new Map();
     this.submissions = new Map();
     this.reviews = new Map();
     this.packageVersions = new Map();
+  }
+
+  static async open(options = {}) {
+    const adapter = new CoreHubLocalStorageAdapter(options);
+    await adapter.loadState();
+    return adapter;
   }
 
   async requestUploadSlot(input, { actor = defaultActor(), now = new Date() } = {}) {
@@ -67,6 +74,7 @@ export class CoreHubLocalStorageAdapter {
       artifactUpload,
     };
     this.slots.set(id, slot);
+    await this.persistState();
     return slot;
   }
 
@@ -89,6 +97,7 @@ export class CoreHubLocalStorageAdapter {
       uploadedAt: new Date().toISOString(),
     };
     slot.artifactUpload.status = "uploaded";
+    await this.persistState();
     return {
       uploadSlotId,
       storage: slot.storage,
@@ -122,6 +131,7 @@ export class CoreHubLocalStorageAdapter {
       verifiedAt: now.toISOString(),
     };
     slot.artifactUpload = artifactUpload;
+    await this.persistState();
     return {
       status,
       uploadSlotId,
@@ -190,6 +200,7 @@ export class CoreHubLocalStorageAdapter {
     };
     this.submissions.set(id, { submission, packageVersionPreview, artifactUploadId: request.artifactUploadId });
     this.reviews.set(reviewId, moderationReview);
+    await this.persistState();
     return { submission, artifactUpload, packageVersionPreview, moderationReview };
   }
 
@@ -235,6 +246,7 @@ export class CoreHubLocalStorageAdapter {
       packageVersionPreview: packageVersion,
     });
     this.packageVersions.set(packageVersion.id, packageVersion);
+    await this.persistState();
     return {
       moderationReview,
       submission,
@@ -305,6 +317,55 @@ export class CoreHubLocalStorageAdapter {
       });
     }
     return entries.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  snapshotState({ savedAt = new Date().toISOString() } = {}) {
+    return {
+      schemaVersion: "corehub.local-state.v1",
+      savedAt,
+      publicBaseUrl: this.publicBaseUrl,
+      slots: [...this.slots.values()],
+      submissions: [...this.submissions.values()],
+      reviews: [...this.reviews.values()],
+      packageVersions: [...this.packageVersions.values()],
+    };
+  }
+
+  restoreState(state) {
+    if (!state || state.schemaVersion !== "corehub.local-state.v1") {
+      throw new Error("Unsupported CoreHub local state file");
+    }
+    this.publicBaseUrl = state.publicBaseUrl ?? this.publicBaseUrl;
+    this.slots = new Map((state.slots ?? []).map((slot) => [slot.id, slot]));
+    this.submissions = new Map((state.submissions ?? []).map((record) => [record.submission.id, record]));
+    this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
+    this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
+  }
+
+  async saveState(path = this.statePath) {
+    if (!path) throw new Error("CoreHub local state path is not configured");
+    const target = resolve(path);
+    await mkdir(dirname(target), { recursive: true });
+    const snapshot = this.snapshotState();
+    await writeFile(target, `${JSON.stringify(snapshot, null, 2)}\n`);
+    return snapshot;
+  }
+
+  async loadState(path = this.statePath) {
+    if (!path) return false;
+    const target = resolve(path);
+    const raw = await readFile(target, "utf8").catch((error) => {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    });
+    if (!raw) return false;
+    this.restoreState(JSON.parse(raw));
+    return true;
+  }
+
+  async persistState() {
+    if (!this.statePath) return;
+    await this.saveState();
   }
 
   requireSlot(uploadSlotId) {
