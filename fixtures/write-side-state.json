@@ -225,5 +225,6 @@
       "previousHash": "0d07a2abd801d332656f7fd884c6a6a54c22cc5cd954e8149380754463c26ec3",
       "eventHash": "0e9fc845cc76454cde08503a3deac48787c8f8543c8ccbd100bf317b1bac5082"
     }
-  ]
+  ],
+  "auditRetentionCheckpoints": []
 }

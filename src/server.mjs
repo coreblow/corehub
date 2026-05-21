@@ -17,11 +17,13 @@ export async function createCoreHubServer(options = {}) {
   const storageRoot = resolve(options.storageRoot ?? process.env.COREHUB_STORAGE_ROOT ?? join(dataRoot, "storage"));
   const statePath = resolve(options.statePath ?? process.env.COREHUB_STATE_PATH ?? join(dataRoot, "write-side-state.json"));
   const publicBaseUrl = options.publicBaseUrl ?? process.env.COREHUB_PUBLIC_BASE_URL ?? "https://coreblow.com/corehub";
+  const auditRetentionDays = options.auditRetentionDays ?? process.env.COREHUB_AUDIT_RETENTION_DAYS ?? 365;
   await mkdir(storageRoot, { recursive: true });
   const storage = await CoreHubLocalStorageAdapter.open({
     root: storageRoot,
     statePath,
     publicBaseUrl,
+    auditRetentionDays,
   });
   const apiHandler = createCoreHubApiHandler({ storage });
   const server = createServer((request, response) => {

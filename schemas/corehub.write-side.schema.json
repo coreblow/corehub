@@ -18,7 +18,8 @@
     "moderationReviews",
     "ownershipTransfers",
     "installEvents",
-    "auditEvents"
+    "auditEvents",
+    "auditRetentionCheckpoints"
   ],
   "properties": {
     "schemaVersion": {
@@ -92,6 +93,12 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/auditEvent"
+      }
+    },
+    "auditRetentionCheckpoints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/auditRetentionCheckpoint"
       }
     }
   },
@@ -673,6 +680,61 @@
         },
         "eventHash": {
           "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "auditRetentionCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sequence",
+        "head",
+        "prunedCount",
+        "prunedThroughSequence",
+        "prunedThroughHash",
+        "prunedThroughCreatedAt",
+        "exportHash",
+        "exportedAt",
+        "createdAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head": {
+          "$ref": "#/$defs/sha256"
+        },
+        "prunedCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "prunedThroughSequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "prunedThroughHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "prunedThroughCreatedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "exportHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "exportedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "exportedCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
         }
       }
     }

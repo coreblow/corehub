@@ -4,18 +4,21 @@ import { dirname, join, resolve } from "node:path";
 
 const defaultApiBasePath = "/corehub/api/v2";
 const defaultPublicBaseUrl = "https://coreblow.com/corehub";
+const defaultAuditRetentionDays = 365;
 
 export class CoreHubLocalStorageAdapter {
-  constructor({ root, publicBaseUrl = defaultPublicBaseUrl, statePath } = {}) {
+  constructor({ root, publicBaseUrl = defaultPublicBaseUrl, statePath, auditRetentionDays = defaultAuditRetentionDays } = {}) {
     if (!root) throw new Error("CoreHubLocalStorageAdapter requires root");
     this.root = resolve(root);
     this.publicBaseUrl = publicBaseUrl.replace(/\/$/, "");
     this.statePath = statePath ? resolve(statePath) : null;
+    this.auditRetentionDays = normalizeAuditRetentionDays(auditRetentionDays);
     this.slots = new Map();
     this.submissions = new Map();
     this.reviews = new Map();
     this.packageVersions = new Map();
     this.auditEvents = [];
+    this.auditCheckpoints = [];
   }
 
   static async open(options = {}) {
@@ -394,9 +397,14 @@ export class CoreHubLocalStorageAdapter {
 
   verifyAuditEvents() {
     const events = [...this.auditEvents].sort((left, right) => left.sequence - right.sequence);
-    let previousHash = "0".repeat(64);
+    const checkpoint = this.latestAuditCheckpoint();
+    let previousHash = checkpoint?.head ?? "0".repeat(64);
+    let expectedSequence = (checkpoint?.sequence ?? 0) + 1;
     const errors = [];
     for (const event of events) {
+      if (event.sequence !== expectedSequence) {
+        errors.push(`${event.id}.sequence expected ${expectedSequence}`);
+      }
       if (event.previousHash !== previousHash) {
         errors.push(`${event.id}.previousHash expected ${previousHash}`);
       }
@@ -405,12 +413,110 @@ export class CoreHubLocalStorageAdapter {
         errors.push(`${event.id}.eventHash expected ${eventHash}`);
       }
       previousHash = event.eventHash ?? "";
+      expectedSequence = event.sequence + 1;
     }
+    const valid = errors.length === 0;
     return {
-      valid: errors.length === 0,
+      valid,
       count: events.length,
       head: previousHash,
       errors,
+      checkpoint: checkpoint ?? null,
+      behavior: valid ? "proceed" : "fail_closed",
+      recommendation: valid
+        ? "Audit chain is valid. Operator reads and retention actions can proceed."
+        : "Audit chain is invalid. Stop retention pruning, export the current state, and escalate before trusting write-side evidence.",
+    };
+  }
+
+  auditRetentionPlan({ now = new Date() } = {}) {
+    const verification = this.verifyAuditEvents();
+    const cutoff = new Date(now.getTime() - this.auditRetentionDays * 24 * 60 * 60 * 1000);
+    const events = [...this.auditEvents].sort((left, right) => left.sequence - right.sequence);
+    const pruneableEvents = [];
+    for (const event of events) {
+      if (new Date(event.createdAt) >= cutoff) break;
+      pruneableEvents.push(event);
+    }
+    const lastPruneable = pruneableEvents.at(-1);
+    const status = !verification.valid ? "blocked" : pruneableEvents.length === 0 ? "noop" : "ready";
+    return {
+      status,
+      policy: {
+        retentionDays: this.auditRetentionDays,
+        mode: "export-before-prune",
+        pruneStrategy: "prefix-checkpoint",
+        integrityFailureBehavior: "fail_closed",
+      },
+      cutoff: cutoff.toISOString(),
+      total: events.length,
+      pruneableCount: pruneableEvents.length,
+      retainedCount: events.length - pruneableEvents.length,
+      pruneThroughSequence: lastPruneable?.sequence ?? null,
+      pruneThroughHash: lastPruneable?.eventHash ?? null,
+      pruneThroughCreatedAt: lastPruneable?.createdAt ?? null,
+      requiresExportBeforePrune: pruneableEvents.length > 0,
+      verification,
+      recommendation: retentionRecommendation(status),
+    };
+  }
+
+  async pruneAuditEvents({
+    actor = defaultActor(),
+    dryRun = true,
+    exportHash,
+    exportedAt,
+    exportedCount,
+    now = new Date(),
+  } = {}) {
+    const plan = this.auditRetentionPlan({ now });
+    if (plan.status === "blocked") return plan;
+    if (dryRun || plan.status === "noop") return { ...plan, dryRun: true };
+    if (!/^[a-f0-9]{64}$/.test(String(exportHash ?? ""))) {
+      throw httpError(409, "Audit retention prune requires an exportHash from an operator-held export");
+    }
+
+    const events = [...this.auditEvents].sort((left, right) => left.sequence - right.sequence);
+    const pruned = events.slice(0, plan.pruneableCount);
+    const retained = events.slice(plan.pruneableCount);
+    const lastPruned = pruned.at(-1);
+    const checkpoint = {
+      id: `audit-checkpoint-${String(lastPruned.sequence).padStart(6, "0")}`,
+      sequence: lastPruned.sequence,
+      head: lastPruned.eventHash,
+      prunedCount: pruned.length,
+      prunedThroughSequence: lastPruned.sequence,
+      prunedThroughHash: lastPruned.eventHash,
+      prunedThroughCreatedAt: lastPruned.createdAt,
+      exportHash,
+      exportedAt: exportedAt ?? now.toISOString(),
+      exportedCount: exportedCount ?? pruned.length,
+      createdAt: now.toISOString(),
+    };
+    this.auditEvents = retained;
+    this.auditCheckpoints.push(checkpoint);
+    this.recordAuditEvent({
+      actor,
+      action: "audit.retention.prune",
+      targetType: "audit",
+      targetId: checkpoint.id,
+      metadata: {
+        exportHash,
+        exportedAt: checkpoint.exportedAt,
+        exportedCount: checkpoint.exportedCount,
+        prunedCount: pruned.length,
+        prunedThroughSequence: checkpoint.prunedThroughSequence,
+        prunedThroughHash: checkpoint.prunedThroughHash,
+      },
+      createdAt: now.toISOString(),
+    });
+    await this.persistState();
+    return {
+      ...this.auditRetentionPlan({ now }),
+      status: "pruned",
+      dryRun: false,
+      checkpoint,
+      prunedCount: pruned.length,
     };
   }
 
@@ -427,8 +533,9 @@ export class CoreHubLocalStorageAdapter {
   }
 
   recordAuditEvent({ actor, action, targetType, targetId, metadata = {}, createdAt }) {
-    const previousHash = this.auditEvents.at(-1)?.eventHash ?? "0".repeat(64);
-    const sequence = this.auditEvents.length + 1;
+    const checkpoint = this.latestAuditCheckpoint();
+    const previousHash = this.auditEvents.at(-1)?.eventHash ?? checkpoint?.head ?? "0".repeat(64);
+    const sequence = (this.auditEvents.at(-1)?.sequence ?? checkpoint?.sequence ?? 0) + 1;
     const event = {
       id: `audit-${String(sequence).padStart(6, "0")}-${slugId(action)}-${slugId(targetId).slice(0, 48)}`,
       sequence,
@@ -519,6 +626,7 @@ export class CoreHubLocalStorageAdapter {
       reviews: [...this.reviews.values()],
       packageVersions: [...this.packageVersions.values()],
       auditEvents: this.auditEvents,
+      auditCheckpoints: this.auditCheckpoints,
     };
   }
 
@@ -532,6 +640,7 @@ export class CoreHubLocalStorageAdapter {
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
     this.auditEvents = state.auditEvents ?? [];
+    this.auditCheckpoints = state.auditCheckpoints ?? [];
   }
 
   async saveState(path = this.statePath) {
@@ -579,6 +688,13 @@ export class CoreHubLocalStorageAdapter {
       throw httpError(400, "Storage key escapes local storage root");
     }
     return path;
+  }
+
+  latestAuditCheckpoint() {
+    return this.auditCheckpoints.reduce((latest, checkpoint) => {
+      if (!latest || checkpoint.sequence > latest.sequence) return checkpoint;
+      return latest;
+    }, null);
   }
 }
 
@@ -690,6 +806,43 @@ export function createCoreHubApiHandler({
           targetType: "audit",
           targetId: result.head,
           metadata: { count: result.count, valid: result.valid },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "audit" && segments[1] === "retention" && segments.length === 2) {
+        const result = storage.auditRetentionPlan({ now: now() });
+        await storage.auditRead({
+          actor: actorFromRequest(request),
+          action: "audit.retention.inspect",
+          targetType: "audit",
+          targetId: result.status,
+          metadata: {
+            retentionDays: result.policy.retentionDays,
+            pruneableCount: result.pruneableCount,
+            retainedCount: result.retainedCount,
+            valid: result.verification.valid,
+          },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "audit" &&
+        segments[1] === "retention" &&
+        segments[2] === "prune" &&
+        segments.length === 3
+      ) {
+        const body = await readJsonBody(request);
+        const result = await storage.pruneAuditEvents({
+          actor: actorFromRequest(request),
+          dryRun: body.dryRun !== false,
+          exportHash: body.exportHash,
+          exportedAt: body.exportedAt,
+          exportedCount: body.exportedCount,
           now: now(),
         });
         return json(response, 200, { apiVersion: "v2", data: result });
@@ -901,6 +1054,24 @@ function readAuditListOptions(url) {
     limit: parseNonNegativeInteger(url.searchParams.get("limit"), "limit", 50),
     offset: parseNonNegativeInteger(url.searchParams.get("offset"), "offset", 0),
   };
+}
+
+function normalizeAuditRetentionDays(value) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("auditRetentionDays must be a non-negative integer");
+  }
+  return parsed;
+}
+
+function retentionRecommendation(status) {
+  if (status === "blocked") {
+    return "Retention is blocked because audit integrity verification failed. Export current state and escalate.";
+  }
+  if (status === "noop") {
+    return "No audit events are older than the retention cutoff. No prune is required.";
+  }
+  return "Export pruneable audit events before pruning. Store the export hash with the checkpoint.";
 }
 
 function paginate(items, { limit = 50, offset = 0 } = {}) {

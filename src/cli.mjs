@@ -491,6 +491,53 @@ async function runAuditCommand(values) {
     return;
   }
 
+  if (subcommand === "retention" || subcommand === "policy") {
+    if (!registry) throw new Error("audit retention requires --registry or COREHUB_REGISTRY");
+    const auth = await readAuthState();
+    const output = readOption(args, "--output");
+    const prune = hasFlag(args, "--prune");
+    const dryRun = hasFlag(args, "--dry-run") || !prune;
+    if (prune && !dryRun && !output) {
+      throw new Error("audit retention --prune requires --output <file> so events are exported before pruning");
+    }
+    const client = new CoreHubRegistryClient(registry);
+    let exportResult = null;
+    if (output) {
+      const events = await client.auditEvents({ limit: 100000, auth });
+      const rendered = formatAuditOutput({ auditEvents: events.data }, "jsonl");
+      await writeTextOutput(output, rendered);
+      exportResult = {
+        output: resolve(output),
+        exportHash: createHash("sha256").update(rendered).digest("hex"),
+        exportedAt: new Date().toISOString(),
+        exportedCount: events.data.length,
+      };
+    }
+    const result = prune
+      ? await client.pruneAuditRetention({
+          auth,
+          dryRun,
+          exportHash: exportResult?.exportHash,
+          exportedAt: exportResult?.exportedAt,
+          exportedCount: exportResult?.exportedCount,
+        })
+      : await client.auditRetention({ auth });
+    console.log(
+      JSON.stringify(
+        {
+          status: result.status,
+          registry: normalizeRegistry(registry),
+          ...(exportResult ?? {}),
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    if (result.status === "blocked" || result.verification?.valid === false) process.exitCode = 1;
+    return;
+  }
+
   printAuditHelp();
 }
 
@@ -1681,6 +1728,25 @@ class CoreHubRegistryClient {
     return this.readV2Data(this.apiV2Url("/audit/verify"), { auth: options.auth });
   }
 
+  async auditRetention(options = {}) {
+    return this.readV2Data(this.apiV2Url("/audit/retention"), { auth: options.auth });
+  }
+
+  async pruneAuditRetention(options = {}) {
+    return this.writeData(this.apiV2Url("/audit/retention/prune"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify({
+        dryRun: options.dryRun,
+        exportHash: options.exportHash,
+        exportedAt: options.exportedAt,
+        exportedCount: options.exportedCount,
+      }),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
   async requestArtifactUpload(payload, options = {}) {
     return this.writeData(this.apiV2Url("/artifacts/uploads"), {
       auth: options.auth,
@@ -1828,6 +1894,7 @@ Usage:
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
   corehub audit list [--target id] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub audit verify --registry https://coreblow.com/corehub
+  corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -1884,6 +1951,7 @@ function printAuditHelp() {
 Usage:
   corehub audit list [--target id] [--target-type type] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub audit verify --registry https://coreblow.com/corehub
+  corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
 `);
 }
 

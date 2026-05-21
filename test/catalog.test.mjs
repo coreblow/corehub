@@ -798,6 +798,42 @@ try {
     assert.equal(auditVerifyPayload.status, "valid");
     assert.equal(auditVerifyPayload.valid, true);
     assert.match(auditVerifyPayload.head, /^[a-f0-9]{64}$/);
+    assert.equal(auditVerifyPayload.behavior, "proceed");
+
+    const auditRetention = await execFileAsync(
+      process.execPath,
+      [cliPath, "audit", "retention", "--dry-run", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const auditRetentionPayload = JSON.parse(auditRetention.stdout);
+    assert.equal(auditRetentionPayload.policy.mode, "export-before-prune");
+    assert.equal(auditRetentionPayload.policy.integrityFailureBehavior, "fail_closed");
+    assert.equal(auditRetentionPayload.verification.valid, true);
+
+    const retentionExportDir = await mkdtemp(join(tmpdir(), "corehub-retention-export-"));
+    try {
+      const outputPath = join(retentionExportDir, "audit-retention.audit.jsonl");
+      const auditRetentionExport = await execFileAsync(
+        process.execPath,
+        [
+          cliPath,
+          "audit",
+          "retention",
+          "--dry-run",
+          "--output",
+          outputPath,
+          "--registry",
+          apiRegistryUrl,
+        ],
+        { env: apiAuthEnv },
+      );
+      const auditRetentionExportPayload = JSON.parse(auditRetentionExport.stdout);
+      assert.match(auditRetentionExportPayload.exportHash, /^[a-f0-9]{64}$/);
+      assert.equal(auditRetentionExportPayload.verification.valid, true);
+      assert.match(await readFile(outputPath, "utf8"), /review\.approve/);
+    } finally {
+      await rm(retentionExportDir, { recursive: true, force: true });
+    }
 
     const projectedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
     assert.equal(projectedEntriesResponse.status, 200);
@@ -827,6 +863,7 @@ try {
     assert.equal(persistedState.packageVersions[0].status, "available");
     assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.retention.inspect"), true);
     assert.equal(persistedState.auditEvents.every((event) => /^[a-f0-9]{64}$/.test(event.eventHash)), true);
 
     const reloadedStorage = await CoreHubLocalStorageAdapter.open({
@@ -1011,6 +1048,60 @@ try {
   assert.equal(firstReviewPage.items[0].moderationReview.id, "review-new");
 } finally {
   await rm(queueStorageDir, { recursive: true, force: true });
+}
+
+const retentionStorageDir = await mkdtemp(join(tmpdir(), "corehub-retention-storage-"));
+try {
+  const retentionStorage = new CoreHubLocalStorageAdapter({
+    root: retentionStorageDir,
+    auditRetentionDays: 1,
+  });
+  retentionStorage.recordAuditEvent({
+    actor: { type: "system", id: "system:retention-test" },
+    action: "audit.old",
+    targetType: "audit",
+    targetId: "old",
+    metadata: {},
+    createdAt: "2026-05-20T00:00:00.000Z",
+  });
+  retentionStorage.recordAuditEvent({
+    actor: { type: "system", id: "system:retention-test" },
+    action: "audit.recent",
+    targetType: "audit",
+    targetId: "recent",
+    metadata: {},
+    createdAt: "2026-05-21T12:00:00.000Z",
+  });
+  const retentionNow = new Date("2026-05-22T12:00:00.000Z");
+  const retentionPlan = retentionStorage.auditRetentionPlan({ now: retentionNow });
+  assert.equal(retentionPlan.status, "ready");
+  assert.equal(retentionPlan.pruneableCount, 1);
+  assert.equal(retentionPlan.requiresExportBeforePrune, true);
+
+  const pruned = await retentionStorage.pruneAuditEvents({
+    actor: { type: "user", id: "github:coreblow-admin" },
+    dryRun: false,
+    exportHash: "b".repeat(64),
+    exportedAt: "2026-05-22T12:00:00.000Z",
+    exportedCount: 2,
+    now: retentionNow,
+  });
+  assert.equal(pruned.status, "pruned");
+  assert.equal(pruned.checkpoint.prunedThroughSequence, 1);
+  assert.equal(retentionStorage.auditCheckpoints.length, 1);
+  assert.equal(retentionStorage.auditEvents.some((event) => event.action === "audit.old"), false);
+  assert.equal(retentionStorage.auditEvents.some((event) => event.action === "audit.retention.prune"), true);
+  assert.equal(retentionStorage.verifyAuditEvents().valid, true);
+
+  retentionStorage.auditEvents[0].targetId = "tampered";
+  const invalidRetention = retentionStorage.verifyAuditEvents();
+  assert.equal(invalidRetention.valid, false);
+  assert.equal(invalidRetention.behavior, "fail_closed");
+  assert.match(invalidRetention.recommendation, /escalate/);
+  const blockedPrune = await retentionStorage.pruneAuditEvents({ now: retentionNow });
+  assert.equal(blockedPrune.status, "blocked");
+} finally {
+  await rm(retentionStorageDir, { recursive: true, force: true });
 }
 
 const registryServer = createServer((request, response) => {

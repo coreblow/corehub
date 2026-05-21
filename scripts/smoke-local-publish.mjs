@@ -198,6 +198,12 @@ try {
   assert.match(auditVerify.head, /^[a-f0-9]{64}$/);
   logStep(`audit hash chain verified: ${auditVerify.count}`);
 
+  const auditRetention = JSON.parse(await runCoreHub(["audit", "retention", "--dry-run", "--registry", registry]));
+  assert.equal(auditRetention.policy.mode, "export-before-prune");
+  assert.equal(auditRetention.policy.integrityFailureBehavior, "fail_closed");
+  assert.equal(auditRetention.verification.valid, true);
+  logStep(`audit retention policy checked: ${auditRetention.policy.retentionDays} days`);
+
   const projected = await fetch(`${registry}/api/v1/packages/plugin-lab`);
   assert.equal(projected.status, 200);
   const projectedPayload = await projected.json();

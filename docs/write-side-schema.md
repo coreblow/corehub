@@ -29,6 +29,7 @@ The schema follows the ClawHub pattern where publishing is owner-scoped:
 | `ownershipTransfers` | Explicit publisher ownership moves with audit history. |
 | `installEvents` | Privacy-preserving aggregate install and verification events. |
 | `auditEvents` | Operator audit trail for write-side actions and admin reads. |
+| `auditRetentionCheckpoints` | Export-before-prune checkpoints for archived audit prefixes. |
 
 ## Status Flow
 
@@ -66,6 +67,8 @@ The future authenticated API should expose these resources under a new versioned
 | `POST /corehub/api/v2/reviews/:id/block` | Block a submission, version, artifact, or publisher. |
 | `GET /corehub/api/v2/audit/events` | List write-side audit events with target, action, actor, and pagination filters. |
 | `GET /corehub/api/v2/audit/verify` | Verify the append-only audit hash chain and return the current head hash. |
+| `GET /corehub/api/v2/audit/retention` | Inspect retention policy, prune cutoff, and integrity failure behavior. |
+| `POST /corehub/api/v2/audit/retention/prune` | Prune only after an operator export hash is supplied. |
 | `POST /corehub/api/v2/transfers` | Request package ownership transfer. |
 | `POST /corehub/api/v2/install-events` | Record opt-in aggregate install telemetry. |
 
@@ -185,6 +188,7 @@ Phase 23 keeps production persistence out of scope, but the local storage adapte
 | `reviews` | Moderation review decisions and reviewer audit metadata. |
 | `packageVersions` | Approved or blocked version records used by projection. |
 | `auditEvents` | Append-only audit events for upload, verification, submission, review decision, and admin read actions. |
+| `auditCheckpoints` | Local checkpoint records created after export-before-prune retention actions. |
 
 The local state file uses `schemaVersion: corehub.local-state.v1`. Future production persistence should preserve this logical state model even if storage moves to SQL, KV, Durable Objects, or R2/S3 metadata.
 
@@ -193,6 +197,8 @@ The local state file uses `schemaVersion: corehub.local-state.v1`. Future produc
 CoreHub records audit events in the same spirit as ClawHub's general `auditLogs` and moderation event logs. Each event includes `id`, `sequence`, `actor`, `action`, `targetType`, `targetId`, `metadata`, `createdAt`, `previousHash`, and `eventHash`.
 
 The audit trail is lightly tamper-evident. Every event hashes a canonical payload that includes its sequence number and the previous event hash. The first event uses 64 zeroes as `previousHash`, and `corehub audit verify` recomputes the chain to prove the current log has not been edited out of order.
+
+Retention is fail-closed. If the chain is invalid, CoreHub blocks pruning and tells operators to export the current state and escalate. When retention pruning is allowed, the operator must export first; CoreHub records a checkpoint with the pruned prefix head hash and export hash so the remaining chain can still be verified.
 
 The local API currently records:
 
@@ -207,6 +213,8 @@ The local API currently records:
 | `review.list` / `review.inspect` | Review queue or review id. |
 | `audit.list` | Audit query target or filter. |
 | `audit.verify` | Audit chain verification read. |
+| `audit.retention.inspect` | Retention policy and prune plan read. |
+| `audit.retention.prune` | Export-backed retention prune checkpoint. |
 
 Operators can inspect the trail through the read-only CLI surface:
 
@@ -215,6 +223,8 @@ corehub audit list --target review-plugin-lab-0-1-0 --limit 20 --registry http:/
 corehub audit list --action review.approve --limit 20 --registry http://127.0.0.1:8787/corehub
 corehub audit list --action review.approve --actor github:coreblow-admin --target-type review --format jsonl --output ./review-approvals.audit.jsonl --registry http://127.0.0.1:8787/corehub
 corehub audit verify --registry http://127.0.0.1:8787/corehub
+corehub audit retention --dry-run --registry http://127.0.0.1:8787/corehub
+corehub audit retention --prune --output ./audit-retention.audit.jsonl --registry http://127.0.0.1:8787/corehub
 ```
 
 For enterprise export examples, see `docs/audit-runbook.md`.
@@ -237,6 +247,7 @@ Defaults:
 | `COREHUB_STATE_PATH` | `.corehub-local/write-side-state.json` |
 | `COREHUB_STORAGE_ROOT` | `.corehub-local/storage` |
 | `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` |
+| `COREHUB_AUDIT_RETENTION_DAYS` | `365` |
 
 This lets the upload, submit, review, and projected Registry API v1 flow run over HTTP without a test harness while still keeping production R2/S3 and database persistence out of scope.
 
