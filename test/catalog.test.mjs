@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { CoreHubLocalStorageAdapter, createCoreHubApiHandler } from "../src/api-server.mjs";
+import { CoreHubLocalJsonStateStore, CoreHubLocalStorageAdapter, createCoreHubApiHandler } from "../src/api-server.mjs";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { createCoreHubServer } from "../src/server.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
@@ -594,6 +594,40 @@ try {
 } finally {
   await bootstrapServer.close();
   await rm(bootstrapDir, { recursive: true, force: true });
+}
+
+const stateStoreDir = await mkdtemp(join(tmpdir(), "corehub-state-store-"));
+try {
+  const stateStorePath = join(stateStoreDir, "state.json");
+  const stateStore = new CoreHubLocalJsonStateStore({ statePath: stateStorePath });
+  const stateStoreStorage = await CoreHubLocalStorageAdapter.open({
+    root: stateStoreDir,
+    stateStore,
+  });
+  const slot = await stateStoreStorage.requestUploadSlot({
+    packageId: "plugin-lab",
+    version: "0.1.0",
+    publisherHandle: "coreblow",
+    provider: "r2",
+    artifact: {
+      name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+      mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+      size: pluginLabArtifactBytes.byteLength,
+      sha256: entries[2].versions[0].artifact.sha256,
+    },
+  });
+  assert.equal(slot.id, "upload-plugin-lab-0-1-0");
+  const persisted = JSON.parse(await readFile(stateStorePath, "utf8"));
+  assert.equal(persisted.schemaVersion, "corehub.local-state.v1");
+  assert.equal(persisted.slots[0].id, slot.id);
+
+  const restoredStorage = await CoreHubLocalStorageAdapter.open({
+    root: stateStoreDir,
+    stateStore: new CoreHubLocalJsonStateStore({ statePath: stateStorePath }),
+  });
+  assert.equal(restoredStorage.requireSlot(slot.id).artifactUpload.status, "requested");
+} finally {
+  await rm(stateStoreDir, { recursive: true, force: true });
 }
 
 const apiStorageDir = await mkdtemp(join(tmpdir(), "corehub-api-storage-"));

@@ -5,13 +5,43 @@ import { dirname, join, resolve } from "node:path";
 const defaultApiBasePath = "/corehub/api/v2";
 const defaultPublicBaseUrl = "https://coreblow.com/corehub";
 const defaultAuditRetentionDays = 365;
+const localStateSchemaVersion = "corehub.local-state.v1";
+
+export class CoreHubLocalJsonStateStore {
+  constructor({ statePath } = {}) {
+    if (!statePath) throw new Error("CoreHubLocalJsonStateStore requires statePath");
+    this.statePath = resolve(statePath);
+    this.kind = "local-json";
+  }
+
+  async load() {
+    const raw = await readFile(this.statePath, "utf8").catch((error) => {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    });
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  async save(snapshot) {
+    await mkdir(dirname(this.statePath), { recursive: true });
+    await writeFile(this.statePath, `${JSON.stringify(snapshot, null, 2)}\n`);
+    return snapshot;
+  }
+}
 
 export class CoreHubLocalStorageAdapter {
-  constructor({ root, publicBaseUrl = defaultPublicBaseUrl, statePath, auditRetentionDays = defaultAuditRetentionDays } = {}) {
+  constructor({
+    root,
+    publicBaseUrl = defaultPublicBaseUrl,
+    statePath,
+    stateStore,
+    auditRetentionDays = defaultAuditRetentionDays,
+  } = {}) {
     if (!root) throw new Error("CoreHubLocalStorageAdapter requires root");
     this.root = resolve(root);
     this.publicBaseUrl = publicBaseUrl.replace(/\/$/, "");
-    this.statePath = statePath ? resolve(statePath) : null;
+    this.stateStore = stateStore ?? (statePath ? new CoreHubLocalJsonStateStore({ statePath }) : null);
+    this.statePath = this.stateStore?.statePath ?? (statePath ? resolve(statePath) : null);
     this.auditRetentionDays = normalizeAuditRetentionDays(auditRetentionDays);
     this.slots = new Map();
     this.submissions = new Map();
@@ -618,7 +648,7 @@ export class CoreHubLocalStorageAdapter {
 
   snapshotState({ savedAt = new Date().toISOString() } = {}) {
     return {
-      schemaVersion: "corehub.local-state.v1",
+      schemaVersion: localStateSchemaVersion,
       savedAt,
       publicBaseUrl: this.publicBaseUrl,
       slots: [...this.slots.values()],
@@ -631,7 +661,7 @@ export class CoreHubLocalStorageAdapter {
   }
 
   restoreState(state) {
-    if (!state || state.schemaVersion !== "corehub.local-state.v1") {
+    if (!state || state.schemaVersion !== localStateSchemaVersion) {
       throw new Error("Unsupported CoreHub local state file");
     }
     this.publicBaseUrl = state.publicBaseUrl ?? this.publicBaseUrl;
@@ -644,28 +674,27 @@ export class CoreHubLocalStorageAdapter {
   }
 
   async saveState(path = this.statePath) {
-    if (!path) throw new Error("CoreHub local state path is not configured");
-    const target = resolve(path);
-    await mkdir(dirname(target), { recursive: true });
     const snapshot = this.snapshotState();
-    await writeFile(target, `${JSON.stringify(snapshot, null, 2)}\n`);
+    if (path === this.statePath && this.stateStore) return this.stateStore.save(snapshot);
+    if (!path) throw new Error("CoreHub local state path is not configured");
+    await new CoreHubLocalJsonStateStore({ statePath: path }).save(snapshot);
     return snapshot;
   }
 
   async loadState(path = this.statePath) {
-    if (!path) return false;
-    const target = resolve(path);
-    const raw = await readFile(target, "utf8").catch((error) => {
-      if (error?.code === "ENOENT") return null;
-      throw error;
-    });
-    if (!raw) return false;
-    this.restoreState(JSON.parse(raw));
+    const state =
+      path === this.statePath && this.stateStore
+        ? await this.stateStore.load()
+        : path
+          ? await new CoreHubLocalJsonStateStore({ statePath: path }).load()
+          : null;
+    if (!state) return false;
+    this.restoreState(state);
     return true;
   }
 
   async persistState() {
-    if (!this.statePath) return;
+    if (!this.stateStore && !this.statePath) return;
     await this.saveState();
   }
 

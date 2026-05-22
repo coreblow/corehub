@@ -92,6 +92,8 @@ COREHUB_REGISTRY=https://coreblow.com/corehub npm run audit:incident
 
 See `docs/production-audit-monitoring.md` for cron, GitHub Actions, and Cloudflare Scheduled Worker wiring.
 
+See `docs/production-persistence.md` for the write-side persistence adapter boundary.
+
 ### CLI
 
 ```sh
@@ -148,7 +150,7 @@ Review states:
 - `verified`
 - `deprecated`
 
-See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), [Publisher Identity](docs/publisher-identity.md), [Write-Side Schema](docs/write-side-schema.md), [Production Audit Monitoring](docs/production-audit-monitoring.md), and [ClawHub Parity](docs/clawhub-parity.md).
+See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), [Publisher Identity](docs/publisher-identity.md), [Write-Side Schema](docs/write-side-schema.md), [Production Persistence](docs/production-persistence.md), [Production Audit Monitoring](docs/production-audit-monitoring.md), and [ClawHub Parity](docs/clawhub-parity.md).
 
 ## Public Web Surface
 
