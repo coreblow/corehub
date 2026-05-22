@@ -255,6 +255,34 @@ CoreHub mirrors the ClawHub repo-level security gates with:
 
 `CodeQL Light` also runs on a daily schedule and can be run manually with a single profile when reviewing a narrow surface.
 
+## Package Publish Workflow
+
+CoreHub exposes a reusable package publish workflow at `.github/workflows/package-publish.yml`.
+
+The workflow follows the ClawHub reusable publish pattern, but stays fail-closed while CoreHub write-side publishing is still staged:
+
+- `workflow_call` entrypoint for package repos.
+- Caller repo checkout plus OIDC-based checkout of the exact CoreHub workflow source revision.
+- `dry_run: true` by default.
+- Local `corehub package submit <source> --dry-run` by default, with no production mutation.
+- Optional `remote_dry_run: true` for explicit API v2 submission exercises. This requires `secrets.corehub_token` because it can create pending review state.
+- `dry_run: false` fails until production write-side publishing is intentionally opened.
+- JSON output and an uploaded `corehub-package-submit.json` artifact for downstream review.
+
+Example caller workflow:
+
+```yaml
+jobs:
+  corehub-package-publish:
+    uses: coreblow/corehub/.github/workflows/package-publish.yml@main
+    with:
+      source: ./dist/plugin-lab-0.1.0.coreblow-plugin.tgz
+      publisher: coreblow
+      dry_run: true
+```
+
+Use `remote_dry_run: true` only from protected branches or release workflows that are allowed to create pending review records in CoreHub.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.

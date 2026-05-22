@@ -1,0 +1,221 @@
+name: Package Publish
+
+on:
+  workflow_call:
+    inputs:
+      source:
+        description: Local package source path in the caller checkout.
+        required: false
+        type: string
+        default: "."
+      dry_run:
+        description: Preview only. Real publish is intentionally fail-closed until CoreHub write-side publishing opens.
+        required: false
+        type: boolean
+        default: true
+      remote_dry_run:
+        description: Use the registry API v2 dry-run path. This can create pending review state and requires a token.
+        required: false
+        type: boolean
+        default: false
+      registry:
+        description: CoreHub registry URL for explicit remote dry-runs.
+        required: false
+        type: string
+        default: https://coreblow.com/corehub
+      publisher:
+        description: Optional publisher handle override.
+        required: false
+        type: string
+      source_url:
+        description: Optional package source URL stored in the submission payload.
+        required: false
+        type: string
+      changelog:
+        description: Optional changelog stored in the submission payload.
+        required: false
+        type: string
+      artifact_upload:
+        description: Optional verified artifact upload id for remote dry-runs.
+        required: false
+        type: string
+      node_version:
+        description: Node.js version used to run the CoreHub CLI.
+        required: false
+        type: string
+        default: "22"
+    secrets:
+      corehub_token:
+        required: false
+    outputs:
+      submission_json:
+        description: Structured JSON output from corehub package submit.
+        value: ${{ jobs.publish.outputs.submission_json }}
+      submission_id:
+        description: Planned or remote submission id.
+        value: ${{ jobs.publish.outputs.submission_id }}
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      submission_json: ${{ steps.capture.outputs.submission_json }}
+      submission_id: ${{ steps.capture.outputs.submission_id }}
+    env:
+      COREHUB_SOURCE_PATH: corehub-source
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Prepare publish artifact path
+        run: |
+          set -euo pipefail
+          echo "COREHUB_RESULT_PATH=$RUNNER_TEMP/corehub-package-submit.json" >> "$GITHUB_ENV"
+
+      - name: Resolve CoreHub workflow source
+        id: corehub_source
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          from urllib.request import Request, urlopen
+
+          request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "").strip()
+          request_url = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "").strip()
+          if not request_token or not request_url:
+              raise SystemExit("GitHub OIDC token request env vars are missing; id-token: write is required.")
+
+          audience = "corehub-workflow-source"
+          joiner = "&" if "?" in request_url else "?"
+          request = Request(
+              f"{request_url}{joiner}audience={audience}",
+              headers={"Authorization": f"Bearer {request_token}"},
+          )
+          with urlopen(request) as response:
+              payload = json.load(response)
+
+          token = str(payload.get("value", "")).strip()
+          if not token:
+              raise SystemExit("GitHub OIDC token response did not include a token value.")
+
+          try:
+              encoded_payload = token.split(".")[1]
+          except IndexError as exc:
+              raise SystemExit("GitHub OIDC token was not a valid JWT.") from exc
+          padding = "=" * (-len(encoded_payload) % 4)
+          claims = json.loads(base64.urlsafe_b64decode(encoded_payload + padding).decode("utf-8"))
+
+          workflow_ref = str(claims.get("job_workflow_ref", "")).strip()
+          workflow_sha = str(claims.get("job_workflow_sha", "")).strip()
+          repository, marker, _ = workflow_ref.partition("/.github/workflows/")
+          if not marker or not repository or not workflow_sha:
+              raise SystemExit(
+                  "Unable to resolve reusable workflow source from GitHub OIDC claims: "
+                  f"job_workflow_ref={workflow_ref!r} job_workflow_sha={workflow_sha!r}"
+              )
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as fh:
+              fh.write(f"repository={repository}\n")
+              fh.write(f"ref={workflow_sha}\n")
+          PY
+
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ steps.corehub_source.outputs.repository }}
+          ref: ${{ steps.corehub_source.outputs.ref }}
+          path: ${{ env.COREHUB_SOURCE_PATH }}
+
+      - name: Validate publish mode inputs
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          REMOTE_DRY_RUN: ${{ inputs.remote_dry_run }}
+          COREHUB_TOKEN: ${{ secrets.corehub_token }}
+        run: |
+          set -euo pipefail
+          if [[ "$DRY_RUN" != "true" ]]; then
+            echo "::error::CoreHub package publishing is dry-run only until production write-side publish is opened."
+            exit 1
+          fi
+          if [[ "$REMOTE_DRY_RUN" == "true" && -z "$COREHUB_TOKEN" ]]; then
+            echo "::error::remote_dry_run requires secrets.corehub_token because it can create pending review state."
+            exit 1
+          fi
+
+      - name: Run CoreHub package submit dry-run
+        env:
+          INPUT_SOURCE: ${{ inputs.source }}
+          INPUT_REMOTE_DRY_RUN: ${{ inputs.remote_dry_run }}
+          INPUT_REGISTRY: ${{ inputs.registry }}
+          INPUT_PUBLISHER: ${{ inputs.publisher }}
+          INPUT_SOURCE_URL: ${{ inputs.source_url }}
+          INPUT_CHANGELOG: ${{ inputs.changelog }}
+          INPUT_ARTIFACT_UPLOAD: ${{ inputs.artifact_upload }}
+          SECRET_COREHUB_TOKEN: ${{ secrets.corehub_token }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          source_path="${INPUT_SOURCE:-.}"
+          if [[ ! -e "$source_path" ]]; then
+            echo "::error::CoreHub package source does not exist in the caller checkout: $source_path"
+            exit 1
+          fi
+
+          args=("package" "submit" "$source_path" "--dry-run")
+          if [[ -n "$INPUT_PUBLISHER" ]]; then
+            args+=("--publisher" "$INPUT_PUBLISHER")
+          fi
+          if [[ -n "$INPUT_SOURCE_URL" ]]; then
+            args+=("--source" "$INPUT_SOURCE_URL")
+          fi
+          if [[ -n "$INPUT_CHANGELOG" ]]; then
+            args+=("--changelog" "$INPUT_CHANGELOG")
+          fi
+          if [[ -n "$INPUT_ARTIFACT_UPLOAD" ]]; then
+            args+=("--artifact-upload" "$INPUT_ARTIFACT_UPLOAD")
+          fi
+          if [[ "$INPUT_REMOTE_DRY_RUN" == "true" ]]; then
+            args+=("--registry" "$INPUT_REGISTRY")
+          fi
+
+          mkdir -p "$(dirname "$COREHUB_RESULT_PATH")"
+          COREHUB_TOKEN="${SECRET_COREHUB_TOKEN:-corehub-local-dry-run-token}" \
+          COREHUB_USER="github:${GITHUB_ACTOR}" \
+            node "$GITHUB_WORKSPACE/$COREHUB_SOURCE_PATH/src/cli.mjs" "${args[@]}" | tee "$COREHUB_RESULT_PATH"
+
+      - name: Capture publish outputs
+        id: capture
+        run: |
+          set -euo pipefail
+          node <<'JS'
+          const fs = require("node:fs");
+          const resultPath = process.env.COREHUB_RESULT_PATH;
+          const outputPath = process.env.GITHUB_OUTPUT;
+          const result = JSON.parse(fs.readFileSync(resultPath, "utf8"));
+          const submissionId = result.submission?.id ?? result.packageVersionPreview?.submissionId ?? "";
+          const compact = JSON.stringify(result);
+          fs.appendFileSync(outputPath, `submission_id=${submissionId}\n`);
+          fs.appendFileSync(outputPath, "submission_json<<COREHUB_JSON\n");
+          fs.appendFileSync(outputPath, `${compact}\n`);
+          fs.appendFileSync(outputPath, "COREHUB_JSON\n");
+          JS
+
+      - name: Upload package publish dry-run artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: corehub-package-publish-${{ github.run_id }}
+          path: ${{ runner.temp }}/corehub-package-submit.json
+          if-no-files-found: ignore
