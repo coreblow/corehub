@@ -50,6 +50,27 @@ The write-side schema does not replace `corehub.catalog.schema.json`.
 
 Public API v1 can continue to project approved `packageVersions` and verified `artifactUploads` into the existing catalog shape.
 
+## Publisher Identity and Permissions
+
+CoreHub API v2 now resolves a request actor from the authenticated CLI headers and checks publisher membership before accepting write-side mutations.
+
+| Boundary | Required permission |
+| --- | --- |
+| `GET /corehub/api/v2/publishers/me` | Any authenticated actor; returns memberships, roles, default publisher, and derived permissions. |
+| `POST /corehub/api/v2/artifacts/uploads` | Active `owner`, `admin`, or `maintainer` membership on the requested `publisherHandle`. |
+| `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Active write membership on the upload slot publisher. |
+| `POST /corehub/api/v2/submissions` | Active write membership on the submission publisher. |
+| `GET /corehub/api/v2/submissions*` | Admin or moderator actor. |
+| `GET /corehub/api/v2/reviews*` | Admin or moderator actor. |
+| `POST /corehub/api/v2/reviews/:id/approve` | Admin or moderator actor. |
+| `POST /corehub/api/v2/reviews/:id/block` | Admin or moderator actor. |
+| `GET /corehub/api/v2/audit/*` | Admin or moderator actor. |
+| `POST /corehub/api/v2/audit/retention/prune` | Admin or moderator actor plus export-before-prune evidence. |
+
+The signed upload `PUT /corehub/api/v2/artifacts/uploads/:id` remains a capability-style upload boundary. It validates the reserved slot, expected checksum, media type, and byte limits; publisher authorization happens when the slot is requested and when the uploaded artifact is verified.
+
+Default local bootstrap seeds `github:coreblow-admin` as the `coreblow` owner and admin actor so existing local smoke flows remain deterministic. Production operators can set `COREHUB_ADMIN_ACTORS` to the comma-separated admin or moderator actor ids allowed to review, inspect queues, and read audit evidence.
+
 ## API Contract Draft
 
 The future authenticated API should expose these resources under a new versioned write surface:

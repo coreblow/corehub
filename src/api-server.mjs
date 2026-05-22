@@ -10,6 +10,9 @@ const localStateSchemaVersion = "corehub.local-state.v1";
 const signedReadTtlMs = 5 * 60 * 1000;
 const defaultSignedReadKeyId = "local-dev";
 const defaultSignedReadSecret = "corehub-local-development-signing-secret";
+const defaultAdminActorIds = ["github:coreblow-admin", "moderator:corehub"];
+const publisherWriteRoles = new Set(["owner", "admin", "maintainer"]);
+const adminRoles = new Set(["admin", "moderator"]);
 
 export class CoreHubLocalJsonStateStore {
   constructor({ statePath } = {}) {
@@ -164,6 +167,7 @@ export class CoreHubLocalStorageAdapter {
     signedReadKeyId = defaultSignedReadKeyId,
     signedReadKeys,
     auditRetentionDays = defaultAuditRetentionDays,
+    adminActorIds = defaultAdminActorIds,
   } = {}) {
     if (!root && !objectStore) throw new Error("CoreHubLocalStorageAdapter requires root or objectStore");
     this.root = root ? resolve(root) : null;
@@ -174,6 +178,11 @@ export class CoreHubLocalStorageAdapter {
     this.signedReadKeyId = normalizeSigningKeyId(signedReadKeyId);
     this.signedReadKeys = normalizeSigningKeys({ signedReadSecret, signedReadKeyId: this.signedReadKeyId, signedReadKeys });
     this.auditRetentionDays = normalizeAuditRetentionDays(auditRetentionDays);
+    this.adminActorIds = new Set(normalizeActorIdList(adminActorIds, "adminActorIds"));
+    this.authSessions = [];
+    this.publisherClaims = [];
+    this.publisherAccounts = new Map(defaultPublisherAccounts().map((publisher) => [publisher.handle, publisher]));
+    this.publisherMembers = defaultPublisherMembers();
     this.slots = new Map();
     this.submissions = new Map();
     this.reviews = new Map();
@@ -190,6 +199,7 @@ export class CoreHubLocalStorageAdapter {
 
   async requestUploadSlot(input, { actor = defaultActor(), now = new Date() } = {}) {
     const request = normalizeUploadRequest(input);
+    this.requirePublisherPermission(actor, request.publisherHandle, "artifact.upload.request");
     const createdAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
     const versionSlug = slugVersion(request.version);
@@ -307,6 +317,7 @@ export class CoreHubLocalStorageAdapter {
 
   async verifyUpload(uploadSlotId, { actor = defaultActor(), now = new Date() } = {}) {
     const slot = this.requireSlot(uploadSlotId);
+    this.requirePublisherPermission(actor, slot.publisherHandle, "artifact.upload.verify");
     const bytes = await this.objectStore.get(slot.storage.key);
     if (!bytes) throw httpError(404, "Uploaded artifact bytes not found");
     const actual = {
@@ -454,6 +465,7 @@ export class CoreHubLocalStorageAdapter {
 
   async createSubmission(input, { actor = defaultActor(), now = new Date() } = {}) {
     const request = normalizeSubmissionRequest(input);
+    this.requirePublisherPermission(actor, request.publisherHandle, "submission.create");
     const artifactUpload = this.findArtifactUpload(request.artifactUploadId);
     if (!artifactUpload) throw httpError(404, "Verified artifact upload not found");
     if (artifactUpload.status !== "verified") {
@@ -527,6 +539,7 @@ export class CoreHubLocalStorageAdapter {
 
   async decideReview(reviewId, decision, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
     if (!["approve", "block"].includes(decision)) throw httpError(400, "Review decision must be approve or block");
+    this.requireAdminPermission(actor, `review.${decision}`);
     const review = this.reviews.get(reviewId);
     if (!review) throw httpError(404, "Moderation review not found");
     if (review.targetType !== "submission") throw httpError(400, "Only submission reviews are supported");
@@ -594,6 +607,7 @@ export class CoreHubLocalStorageAdapter {
   }
 
   listSubmissions(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "submission.list");
     const records = [...this.submissions.values()]
       .map((record) => this.submissionInspection(record))
       .filter((record) => !options.status || record.submission.status === options.status)
@@ -601,13 +615,15 @@ export class CoreHubLocalStorageAdapter {
     return paginate(records, options);
   }
 
-  inspectSubmission(submissionId) {
+  inspectSubmission(submissionId, options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "submission.inspect");
     const record = this.submissions.get(submissionId);
     if (!record) throw httpError(404, "Submission not found");
     return this.submissionInspection(record);
   }
 
   listReviews(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "review.list");
     const records = [...this.reviews.values()]
       .filter((review) => !options.status || review.status === options.status)
       .map((review) => this.reviewInspection(review))
@@ -615,7 +631,8 @@ export class CoreHubLocalStorageAdapter {
     return paginate(records, options);
   }
 
-  inspectReview(reviewId) {
+  inspectReview(reviewId, options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "review.inspect");
     const moderationReview = this.reviews.get(reviewId);
     if (!moderationReview) throw httpError(404, "Moderation review not found");
     return this.reviewInspection(moderationReview);
@@ -641,6 +658,7 @@ export class CoreHubLocalStorageAdapter {
   }
 
   listAuditEvents(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "audit.list");
     const records = this.auditEvents
       .filter((event) => !options.actor || event.actor?.id === options.actor)
       .filter((event) => !options.action || event.action === options.action)
@@ -684,7 +702,8 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
-  auditRetentionPlan({ now = new Date() } = {}) {
+  auditRetentionPlan({ actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "audit.retention.inspect");
     const verification = this.verifyAuditEvents();
     const cutoff = new Date(now.getTime() - this.auditRetentionDays * 24 * 60 * 60 * 1000);
     const events = [...this.auditEvents].sort((left, right) => left.sequence - right.sequence);
@@ -724,7 +743,8 @@ export class CoreHubLocalStorageAdapter {
     exportedCount,
     now = new Date(),
   } = {}) {
-    const plan = this.auditRetentionPlan({ now });
+    this.requireAdminPermission(actor, "audit.retention.prune");
+    const plan = this.auditRetentionPlan({ actor, now });
     if (plan.status === "blocked") return plan;
     if (dryRun || plan.status === "noop") return { ...plan, dryRun: true };
     if (!/^[a-f0-9]{64}$/.test(String(exportHash ?? ""))) {
@@ -767,7 +787,7 @@ export class CoreHubLocalStorageAdapter {
     });
     await this.persistState();
     return {
-      ...this.auditRetentionPlan({ now }),
+      ...this.auditRetentionPlan({ actor, now }),
       status: "pruned",
       dryRun: false,
       checkpoint,
@@ -785,6 +805,56 @@ export class CoreHubLocalStorageAdapter {
       createdAt: now.toISOString(),
     });
     await this.persistState();
+  }
+
+  publisherIdentity(actor = defaultActor()) {
+    const memberships = this.publisherMembers
+      .filter((member) => member.userId === actor.id && member.status === "active")
+      .map((member) => ({
+        ...member,
+        publisher: this.publisherAccounts.get(member.publisherHandle) ?? null,
+        permissions: publisherPermissionsForRole(member.role),
+      }))
+      .sort((left, right) => left.publisherHandle.localeCompare(right.publisherHandle));
+    return {
+      actor,
+      memberships,
+      permissions: {
+        admin: this.hasAdminPermission(actor),
+      },
+      defaultPublisher: memberships[0]?.publisher ?? null,
+    };
+  }
+
+  requirePublisherPermission(actor, publisherHandle, action) {
+    const publisher = this.publisherAccounts.get(publisherHandle);
+    if (!publisher || publisher.status !== "verified") {
+      throw httpError(403, `Publisher ${publisherHandle} is not verified for ${action}`);
+    }
+    const membership = this.publisherMembers.find(
+      (member) =>
+        member.userId === actor.id &&
+        member.publisherHandle === publisherHandle &&
+        member.status === "active" &&
+        publisherWriteRoles.has(member.role),
+    );
+    if (!membership) {
+      throw httpError(403, `Actor ${actor.id} cannot ${action} for publisher ${publisherHandle}`);
+    }
+    return membership;
+  }
+
+  requireAdminPermission(actor, action) {
+    if (!this.hasAdminPermission(actor)) {
+      throw httpError(403, `Actor ${actor.id} cannot ${action}`);
+    }
+  }
+
+  hasAdminPermission(actor) {
+    if (this.adminActorIds.has(actor.id)) return true;
+    return this.publisherMembers.some(
+      (member) => member.userId === actor.id && member.status === "active" && adminRoles.has(member.role),
+    );
   }
 
   recordAuditEvent({ actor, action, targetType, targetId, metadata = {}, createdAt }) {
@@ -876,6 +946,10 @@ export class CoreHubLocalStorageAdapter {
       schemaVersion: localStateSchemaVersion,
       savedAt,
       publicBaseUrl: this.publicBaseUrl,
+      authSessions: this.authSessions,
+      publisherClaims: this.publisherClaims,
+      publisherAccounts: [...this.publisherAccounts.values()],
+      publisherMembers: this.publisherMembers,
       slots: [...this.slots.values()],
       submissions: [...this.submissions.values()],
       reviews: [...this.reviews.values()],
@@ -890,6 +964,12 @@ export class CoreHubLocalStorageAdapter {
       throw new Error("Unsupported CoreHub local state file");
     }
     this.publicBaseUrl = state.publicBaseUrl ?? this.publicBaseUrl;
+    this.authSessions = state.authSessions ?? [];
+    this.publisherClaims = state.publisherClaims ?? [];
+    this.publisherAccounts = new Map(
+      (state.publisherAccounts ?? defaultPublisherAccounts()).map((publisher) => [publisher.handle, publisher]),
+    );
+    this.publisherMembers = state.publisherMembers ?? defaultPublisherMembers();
     this.slots = new Map((state.slots ?? []).map((slot) => [slot.id, slot]));
     this.submissions = new Map((state.submissions ?? []).map((record) => [record.submission.id, record]));
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
@@ -974,6 +1054,20 @@ export function createCoreHubApiHandler({
       const segments = trimBasePath(url.pathname, basePath);
       if (!segments) return json(response, 404, { error: "Not found" });
 
+      if (request.method === "GET" && segments[0] === "publishers" && segments[1] === "me" && segments.length === 2) {
+        const actor = actorFromRequest(request);
+        const result = storage.publisherIdentity(actor);
+        await storage.auditRead({
+          actor,
+          action: "publisher.whoami",
+          targetType: "publisher",
+          targetId: result.defaultPublisher?.handle ?? actor.id,
+          metadata: { membershipCount: result.memberships.length },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (request.method === "POST" && segments.join("/") === "artifacts/uploads") {
         const body = await readJsonBody(request);
         const actor = actorFromRequest(request);
@@ -990,9 +1084,11 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 1) {
         const options = readListOptions(url);
+        const actor = actorFromRequest(request);
+        options.authActor = actor;
         const result = storage.listSubmissions(options);
         await storage.auditRead({
-          actor: actorFromRequest(request),
+          actor,
           action: "submission.list",
           targetType: "submission",
           targetId: options.status ? `status:${options.status}` : "all",
@@ -1004,9 +1100,10 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 2) {
         const submissionId = decodeURIComponent(segments[1]);
-        const result = storage.inspectSubmission(submissionId);
+        const actor = actorFromRequest(request);
+        const result = storage.inspectSubmission(submissionId, { authActor: actor });
         await storage.auditRead({
-          actor: actorFromRequest(request),
+          actor,
           action: "submission.inspect",
           targetType: "submission",
           targetId: submissionId,
@@ -1017,9 +1114,11 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 1) {
         const options = readListOptions(url);
+        const actor = actorFromRequest(request);
+        options.authActor = actor;
         const result = storage.listReviews(options);
         await storage.auditRead({
-          actor: actorFromRequest(request),
+          actor,
           action: "review.list",
           targetType: "review",
           targetId: options.status ? `status:${options.status}` : "all",
@@ -1031,9 +1130,10 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 2) {
         const reviewId = decodeURIComponent(segments[1]);
-        const result = storage.inspectReview(reviewId);
+        const actor = actorFromRequest(request);
+        const result = storage.inspectReview(reviewId, { authActor: actor });
         await storage.auditRead({
-          actor: actorFromRequest(request),
+          actor,
           action: "review.inspect",
           targetType: "review",
           targetId: reviewId,
@@ -1044,9 +1144,11 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "audit" && segments[1] === "events" && segments.length === 2) {
         const options = readAuditListOptions(url);
+        const actor = actorFromRequest(request);
+        options.authActor = actor;
         const result = storage.listAuditEvents(options);
         await storage.auditRead({
-          actor: actorFromRequest(request),
+          actor,
           action: "audit.list",
           targetType: "audit",
           targetId: options.target ?? options.action ?? "all",
@@ -1057,9 +1159,11 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "audit" && segments[1] === "verify" && segments.length === 2) {
+        const actor = actorFromRequest(request);
+        storage.requireAdminPermission(actor, "audit.verify");
         const result = storage.verifyAuditEvents();
         await storage.auditRead({
-          actor: actorFromRequest(request),
+          actor,
           action: "audit.verify",
           targetType: "audit",
           targetId: result.head,
@@ -1070,9 +1174,10 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "audit" && segments[1] === "retention" && segments.length === 2) {
-        const result = storage.auditRetentionPlan({ now: now() });
+        const actor = actorFromRequest(request);
+        const result = storage.auditRetentionPlan({ actor, now: now() });
         await storage.auditRead({
-          actor: actorFromRequest(request),
+          actor,
           action: "audit.retention.inspect",
           targetType: "audit",
           targetId: result.status,
@@ -1501,7 +1606,54 @@ function actorFromRequest(request) {
 }
 
 function defaultActor() {
-  return { type: "user", id: "local-api-user" };
+  return { type: "user", id: "github:coreblow-admin" };
+}
+
+function defaultPublisherAccounts() {
+  return [
+    {
+      id: "publisher-coreblow",
+      handle: "coreblow",
+      displayName: "CoreBlow",
+      kind: "organization",
+      status: "verified",
+      source: "https://github.com/coreblow",
+      contact: "https://github.com/coreblow/corehub/security/policy",
+      createdAt: "2026-05-21T00:00:00Z",
+      verifiedAt: "2026-05-21T00:00:00Z",
+    },
+  ];
+}
+
+function defaultPublisherMembers() {
+  return [
+    {
+      id: "member-coreblow-owner",
+      publisherHandle: "coreblow",
+      userId: "github:coreblow-admin",
+      role: "owner",
+      status: "active",
+      createdAt: "2026-05-21T00:00:00Z",
+    },
+  ];
+}
+
+function publisherPermissionsForRole(role) {
+  const permissions = [];
+  if (publisherWriteRoles.has(role)) {
+    permissions.push("artifact.upload", "submission.create");
+  }
+  if (adminRoles.has(role)) {
+    permissions.push("review.decide", "admin.read");
+  }
+  return permissions;
+}
+
+function normalizeActorIdList(value, label) {
+  const items = Array.isArray(value) ? value : String(value ?? "").split(",");
+  const normalized = items.map((item) => String(item).trim()).filter(Boolean);
+  if (normalized.length === 0) throw new Error(`${label} must include at least one actor id`);
+  return normalized;
 }
 
 function getHeader(headers, name) {

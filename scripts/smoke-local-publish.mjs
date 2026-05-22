@@ -218,7 +218,13 @@ try {
     join(tempRoot, "audit-incident.md"),
     "--limit",
     "5",
-  ]);
+  ], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      COREHUB_HOME: authHome,
+    },
+  });
   assert.equal(JSON.parse(auditIncidentCheck.stdout).incidentStatus, "ok");
   logStep("audit incident automation check passed");
 

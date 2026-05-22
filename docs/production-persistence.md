@@ -192,3 +192,4 @@ The production environment template is in `ops/corehub-api.production.env.exampl
 | `COREHUB_SIGNING_PREVIOUS_SECRETS` | unset | Optional comma-separated `keyId:secret` rotation placeholder accepted for old read URLs. |
 | `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` | Public registry URL used in upload contracts. |
 | `COREHUB_AUDIT_RETENTION_DAYS` | `365` | Audit retention window before prune planning. |
+| `COREHUB_ADMIN_ACTORS` | `github:coreblow-admin,moderator:corehub` | Comma-separated actor ids allowed to inspect queues, decide reviews, read audit evidence, and run retention actions. |

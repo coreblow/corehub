@@ -46,6 +46,7 @@ export async function createCoreHubServer(options = {}) {
     signedReadKeyId,
     signedReadKeys,
     auditRetentionDays,
+    adminActorIds: env.COREHUB_ADMIN_ACTORS,
   });
   const apiHandler = createCoreHubApiHandler({ storage });
   const server = createServer((request, response) => {

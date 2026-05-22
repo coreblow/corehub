@@ -919,6 +919,38 @@ const apiServer = createServer(
 await new Promise((resolve) => apiServer.listen(0, "127.0.0.1", resolve));
 try {
   const apiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/corehub/api/v2`;
+  const whoamiResponse = await fetch(`${apiBaseUrl}/publishers/me`, {
+    headers: { "x-corehub-user": "github:coreblow-admin" },
+  });
+  assert.equal(whoamiResponse.status, 200);
+  const whoamiPayload = await whoamiResponse.json();
+  assert.equal(whoamiPayload.data.actor.id, "github:coreblow-admin");
+  assert.equal(whoamiPayload.data.memberships[0].publisherHandle, "coreblow");
+  assert.deepEqual(whoamiPayload.data.memberships[0].permissions, ["artifact.upload", "submission.create"]);
+  assert.equal(whoamiPayload.data.permissions.admin, true);
+
+  const unauthorizedUploadResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:outside-user",
+    },
+    body: JSON.stringify({
+      packageId: "plugin-lab",
+      version: "0.1.0",
+      publisherHandle: "coreblow",
+      provider: "r2",
+      artifact: {
+        name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+        mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+        size: pluginLabArtifactBytes.byteLength,
+        sha256: entries[2].versions[0].artifact.sha256,
+      },
+    }),
+  });
+  assert.equal(unauthorizedUploadResponse.status, 403);
+  assert.match((await unauthorizedUploadResponse.json()).error, /cannot artifact\.upload\.request/);
+
   const uploadRequestResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
     method: "POST",
     headers: {
@@ -1702,7 +1734,9 @@ try {
     const address = incidentServer.address();
     const incidentRegistryUrl = `http://127.0.0.1:${address.port}/corehub`;
     await assert.rejects(
-      execFileAsync(process.execPath, [cliPath, "audit", "incident", "report", "--registry", incidentRegistryUrl]),
+      execFileAsync(process.execPath, [cliPath, "audit", "incident", "report", "--registry", incidentRegistryUrl], {
+        env: { ...process.env, COREHUB_TOKEN: "local-dev-token", COREHUB_USER: "github:coreblow-admin" },
+      }),
       (error) => {
         const payload = JSON.parse(error.stdout);
         assert.equal(payload.status, "fail_closed");
@@ -1714,13 +1748,19 @@ try {
     );
     const incidentAutomationOutput = join(incidentStorageDir, "incident.md");
     await assert.rejects(
-      execFileAsync(process.execPath, [
-        auditIncidentCheckPath,
-        "--registry",
-        incidentRegistryUrl,
-        "--output",
-        incidentAutomationOutput,
-      ]),
+      execFileAsync(
+        process.execPath,
+        [
+          auditIncidentCheckPath,
+          "--registry",
+          incidentRegistryUrl,
+          "--output",
+          incidentAutomationOutput,
+        ],
+        {
+          env: { ...process.env, COREHUB_TOKEN: "local-dev-token", COREHUB_USER: "github:coreblow-admin" },
+        },
+      ),
       (error) => {
         const payload = JSON.parse(error.stdout);
         assert.equal(payload.incidentStatus, "fail_closed");
