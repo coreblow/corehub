@@ -283,6 +283,23 @@ jobs:
 
 Use `remote_dry_run: true` only from protected branches or release workflows that are allowed to create pending review records in CoreHub.
 
+## CLI NPM Release Workflow
+
+CoreHub has a manual CLI npm release workflow at `.github/workflows/corehub-cli-npm-release.yml`.
+
+The workflow follows the ClawHub CLI release shape:
+
+- `workflow_dispatch` with a release tag input.
+- `preflight_only: true` by default.
+- Tag checkout from `refs/tags/<tag>`.
+- npm registry setup with Node 22.
+- package metadata and tag validation with `scripts/corehub-cli-npm-release-check.mjs`.
+- release gates before packing: `npm test`, `npm run validate:ops`, `npm run validate:schema`, `npm run validate:write-schema`, and `npm run validate:deploy-template`.
+- prepared npm tarball upload as `corehub-cli-npm-preflight-<tag>`.
+- real publish requires `preflight_run_id`, `main`, the `npm-release` environment, OIDC trusted publishing, and provenance.
+
+The current package is still marked `private: true`, so real publish fails closed in `scripts/corehub-cli-npm-publish.sh` until an operator explicitly approves opening the CLI package for npm release. Use the workflow in preflight mode to validate a future tag without publishing.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.
