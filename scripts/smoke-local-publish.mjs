@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -230,6 +230,15 @@ try {
   assert.equal(projectedPayload.data.versions[0].status, "available");
   assert.equal(projectedPayload.data.versions[0].artifact.sha256, uploadVerify.artifactUpload.sha256);
   logStep("projected v1 package entry verified");
+
+  const downloadPath = join(tempRoot, "plugin-lab.coreblow-plugin.tgz");
+  const verifiedDownload = JSON.parse(
+    await runCoreHub(["package", "download", "plugin-lab", "--output", downloadPath, "--registry", registry]),
+  );
+  assert.equal(verifiedDownload.output.verified, true);
+  assert.equal(verifiedDownload.output.sha256, uploadVerify.artifactUpload.sha256);
+  assert.deepEqual(await readFile(downloadPath), await readFile(artifactPath));
+  logStep("signed v1 download fetched and verified");
 
   console.log("CoreHub local publish smoke passed.");
 } finally {

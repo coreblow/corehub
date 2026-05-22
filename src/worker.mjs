@@ -90,7 +90,7 @@ function createFetchResponseRecorder() {
       headers.set(name, value);
     },
     end(value = "") {
-      body = typeof value === "string" ? value : Buffer.from(value).toString("utf8");
+      body = typeof value === "string" ? value : Buffer.from(value);
     },
     toResponse() {
       return new Response(body, {

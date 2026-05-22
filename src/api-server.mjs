@@ -7,6 +7,7 @@ const defaultApiBasePath = "/corehub/api/v2";
 const defaultPublicBaseUrl = "https://coreblow.com/corehub";
 const defaultAuditRetentionDays = 365;
 const localStateSchemaVersion = "corehub.local-state.v1";
+const signedReadTtlMs = 5 * 60 * 1000;
 
 export class CoreHubLocalJsonStateStore {
   constructor({ statePath } = {}) {
@@ -349,6 +350,45 @@ export class CoreHubLocalStorageAdapter {
         actual,
       },
     };
+  }
+
+  createArtifactDownload(artifact, { baseUrl = this.publicBaseUrl, now = new Date() } = {}) {
+    const key = artifact?.storage?.key;
+    if (!key || !artifact?.sha256 || !Number.isSafeInteger(artifact?.size)) {
+      return { available: false, reason: "Artifact storage locator or checksum metadata is incomplete." };
+    }
+    const expiresAt = new Date(now.getTime() + signedReadTtlMs).toISOString();
+    const signature = signArtifactRead({ key, sha256: artifact.sha256, size: artifact.size, expiresAt });
+    const url = new URL(`${baseUrl.replace(/\/$/, "")}/api/v1/artifacts/read`);
+    url.searchParams.set("key", key);
+    url.searchParams.set("expires", expiresAt);
+    url.searchParams.set("signature", signature);
+    return {
+      available: true,
+      method: "GET",
+      url: url.toString(),
+      redirect: "signed-read",
+      expiresAt,
+      signature,
+    };
+  }
+
+  async readSignedArtifact(url, { now = new Date() } = {}) {
+    const key = normalizeRequiredString(url.searchParams.get("key"), "key");
+    const expiresAt = normalizeRequiredString(url.searchParams.get("expires"), "expires");
+    const signature = normalizeRequiredString(url.searchParams.get("signature"), "signature");
+    const artifact = this.findProjectedArtifactByStorageKey(key);
+    if (!artifact) throw httpError(404, "Artifact storage key not found");
+    if (new Date(expiresAt).getTime() < now.getTime()) throw httpError(403, "Artifact read signature expired");
+    const expected = signArtifactRead({ key, sha256: artifact.sha256, size: artifact.size, expiresAt });
+    if (signature !== expected) throw httpError(403, "Artifact read signature is invalid");
+    const bytes = await this.objectStore.get(key);
+    if (!bytes) throw httpError(404, "Artifact object not found");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    if (digest !== artifact.sha256 || bytes.byteLength !== artifact.size) {
+      throw httpError(409, "Artifact object does not match projected checksum metadata");
+    }
+    return { artifact, bytes };
   }
 
   async createSubmission(input, { actor = defaultActor(), now = new Date() } = {}) {
@@ -835,6 +875,15 @@ export class CoreHubLocalStorageAdapter {
     return null;
   }
 
+  findProjectedArtifactByStorageKey(key) {
+    for (const entry of this.projectCatalogEntries()) {
+      for (const version of entry.versions ?? []) {
+        if (version.artifact?.storage?.key === key) return version.artifact;
+      }
+    }
+    return null;
+  }
+
   latestAuditCheckpoint() {
     return this.auditCheckpoints.reduce((latest, checkpoint) => {
       if (!latest || checkpoint.sequence > latest.sequence) return checkpoint;
@@ -854,8 +903,8 @@ export function createCoreHubApiHandler({
       const url = new URL(request.url, "http://127.0.0.1");
       const v1Segments = trimBasePath(url.pathname, "/corehub/api/v1");
       if (v1Segments) {
-        const result = handleProjectedRegistryV1(storage, request, url, v1Segments);
-        if (result) return json(response, result.statusCode, result.payload);
+        const result = await handleProjectedRegistryV1(storage, request, url, v1Segments, { now: now() });
+        if (result) return sendApiResult(response, result);
       }
 
       const segments = trimBasePath(url.pathname, basePath);
@@ -1043,9 +1092,10 @@ export function createCoreHubApiHandler({
   };
 }
 
-function handleProjectedRegistryV1(storage, request, url, segments) {
+async function handleProjectedRegistryV1(storage, request, url, segments, { now = new Date() } = {}) {
   if (request.method !== "GET") return null;
   const entries = storage.projectCatalogEntries();
+  const baseUrl = requestBaseUrl(request, url);
 
   if (segments.length === 0) {
     return dataResponse({
@@ -1065,6 +1115,18 @@ function handleProjectedRegistryV1(storage, request, url, segments) {
     const entry = findProjectedEntry(entries, segments[1]);
     return entry ? dataResponse(entry) : dataResponse(null, 0, 404);
   }
+  if (segments[0] === "download" && segments.length === 1) {
+    const entry = findProjectedEntry(entries, url.searchParams.get("id"));
+    return entry ? projectedDownloadResponse(storage, request, url, entry, { baseUrl, now }) : dataResponse(null, 0, 404);
+  }
+  if (segments[0] === "artifacts" && segments[1] === "read" && segments.length === 2) {
+    const result = await storage.readSignedArtifact(url, { now });
+    return binaryResponse(result.bytes, {
+      "Content-Type": result.artifact.mediaType ?? "application/octet-stream",
+      "Content-Length": String(result.bytes.byteLength),
+      "X-CoreHub-Artifact-SHA256": result.artifact.sha256,
+    });
+  }
   if (segments[0] === "packages" && segments.length === 1) return dataResponse(entries, entries.length);
   if (segments[0] === "packages" && segments[1] === "search" && segments.length === 2) {
     const query = (url.searchParams.get("q") ?? "").toLowerCase();
@@ -1080,27 +1142,36 @@ function handleProjectedRegistryV1(storage, request, url, segments) {
     if (segments[2] === "versions" && segments.length === 3) return dataResponse(entry.versions, entry.versions.length);
     if (segments[2] === "artifact" && segments.length === 3) {
       const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
+      const download = storage.createArtifactDownload(version.artifact, { baseUrl, now });
       return dataResponse({
         package: { id: entry.id, kind: entry.kind, name: entry.name },
         version: version.version,
         publisher: entry.publisher,
         artifact: version.artifact,
         files: version.artifact.files,
-        download: { available: false, reason: "Projected local storage does not expose signed downloads yet." },
+        download,
       });
     }
     if (segments[2] === "download" && segments.length === 3) {
-      const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
-      return dataResponse({
-        package: { id: entry.id, kind: entry.kind, name: entry.name },
-        version: version.version,
-        publisher: entry.publisher,
-        artifact: version.artifact,
-        download: { available: false, reason: "Projected local storage does not expose signed downloads yet." },
-      });
+      return projectedDownloadResponse(storage, request, url, entry, { baseUrl, now });
     }
   }
   return null;
+}
+
+function projectedDownloadResponse(storage, request, url, entry, { baseUrl, now }) {
+  const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
+  const download = storage.createArtifactDownload(version.artifact, { baseUrl, now });
+  if (download.available && url.searchParams.get("redirect") !== "false") {
+    return redirectResponse(download.url);
+  }
+  return dataResponse({
+    package: { id: entry.id, kind: entry.kind, name: entry.name },
+    version: version.version,
+    publisher: entry.publisher,
+    artifact: version.artifact,
+    download,
+  });
 }
 
 function findProjectedEntry(entries, id) {
@@ -1117,6 +1188,37 @@ function dataResponse(data, count = data === null ? 0 : 1, statusCode = data ===
       meta: { count },
     },
   };
+}
+
+function redirectResponse(location, statusCode = 302) {
+  return {
+    statusCode,
+    headers: { Location: location },
+    body: "",
+  };
+}
+
+function binaryResponse(body, headers = {}, statusCode = 200) {
+  return { statusCode, headers, body };
+}
+
+function sendApiResult(response, result) {
+  response.statusCode = result.statusCode;
+  for (const [name, value] of Object.entries(result.headers ?? {})) {
+    response.setHeader(name, value);
+  }
+  if (result.body !== undefined) {
+    response.end(result.body);
+    return;
+  }
+  return json(response, result.statusCode, result.payload);
+}
+
+function requestBaseUrl(request, url) {
+  const host = getHeader(request.headers, "x-forwarded-host") ?? getHeader(request.headers, "host");
+  if (!host) return `${url.origin}/corehub`;
+  const proto = getHeader(request.headers, "x-forwarded-proto") ?? (url.protocol === "https:" ? "https" : "http");
+  return `${proto}://${host}/corehub`;
 }
 
 function normalizeUploadRequest(input) {
@@ -1337,6 +1439,12 @@ function createSignedUploadContract({ uploadSlotId, storage, mediaType, sha256, 
     headers,
     signature,
   };
+}
+
+function signArtifactRead({ key, sha256, size, expiresAt }) {
+  return createHash("sha256")
+    .update([key, sha256, size, expiresAt, "corehub-artifact-read"].join("\n"))
+    .digest("hex");
 }
 
 function storageKey(publisherHandle, packageId, version, artifactName) {

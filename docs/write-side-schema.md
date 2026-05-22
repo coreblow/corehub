@@ -131,6 +131,8 @@ Phase 18 adds the server-side shape before wiring production R2 or S3 credential
 | `POST /corehub/api/v2/submissions` | Accepts a verified artifact upload id and creates a pending-review package submission. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approves a pending submission review and creates an `available` package version. |
 | `POST /corehub/api/v2/reviews/:id/block` | Blocks a pending submission review and creates a blocked package version record for audit visibility. |
+| `GET /corehub/api/v1/packages/:id/download` | Returns signed read metadata, or redirects to a signed read URL by default. |
+| `GET /corehub/api/v1/artifacts/read` | Reads the stored artifact through CoreHub after validating signature, expiry, size, and SHA-256. |
 
 ## Moderation Review Boundary
 

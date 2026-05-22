@@ -122,6 +122,26 @@ assert.equal(projectedEntry.payload.data.id, "plugin-lab");
 assert.equal(projectedEntry.payload.data.versions[0].artifact.sha256, artifact.sha256);
 logStep("projected v1 entry served from Worker D1 state");
 
+const downloadMeta = await workerJson("/corehub/api/v1/packages/plugin-lab/download?redirect=false");
+assert.equal(downloadMeta.response.status, 200);
+assert.equal(downloadMeta.payload.data.download.available, true);
+assert.match(downloadMeta.payload.data.download.url, /\/corehub\/api\/v1\/artifacts\/read\?/);
+logStep("signed download metadata generated");
+
+const redirectResponse = await coreHubWorker.fetch(
+  new Request("https://coreblow.com/corehub/api/v1/packages/plugin-lab/download"),
+  env,
+);
+assert.equal(redirectResponse.status, 302);
+assert.match(redirectResponse.headers.get("location"), /\/corehub\/api\/v1\/artifacts\/read\?/);
+logStep("download endpoint redirects to signed read URL by default");
+
+const signedReadResponse = await coreHubWorker.fetch(new Request(downloadMeta.payload.data.download.url), env);
+assert.equal(signedReadResponse.status, 200);
+assert.equal(signedReadResponse.headers.get("x-corehub-artifact-sha256"), artifact.sha256);
+assert.deepEqual(Buffer.from(await signedReadResponse.arrayBuffer()), artifactBytes);
+logStep("signed artifact read returned verified bytes from mock R2");
+
 const snapshot = JSON.parse(d1Rows.get("write-side-state").value);
 assert.equal(snapshot.packageVersions.length, 1);
 assert.equal(snapshot.auditEvents.some((event) => event.action === "review.approve"), true);

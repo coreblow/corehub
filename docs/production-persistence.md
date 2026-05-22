@@ -130,7 +130,7 @@ Before deploying, run the Worker-local smoke:
 npm run smoke:worker-local
 ```
 
-The smoke invokes `src/worker.mjs` through the Fetch API with mock D1 and R2 bindings, uploads and verifies an artifact, approves the review, and checks the projected v1 registry response.
+The smoke invokes `src/worker.mjs` through the Fetch API with mock D1 and R2 bindings, uploads and verifies an artifact, approves the review, checks the projected v1 registry response, and reads the artifact back through a signed download URL.
 
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
