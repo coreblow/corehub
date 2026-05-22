@@ -211,6 +211,14 @@ The current foundation intentionally stays narrow:
 
 Approve, block, assignment, and evidence actions remain API/CLI driven until browser auth is hardened. The page sends `x-corehub-user`, `x-corehub-token`, and `Authorization: Bearer <token>` so the API can keep using the same actor boundary as the CLI and post-deploy smoke.
 
+Run the authenticated admin UI smoke locally with:
+
+```sh
+npm run smoke:admin-ui
+```
+
+The smoke starts a local CoreHub server, opens `/corehub/admin` with Playwright, connects as `github:coreblow-admin`, verifies the dashboard sections, and checks admin status through the browser context. CI runs the same command after the local publish and Worker-local smokes.
+
 ## Operator Smoke Workflow
 
 CoreHub also has a scheduled/manual operator smoke workflow at `.github/workflows/operator-smoke.yml`.
