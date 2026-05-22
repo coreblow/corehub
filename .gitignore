@@ -6,3 +6,4 @@ dist/
 .env.*
 .corehub-local/
 .corehub-audit/
+ops/cloudflare/wrangler.corehub-api.production.toml

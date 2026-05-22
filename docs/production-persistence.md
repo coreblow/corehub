@@ -149,6 +149,17 @@ COREHUB_SIGNING_SECRET=replace-with-operator-managed-secret npm run deploy:worke
 
 The wrapper runs production readiness, the Worker-local smoke, and `wrangler deploy --dry-run` when Wrangler is installed. Use `npm run deploy:worker:check -- --require-wrangler` to fail when Wrangler is missing. CI uses `npm run deploy:worker:check -- --template --skip-wrangler` to exercise the wrapper without real production secrets.
 
+To materialize a production config from the template:
+
+```sh
+npm run deploy:worker:materialize -- --database-id <cloudflare-d1-database-id>
+wrangler secret put COREHUB_SIGNING_SECRET --config ops/cloudflare/wrangler.corehub-api.production.toml
+COREHUB_SIGNING_SECRET=replace-with-operator-managed-secret npm run deploy:worker:check -- --config ops/cloudflare/wrangler.corehub-api.production.toml --require-wrangler
+wrangler deploy --config ops/cloudflare/wrangler.corehub-api.production.toml
+```
+
+The generated `ops/cloudflare/wrangler.corehub-api.production.toml` is ignored by git because it contains environment-specific resource ids. Re-run materialization with `--force` when replacing an existing local production config.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.
