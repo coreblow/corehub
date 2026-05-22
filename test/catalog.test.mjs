@@ -1710,12 +1710,73 @@ try {
     const projectedVersionsPayload = await projectedVersionsResponse.json();
     assert.equal(projectedVersionsPayload.data[0].tag, "latest");
 
+    const analyticsRecord = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "analytics",
+        "record",
+        "plugin-lab",
+        "--version",
+        "0.1.0",
+        "--event",
+        "installed",
+        "--source",
+        "cli",
+        "--client-id",
+        "catalog-test-client",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const analyticsRecordPayload = JSON.parse(analyticsRecord.stdout);
+    assert.equal(analyticsRecordPayload.status, "recorded");
+    assert.equal(analyticsRecordPayload.installEvent.packageId, "plugin-lab");
+    assert.equal(analyticsRecordPayload.installEvent.clientHash.length, 64);
+    assert.equal("clientId" in analyticsRecordPayload.installEvent, false);
+
+    await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "analytics",
+        "record",
+        "plugin-lab",
+        "--version",
+        "0.1.0",
+        "--event",
+        "verified",
+        "--source",
+        "coreblow",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+
+    const analyticsSummary = await execFileAsync(
+      process.execPath,
+      [cliPath, "analytics", "summary", "--package", "plugin-lab", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const analyticsSummaryPayload = JSON.parse(analyticsSummary.stdout);
+    assert.equal(analyticsSummaryPayload.status, "ok");
+    assert.equal(analyticsSummaryPayload.total, 2);
+    assert.equal(analyticsSummaryPayload.uniqueClients, 1);
+    assert.equal(analyticsSummaryPayload.byEvent.find((item) => item.key === "installed").count, 1);
+    assert.equal(analyticsSummaryPayload.bySource.find((item) => item.key === "coreblow").count, 1);
+    assert.equal(analyticsSummaryPayload.privacy.rawIpStored, false);
+
     const persistedState = JSON.parse(await readFile(apiStatePath, "utf8"));
     assert.equal(persistedState.schemaVersion, "corehub.local-state.v1");
     assert.equal(persistedState.slots[0].artifactUpload.status, "verified");
     assert.equal(persistedState.submissions[0].submission.status, "approved");
     assert.equal(persistedState.packageVersions[0].status, "available");
+    assert.equal(persistedState.installEvents.length, 2);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "install.event.ingest"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "install.analytics.summary"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.retention.inspect"), true);
     assert.equal(persistedState.auditEvents.every((event) => /^[a-f0-9]{64}$/.test(event.eventHash)), true);

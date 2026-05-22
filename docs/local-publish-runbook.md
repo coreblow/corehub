@@ -44,9 +44,11 @@ npm run corehub -- audit incident report --limit 5 --registry http://127.0.0.1:8
 npm run audit:incident -- --registry http://127.0.0.1:8787/corehub --output ./corehub-audit-incident.md --limit 5
 npm run corehub -- audit retention --dry-run --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package inspect plugin-lab --registry http://127.0.0.1:8787/corehub
+npm run corehub -- analytics record plugin-lab --version 0.1.0 --event installed --source cli --client-id local-client --registry http://127.0.0.1:8787/corehub
+npm run corehub -- analytics summary --package plugin-lab --registry http://127.0.0.1:8787/corehub
 ```
 
-Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, the transfer reaches `completed` when accepted by the target publisher, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report and automation check return `status: ok`, and the retention dry run reports the export-before-prune policy.
+Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, the transfer reaches `completed` when accepted by the target publisher, analytics summary reports aggregate install counts without raw client identifiers, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report and automation check return `status: ok`, and the retention dry run reports the export-before-prune policy.
 
 ## Local State
 

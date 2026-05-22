@@ -100,8 +100,8 @@ The future authenticated API should expose these resources under a new versioned
 | `GET /corehub/api/v2/audit/verify` | Verify the append-only audit hash chain and return the current head hash. |
 | `GET /corehub/api/v2/audit/retention` | Inspect retention policy, prune cutoff, and integrity failure behavior. |
 | `POST /corehub/api/v2/audit/retention/prune` | Prune only after an operator export hash is supplied. |
-| `POST /corehub/api/v2/transfers` | Request package ownership transfer. |
-| `POST /corehub/api/v2/install-events` | Record opt-in aggregate install telemetry. |
+| `POST /corehub/api/v2/install-events` | Record opt-in, privacy-preserving install telemetry. |
+| `GET /corehub/api/v2/install-events/summary` | Return admin aggregate install analytics by package, version, event, source, and day. |
 
 ## CLI Contract Draft
 
@@ -117,6 +117,8 @@ corehub package submit ./plugin-lab.coreblow-plugin.tgz --dry-run
 corehub package submit ./plugin-lab.coreblow-plugin.tgz --registry https://coreblow.com/corehub --dry-run
 corehub transfers request plugin-lab --to example-org --registry https://coreblow.com/corehub
 corehub transfers accept transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub
+corehub analytics record plugin-lab --version 0.1.0 --event installed --source cli --registry https://coreblow.com/corehub
+corehub analytics summary --package plugin-lab --registry https://coreblow.com/corehub
 corehub package publish ./plugin --dry-run
 corehub package publish ./plugin
 corehub package submit ./plugin-lab.coreblow-plugin.tgz
@@ -173,6 +175,32 @@ corehub transfers inspect transfer-plugin-lab-coreblow-to-example-org --registry
 corehub transfers accept transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub --notes "Accepted."
 corehub transfers reject transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub --notes "Rejected."
 corehub transfers cancel transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub --notes "Cancelled."
+```
+
+## Install Analytics
+
+Install analytics is opt-in and privacy-preserving. CoreHub records aggregate lifecycle events without storing raw IP addresses, raw user agents, or client identifiers. When a client id is provided, the server stores only a salted SHA-256 hash.
+
+| Field | Privacy behavior |
+| --- | --- |
+| `packageId`, `version`, `publisherHandle` | Required package-level aggregation keys. |
+| `event` | One of `resolved`, `downloaded`, `verified`, `installed`, `blocked`, or `failed`. |
+| `source` | One of `cli`, `coreblow`, `api`, or `ci`. |
+| `day` | UTC day bucket derived from server time. |
+| `clientHash` | Optional salted hash of client id; raw client id is discarded. |
+
+The API shape is:
+
+```sh
+POST /corehub/api/v2/install-events
+GET /corehub/api/v2/install-events/summary?package=plugin-lab
+```
+
+The CLI shape is:
+
+```sh
+corehub analytics record plugin-lab --version 0.1.0 --event installed --source cli --client-id local-client --registry https://coreblow.com/corehub
+corehub analytics summary --package plugin-lab --registry https://coreblow.com/corehub
 ```
 
 ## API and Storage Boundary

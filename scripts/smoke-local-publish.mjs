@@ -330,6 +330,37 @@ try {
   assert.deepEqual(await readFile(downloadPath), await readFile(artifactPath));
   logStep("signed v1 download fetched and verified");
 
+  const analyticsRecord = JSON.parse(
+    await runCoreHub([
+      "analytics",
+      "record",
+      "plugin-lab",
+      "--version",
+      "0.1.0",
+      "--event",
+      "installed",
+      "--source",
+      "cli",
+      "--client-id",
+      "local-smoke-client",
+      "--registry",
+      registry,
+    ]),
+  );
+  assert.equal(analyticsRecord.status, "recorded");
+  assert.equal(analyticsRecord.installEvent.event, "installed");
+  assert.equal(analyticsRecord.installEvent.clientHash.length, 64);
+  logStep(`install analytics recorded: ${analyticsRecord.installEvent.id}`);
+
+  const analyticsSummary = JSON.parse(
+    await runCoreHub(["analytics", "summary", "--package", "plugin-lab", "--registry", registry]),
+  );
+  assert.equal(analyticsSummary.status, "ok");
+  assert.equal(analyticsSummary.total, 1);
+  assert.equal(analyticsSummary.uniqueClients, 1);
+  assert.equal(analyticsSummary.privacy.rawIpStored, false);
+  logStep(`install analytics summary total: ${analyticsSummary.total}`);
+
   console.log("CoreHub local publish smoke passed.");
 } finally {
   await app.close();

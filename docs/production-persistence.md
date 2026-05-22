@@ -193,3 +193,4 @@ The production environment template is in `ops/corehub-api.production.env.exampl
 | `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` | Public registry URL used in upload contracts. |
 | `COREHUB_AUDIT_RETENTION_DAYS` | `365` | Audit retention window before prune planning. |
 | `COREHUB_ADMIN_ACTORS` | `github:coreblow-admin,moderator:corehub` | Comma-separated actor ids allowed to inspect queues, decide reviews, read audit evidence, and run retention actions. |
+| `COREHUB_ANALYTICS_SALT` | `corehub-local-analytics-salt` locally | Salt used to hash optional install analytics client ids before storage. |

@@ -184,6 +184,7 @@ export function validateSnapshot(snapshot) {
       "reviews",
       "packageVersions",
       "ownershipTransfers",
+      "installEvents",
       "auditEvents",
       "auditCheckpoints",
     ]) {
@@ -227,6 +228,7 @@ function snapshotCounts(snapshot) {
     reviews: snapshot.reviews?.length ?? 0,
     packageVersions: snapshot.packageVersions?.length ?? 0,
     ownershipTransfers: snapshot.ownershipTransfers?.length ?? 0,
+    installEvents: snapshot.installEvents?.length ?? 0,
     auditEvents: snapshot.auditEvents?.length ?? 0,
     auditCheckpoints: snapshot.auditCheckpoints?.length ?? 0,
   };

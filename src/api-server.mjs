@@ -11,6 +11,7 @@ const signedReadTtlMs = 5 * 60 * 1000;
 const defaultSignedReadKeyId = "local-dev";
 const defaultSignedReadSecret = "corehub-local-development-signing-secret";
 const defaultAdminActorIds = ["github:coreblow-admin", "moderator:corehub"];
+const defaultAnalyticsSalt = "corehub-local-analytics-salt";
 const publisherWriteRoles = new Set(["owner", "admin", "maintainer"]);
 const adminRoles = new Set(["admin", "moderator"]);
 
@@ -168,6 +169,7 @@ export class CoreHubLocalStorageAdapter {
     signedReadKeys,
     auditRetentionDays = defaultAuditRetentionDays,
     adminActorIds = defaultAdminActorIds,
+    analyticsSalt = defaultAnalyticsSalt,
   } = {}) {
     if (!root && !objectStore) throw new Error("CoreHubLocalStorageAdapter requires root or objectStore");
     this.root = root ? resolve(root) : null;
@@ -179,6 +181,7 @@ export class CoreHubLocalStorageAdapter {
     this.signedReadKeys = normalizeSigningKeys({ signedReadSecret, signedReadKeyId: this.signedReadKeyId, signedReadKeys });
     this.auditRetentionDays = normalizeAuditRetentionDays(auditRetentionDays);
     this.adminActorIds = new Set(normalizeActorIdList(adminActorIds, "adminActorIds"));
+    this.analyticsSalt = normalizeAnalyticsSalt(analyticsSalt);
     this.authSessions = [];
     this.publisherClaims = [];
     this.publisherAccounts = new Map(defaultPublisherAccounts().map((publisher) => [publisher.handle, publisher]));
@@ -188,6 +191,7 @@ export class CoreHubLocalStorageAdapter {
     this.reviews = new Map();
     this.packageVersions = new Map();
     this.ownershipTransfers = new Map();
+    this.installEvents = [];
     this.auditEvents = [];
     this.auditCheckpoints = [];
   }
@@ -819,6 +823,80 @@ export class CoreHubLocalStorageAdapter {
     return { transfer, packageOwnerHandle: this.packageOwnerHandle(transfer.packageId) };
   }
 
+  async recordInstallEvent(input, { actor = defaultActor(), now = new Date() } = {}) {
+    const request = normalizeInstallEventRequest(input);
+    const projectedVersion = this.projectedVersionForPackage(request.packageId, request.version);
+    if (!projectedVersion) throw httpError(404, "Install analytics package version not found");
+    const createdAt = now.toISOString();
+    const day = createdAt.slice(0, 10);
+    const id = `install-${slugId(request.packageId)}-${slugVersion(request.version)}-${request.event}-${String(this.installEvents.length + 1).padStart(6, "0")}`;
+    const installEvent = {
+      id,
+      packageId: request.packageId,
+      version: request.version,
+      publisherHandle: projectedVersion.publisherHandle,
+      event: request.event,
+      source: request.source,
+      day,
+      ...(request.clientId ? { clientHash: hashAnalyticsClient(request.clientId, this.analyticsSalt) } : {}),
+      ...(request.reason ? { reason: request.reason } : {}),
+      createdAt,
+    };
+    this.installEvents.push(installEvent);
+    this.recordAuditEvent({
+      actor,
+      action: "install.event.ingest",
+      targetType: "installEvent",
+      targetId: id,
+      metadata: {
+        packageId: installEvent.packageId,
+        version: installEvent.version,
+        publisherHandle: installEvent.publisherHandle,
+        event: installEvent.event,
+        source: installEvent.source,
+        day,
+        clientHashPresent: Boolean(installEvent.clientHash),
+      },
+      createdAt,
+    });
+    await this.persistState();
+    return { installEvent };
+  }
+
+  installAnalyticsSummary(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "install.analytics.summary");
+    const events = this.installEvents
+      .filter((event) => !options.packageId || event.packageId === options.packageId)
+      .filter((event) => !options.version || event.version === options.version)
+      .filter((event) => !options.event || event.event === options.event)
+      .filter((event) => !options.source || event.source === options.source)
+      .filter((event) => !options.since || event.createdAt >= options.since)
+      .filter((event) => !options.until || event.createdAt <= options.until);
+    const uniqueClientHashes = new Set(events.map((event) => event.clientHash).filter(Boolean));
+    return {
+      total: events.length,
+      uniqueClients: uniqueClientHashes.size,
+      byPackage: aggregateInstallEvents(events, (event) => event.packageId),
+      byVersion: aggregateInstallEvents(events, (event) => `${event.packageId}@${event.version}`),
+      byEvent: aggregateInstallEvents(events, (event) => event.event),
+      bySource: aggregateInstallEvents(events, (event) => event.source),
+      byDay: aggregateInstallEvents(events, (event) => event.day),
+      filters: {
+        packageId: options.packageId ?? null,
+        version: options.version ?? null,
+        event: options.event ?? null,
+        source: options.source ?? null,
+        since: options.since ?? null,
+        until: options.until ?? null,
+      },
+      privacy: {
+        rawIpStored: false,
+        rawUserAgentStored: false,
+        clientHash: "sha256(salt + clientId), only when clientId is provided",
+      },
+    };
+  }
+
   reviewInspection(moderationReview) {
     const record = moderationReview.targetType === "submission" ? this.submissions.get(moderationReview.targetId) : null;
     return {
@@ -1082,6 +1160,14 @@ export class CoreHubLocalStorageAdapter {
     return versions.at(0)?.publisherHandle ?? null;
   }
 
+  projectedVersionForPackage(packageId, version) {
+    const versions = [...this.packageVersions.values()]
+      .filter((item) => item.packageId === packageId && item.status === "available")
+      .filter((item) => item.version === version || (version === "latest" && (item.tag === "latest" || !item.tag)))
+      .sort((left, right) => (right.publishedAt ?? right.createdAt).localeCompare(left.publishedAt ?? left.createdAt));
+    return versions.at(0) ?? null;
+  }
+
   recordAuditEvent({ actor, action, targetType, targetId, metadata = {}, createdAt }) {
     const checkpoint = this.latestAuditCheckpoint();
     const previousHash = this.auditEvents.at(-1)?.eventHash ?? checkpoint?.head ?? "0".repeat(64);
@@ -1180,6 +1266,7 @@ export class CoreHubLocalStorageAdapter {
       reviews: [...this.reviews.values()],
       packageVersions: [...this.packageVersions.values()],
       ownershipTransfers: [...this.ownershipTransfers.values()],
+      installEvents: this.installEvents,
       auditEvents: this.auditEvents,
       auditCheckpoints: this.auditCheckpoints,
     };
@@ -1201,6 +1288,7 @@ export class CoreHubLocalStorageAdapter {
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
     this.ownershipTransfers = new Map((state.ownershipTransfers ?? []).map((transfer) => [transfer.id, transfer]));
+    this.installEvents = state.installEvents ?? [];
     this.auditEvents = state.auditEvents ?? [];
     this.auditCheckpoints = state.auditCheckpoints ?? [];
   }
@@ -1417,6 +1505,32 @@ export function createCoreHubApiHandler({
         const actor = actorFromRequest(request);
         const result = await storage.decideOwnershipTransfer(decodeURIComponent(segments[1]), segments[2], body, {
           actor,
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "install-events" && segments.length === 1) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request);
+        const result = await storage.recordInstallEvent(body, {
+          actor,
+          now: now(),
+        });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "install-events" && segments[1] === "summary" && segments.length === 2) {
+        const actor = actorFromRequest(request);
+        const options = readInstallAnalyticsOptions(url);
+        options.authActor = actor;
+        const result = storage.installAnalyticsSummary(options);
+        await storage.auditRead({
+          actor,
+          action: "install.analytics.summary",
+          targetType: "installEvent",
+          targetId: options.packageId ?? options.event ?? "all",
+          metadata: options,
           now: now(),
         });
         return json(response, 200, { apiVersion: "v2", data: result });
@@ -1791,6 +1905,22 @@ function normalizeOwnershipTransferRequest(input) {
   return { packageId, fromPublisherHandle, toPublisherHandle, reason };
 }
 
+function normalizeInstallEventRequest(input) {
+  const packageId = normalizeRequiredString(input?.packageId, "packageId");
+  const version = normalizeRequiredString(input?.version ?? "latest", "version");
+  const event = normalizeRequiredString(input?.event, "event");
+  if (!["resolved", "downloaded", "verified", "installed", "blocked", "failed"].includes(event)) {
+    throw httpError(400, "install event must be resolved, downloaded, verified, installed, blocked, or failed");
+  }
+  const source = normalizeRequiredString(input?.source ?? "api", "source");
+  if (!["cli", "coreblow", "api", "ci"].includes(source)) {
+    throw httpError(400, "install source must be cli, coreblow, api, or ci");
+  }
+  const clientId = typeof input?.clientId === "string" && input.clientId.trim().length > 0 ? input.clientId.trim() : undefined;
+  const reason = typeof input?.reason === "string" && input.reason.trim().length > 0 ? input.reason.trim() : undefined;
+  return { packageId, version, event, source, clientId, reason };
+}
+
 function createSubmissionReviewEvidence({ submission, artifactUpload, actor, createdAt }) {
   const source = submission.source ?? `https://github.com/${submission.publisherHandle}/${submission.packageId}`;
   return [
@@ -1877,12 +2007,45 @@ function readAuditListOptions(url) {
   };
 }
 
+function readInstallAnalyticsOptions(url) {
+  return {
+    packageId: url.searchParams.get("package") ?? url.searchParams.get("packageId") ?? undefined,
+    version: url.searchParams.get("version") ?? undefined,
+    event: url.searchParams.get("event") ?? undefined,
+    source: url.searchParams.get("source") ?? undefined,
+    since: url.searchParams.get("since") ?? undefined,
+    until: url.searchParams.get("until") ?? undefined,
+  };
+}
+
 function normalizeAuditRetentionDays(value) {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) {
     throw new Error("auditRetentionDays must be a non-negative integer");
   }
   return parsed;
+}
+
+function normalizeAnalyticsSalt(value) {
+  if (typeof value !== "string" || value.length < 12) {
+    throw new Error("analyticsSalt must be at least 12 characters");
+  }
+  return value;
+}
+
+function hashAnalyticsClient(clientId, salt) {
+  return createHash("sha256").update(`${salt}:${clientId}`).digest("hex");
+}
+
+function aggregateInstallEvents(events, keyForEvent) {
+  const counts = new Map();
+  for (const event of events) {
+    const key = keyForEvent(event);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
 }
 
 function normalizeSqlIdentifier(value, name) {

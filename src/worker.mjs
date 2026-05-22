@@ -50,6 +50,7 @@ export async function createCoreHubWorkerApp(env = {}, options = {}) {
     signedReadKeys: options.signedReadKeys ?? parseSigningKeyRotationEnv(env.COREHUB_SIGNING_PREVIOUS_SECRETS),
     auditRetentionDays: options.auditRetentionDays ?? env.COREHUB_AUDIT_RETENTION_DAYS ?? 365,
     adminActorIds: options.adminActorIds ?? env.COREHUB_ADMIN_ACTORS,
+    analyticsSalt: options.analyticsSalt ?? env.COREHUB_ANALYTICS_SALT,
   });
   return {
     storage,

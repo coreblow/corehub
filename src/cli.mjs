@@ -48,6 +48,8 @@ async function main() {
     await runRegistryCommand(args);
   } else if (command === "audit") {
     await runAuditCommand(args);
+  } else if (command === "analytics" || command === "install-events") {
+    await runAnalyticsCommand(args);
   } else if (command === "submission" || command === "submissions") {
     await runSubmissionCommand(args);
   } else if (command === "review" || command === "reviews") {
@@ -591,6 +593,67 @@ async function runTransferCommand(values) {
   }
 
   printTransferHelp();
+}
+
+async function runAnalyticsCommand(values) {
+  const subcommand = values[0] ?? "summary";
+  const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
+  if (!registry) throw new Error("analytics requires --registry or COREHUB_REGISTRY");
+
+  if (subcommand === "record" || subcommand === "ingest") {
+    const packageId = positionalArgs(args)[0];
+    if (!packageId) throw new Error(`analytics ${subcommand} requires a package id`);
+    const version = readOption(args, "--version") ?? "latest";
+    const event = readOption(args, "--event") ?? "installed";
+    const source = readOption(args, "--source") ?? "cli";
+    const clientId = readOption(args, "--client-id");
+    const reason = readOption(args, "--reason");
+    const auth = await readAuthState();
+    const result = await new CoreHubRegistryClient(registry).recordInstallEvent(
+      { packageId, version, event, source, clientId, reason },
+      { auth },
+    );
+    console.log(
+      JSON.stringify(
+        {
+          status: "recorded",
+          registry: normalizeRegistry(registry),
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (subcommand === "summary" || subcommand === "summarize") {
+    const auth = await readAuthState();
+    const result = await new CoreHubRegistryClient(registry).installAnalyticsSummary({
+      auth,
+      packageId: readOption(args, "--package"),
+      version: readOption(args, "--version"),
+      event: readOption(args, "--event"),
+      source: readOption(args, "--source"),
+      since: readOption(args, "--since"),
+      until: readOption(args, "--until"),
+    });
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          registry: normalizeRegistry(registry),
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  printAnalyticsHelp();
 }
 
 async function runAuditCommand(values) {
@@ -2324,6 +2387,27 @@ class CoreHubRegistryClient {
     });
   }
 
+  async recordInstallEvent(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/install-events"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async installAnalyticsSummary(options = {}) {
+    const url = this.apiV2Url("/install-events/summary");
+    if (options.packageId) url.searchParams.set("package", options.packageId);
+    if (options.version) url.searchParams.set("version", options.version);
+    if (options.event) url.searchParams.set("event", options.event);
+    if (options.source) url.searchParams.set("source", options.source);
+    if (options.since) url.searchParams.set("since", options.since);
+    if (options.until) url.searchParams.set("until", options.until);
+    return this.readV2Data(url, { auth: options.auth });
+  }
+
   apiUrl(path) {
     return new URL(`${this.registry}/api/v1${path}`);
   }
@@ -2424,6 +2508,8 @@ Usage:
   corehub audit incident report [--format json|markdown] [--output file] [--limit n] --registry https://coreblow.com/corehub
   corehub audit alert-metrics summarize <metrics.jsonl> [--format json|markdown] [--output file]
   corehub audit alert-metrics assert <metrics.jsonl> [--max-dead-letter-rate n] [--max-retry-rate n] [--max-failed-rate n]
+  corehub analytics record <package-id> --version <version> --event installed --source cli --registry https://coreblow.com/corehub
+  corehub analytics summary [--package package-id] [--event installed] [--source cli] --registry https://coreblow.com/corehub
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -2491,6 +2577,15 @@ Usage:
   corehub audit incident report [--format json|markdown] [--output file] [--limit n] --registry https://coreblow.com/corehub
   corehub audit alert-metrics summarize <metrics.jsonl> [--format json|markdown] [--output file]
   corehub audit alert-metrics assert <metrics.jsonl> [--max-dead-letter-rate n] [--max-retry-rate n] [--max-failed-rate n]
+`);
+}
+
+function printAnalyticsHelp() {
+  console.log(`CoreHub analytics commands
+
+Usage:
+  corehub analytics record <package-id> --version <version> --event resolved|downloaded|verified|installed|blocked|failed --source cli|coreblow|api|ci [--client-id id] --registry https://coreblow.com/corehub
+  corehub analytics summary [--package package-id] [--version version] [--event event] [--source source] [--since timestamp] [--until timestamp] --registry https://coreblow.com/corehub
 `);
 }
 

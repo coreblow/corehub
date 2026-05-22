@@ -182,6 +182,7 @@
       "publisherHandle": "coreblow",
       "event": "verified",
       "source": "ci",
+      "day": "2026-05-21",
       "reason": "Phase 14 schema fixture",
       "createdAt": "2026-05-21T00:00:00Z"
     }
