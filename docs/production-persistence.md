@@ -33,6 +33,31 @@ Required behavior for any production store:
 4. Fail closed on unsupported schema versions.
 5. Provide backup/export before destructive migrations.
 
+## Backup And Restore Contract
+
+Use the snapshot tool before migrations, destructive schema changes, or state-store adapter swaps:
+
+```sh
+npm run persistence:snapshot -- export --input .corehub-local/write-side-state.json --output .corehub-backups/write-side-state.backup.json
+npm run persistence:snapshot -- validate --input .corehub-backups/write-side-state.backup.json
+npm run persistence:snapshot -- restore --input .corehub-backups/write-side-state.backup.json --output .corehub-local/write-side-state.json --dry-run
+```
+
+Restore is dry-run by default unless `--apply` is provided:
+
+```sh
+npm run persistence:snapshot -- restore --input .corehub-backups/write-side-state.backup.json --output .corehub-local/write-side-state.json --apply
+```
+
+The tool validates:
+
+| Check | Purpose |
+| --- | --- |
+| `schemaVersion` | Blocks unsupported snapshot versions. |
+| Collection shape | Ensures slots, submissions, reviews, package versions, audit events, and audit checkpoints are arrays. |
+| Audit chain shape | Ensures audit sequence and `previousHash` continuity can be inspected before restore. |
+| Export hash | Reports a SHA-256 for backup custody records. |
+
 ## D1 Skeleton
 
 `CoreHubD1StateStore` stores the current full snapshot under a single key while the API contract is still stabilizing. This is deliberately conservative: it gives production-like persistence without changing upload, submit, approve, audit, or projection behavior.

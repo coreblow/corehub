@@ -384,6 +384,7 @@ assert.ok(inspected.files.some((file) => file.path === "SKILL.md"));
 
 const cliPath = new URL("../src/cli.mjs", import.meta.url).pathname;
 const auditIncidentCheckPath = new URL("../scripts/audit-incident-check.mjs", import.meta.url).pathname;
+const persistenceSnapshotPath = new URL("../scripts/persistence-snapshot.mjs", import.meta.url).pathname;
 const explore = await execFileAsync(process.execPath, [cliPath, "explore"]);
 assert.match(explore.stdout, /corehub-directory\tskill\tCoreHub Directory Metadata/);
 
@@ -632,6 +633,48 @@ try {
     stateStore: new CoreHubLocalJsonStateStore({ statePath: stateStorePath }),
   });
   assert.equal(restoredStorage.requireSlot(slot.id).artifactUpload.status, "requested");
+
+  const backupPath = join(stateStoreDir, "backup.json");
+  const exportResult = await execFileAsync(process.execPath, [
+    persistenceSnapshotPath,
+    "export",
+    "--input",
+    stateStorePath,
+    "--output",
+    backupPath,
+  ]);
+  const exportPayload = JSON.parse(exportResult.stdout);
+  assert.equal(exportPayload.status, "exported");
+  assert.equal(exportPayload.counts.slots, 1);
+  assert.match(exportPayload.sha256, /^[a-f0-9]{64}$/);
+
+  const validateResult = await execFileAsync(process.execPath, [persistenceSnapshotPath, "validate", "--input", backupPath]);
+  assert.equal(JSON.parse(validateResult.stdout).status, "valid");
+
+  const restorePath = join(stateStoreDir, "restored.json");
+  const restoreDryRun = await execFileAsync(process.execPath, [
+    persistenceSnapshotPath,
+    "restore",
+    "--input",
+    backupPath,
+    "--output",
+    restorePath,
+    "--dry-run",
+  ]);
+  assert.equal(JSON.parse(restoreDryRun.stdout).status, "restore_planned");
+  await assert.rejects(readFile(restorePath, "utf8"), /ENOENT/);
+
+  const restoreApply = await execFileAsync(process.execPath, [
+    persistenceSnapshotPath,
+    "restore",
+    "--input",
+    backupPath,
+    "--output",
+    restorePath,
+    "--apply",
+  ]);
+  assert.equal(JSON.parse(restoreApply.stdout).status, "restored");
+  assert.equal(JSON.parse(await readFile(restorePath, "utf8")).schemaVersion, "corehub.local-state.v1");
 } finally {
   await rm(stateStoreDir, { recursive: true, force: true });
 }
