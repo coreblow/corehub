@@ -116,7 +116,7 @@ COREHUB_D1_STATE_KEY=write-side-state \
 COREHUB_D1_STATE_TABLE=corehub_state
 ```
 
-For Cloudflare Worker deployments, bind the database as `COREHUB_D1`. The Worker entrypoint in `src/worker.mjs` passes `env.COREHUB_D1` into the same state-store bootstrap used by the local server.
+For Cloudflare Worker deployments, bind the database as `COREHUB_D1` and artifact storage as `COREHUB_R2`. The Worker entrypoint in `src/worker.mjs` passes `env.COREHUB_D1` into the same state-store bootstrap used by the local server and uses `env.COREHUB_R2` for uploaded artifact bytes.
 
 Deploy from the placeholder config:
 
@@ -130,7 +130,7 @@ Before deploying, run the Worker-local smoke:
 npm run smoke:worker-local
 ```
 
-The smoke invokes `src/worker.mjs` through the Fetch API with a mock D1 binding, uploads and verifies an artifact, approves the review, and checks the projected v1 registry response.
+The smoke invokes `src/worker.mjs` through the Fetch API with mock D1 and R2 bindings, uploads and verifies an artifact, approves the review, and checks the projected v1 registry response.
 
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
@@ -142,5 +142,6 @@ The production environment template is in `ops/corehub-api.production.env.exampl
 | `COREHUB_STATE_PATH` | `.corehub-local/write-side-state.json` | Local JSON snapshot path. |
 | `COREHUB_D1_STATE_KEY` | `write-side-state` | D1 row key for the full snapshot. |
 | `COREHUB_D1_STATE_TABLE` | `corehub_state` | D1 table used by `CoreHubD1StateStore`. |
+| `COREHUB_R2_BUCKET_NAME` | `COREHUB_R2` | Human-readable bucket label reported in uploaded artifact metadata. |
 | `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` | Public registry URL used in upload contracts. |
 | `COREHUB_AUDIT_RETENTION_DAYS` | `365` | Audit retention window before prune planning. |

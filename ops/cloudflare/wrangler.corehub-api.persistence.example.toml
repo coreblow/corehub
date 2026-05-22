@@ -10,6 +10,7 @@ main = "src/worker.mjs"
 COREHUB_STATE_STORE = "d1"
 COREHUB_D1_STATE_KEY = "write-side-state"
 COREHUB_D1_STATE_TABLE = "corehub_state"
+COREHUB_R2_BUCKET_NAME = "corehub-artifacts"
 COREHUB_PUBLIC_BASE_URL = "https://coreblow.com/corehub"
 COREHUB_AUDIT_RETENTION_DAYS = "365"
 
@@ -17,3 +18,7 @@ COREHUB_AUDIT_RETENTION_DAYS = "365"
 binding = "COREHUB_D1"
 database_name = "corehub"
 database_id = "replace-with-cloudflare-d1-database-id"
+
+[[r2_buckets]]
+binding = "COREHUB_R2"
+bucket_name = "corehub-artifacts"

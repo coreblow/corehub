@@ -156,7 +156,7 @@ The current adapter is local and mocked for tests. Its storage key shape is alre
 uploads/<publisher>/<package>/<version>/<artifact>
 ```
 
-Future production binding should replace only the adapter internals with R2 or S3 operations. The route contract, signed upload fields, checksum verification result, and artifact upload status graph should remain stable.
+Production Worker binding now routes artifact bytes through an object-store boundary backed by `COREHUB_R2`. Local server bootstrap still uses filesystem storage for deterministic development and CI, but Worker deployments fail closed when the R2 binding is missing. The route contract, signed upload fields, checksum verification result, and artifact upload status graph remain stable.
 
 ## Projection Boundary
 

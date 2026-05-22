@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -86,16 +87,81 @@ export class CoreHubD1StateStore extends CoreHubSnapshotStateStore {
   }
 }
 
+export class CoreHubLocalObjectStore {
+  constructor({ root } = {}) {
+    if (!root) throw new Error("CoreHubLocalObjectStore requires root");
+    this.root = resolve(root);
+    this.kind = "local-fs";
+  }
+
+  async put(key, bytes) {
+    const path = this.storagePath(key);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, bytes);
+    return { key, path, store: this.kind };
+  }
+
+  async get(key) {
+    return readFile(this.storagePath(key)).catch((error) => {
+      if (error?.code === "ENOENT") return null;
+      throw error;
+    });
+  }
+
+  storagePath(key) {
+    const path = resolve(this.root, key);
+    if (!path.startsWith(`${this.root}/`) && path !== this.root) {
+      throw httpError(400, "Storage key escapes local storage root");
+    }
+    return path;
+  }
+}
+
+export class CoreHubR2ObjectStore {
+  constructor({ bucket, bucketName = "COREHUB_R2" } = {}) {
+    if (!bucket || typeof bucket.put !== "function" || typeof bucket.get !== "function") {
+      throw new Error("CoreHubR2ObjectStore requires an R2 bucket binding");
+    }
+    this.bucket = bucket;
+    this.bucketName = bucketName;
+    this.kind = "r2";
+  }
+
+  async put(key, bytes, metadata = {}) {
+    await this.bucket.put(key, bytes, {
+      httpMetadata: metadata.mediaType ? { contentType: metadata.mediaType } : undefined,
+      customMetadata: {
+        ...(metadata.sha256 ? { sha256: metadata.sha256 } : {}),
+        ...(metadata.uploadSlotId ? { uploadSlotId: metadata.uploadSlotId } : {}),
+      },
+    });
+    return { key, bucket: this.bucketName, store: this.kind };
+  }
+
+  async get(key) {
+    const object = await this.bucket.get(key);
+    if (!object) return null;
+    if (typeof object.arrayBuffer === "function") return Buffer.from(await object.arrayBuffer());
+    if (object.body && typeof object.body.arrayBuffer === "function") {
+      return Buffer.from(await object.body.arrayBuffer());
+    }
+    if (object.body instanceof Uint8Array) return Buffer.from(object.body);
+    throw new Error("R2 object body is not readable");
+  }
+}
+
 export class CoreHubLocalStorageAdapter {
   constructor({
     root,
     publicBaseUrl = defaultPublicBaseUrl,
     statePath,
     stateStore,
+    objectStore,
     auditRetentionDays = defaultAuditRetentionDays,
   } = {}) {
-    if (!root) throw new Error("CoreHubLocalStorageAdapter requires root");
-    this.root = resolve(root);
+    if (!root && !objectStore) throw new Error("CoreHubLocalStorageAdapter requires root or objectStore");
+    this.root = root ? resolve(root) : null;
+    this.objectStore = objectStore ?? new CoreHubLocalObjectStore({ root: this.root });
     this.publicBaseUrl = publicBaseUrl.replace(/\/$/, "");
     this.stateStore = stateStore ?? (statePath ? new CoreHubLocalJsonStateStore({ statePath }) : null);
     this.statePath = this.stateStore?.statePath ?? (statePath ? resolve(statePath) : null);
@@ -194,11 +260,13 @@ export class CoreHubLocalStorageAdapter {
     if (declaredSha256 && declaredSha256 !== slot.expected.sha256) {
       throw httpError(400, "Artifact SHA-256 header does not match upload slot");
     }
-    const path = this.storagePath(slot.storage.key);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, bytes);
+    const stored = await this.objectStore.put(slot.storage.key, bytes, {
+      mediaType: slot.expected.mediaType,
+      sha256: slot.expected.sha256,
+      uploadSlotId,
+    });
     slot.uploaded = {
-      path,
+      ...stored,
       size: bytes.byteLength,
       sha256: createHash("sha256").update(bytes).digest("hex"),
       uploadedAt: new Date().toISOString(),
@@ -231,8 +299,7 @@ export class CoreHubLocalStorageAdapter {
 
   async verifyUpload(uploadSlotId, { actor = defaultActor(), now = new Date() } = {}) {
     const slot = this.requireSlot(uploadSlotId);
-    const path = this.storagePath(slot.storage.key);
-    const bytes = await readFile(path).catch(() => null);
+    const bytes = await this.objectStore.get(slot.storage.key);
     if (!bytes) throw httpError(404, "Uploaded artifact bytes not found");
     const actual = {
       uploadSlotId,
@@ -766,14 +833,6 @@ export class CoreHubLocalStorageAdapter {
       if (slot.artifactUpload.id === artifactUploadId) return slot.artifactUpload;
     }
     return null;
-  }
-
-  storagePath(key) {
-    const path = resolve(this.root, key);
-    if (!path.startsWith(`${this.root}/`) && path !== this.root) {
-      throw httpError(400, "Storage key escapes local storage root");
-    }
-    return path;
   }
 
   latestAuditCheckpoint() {

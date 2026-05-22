@@ -1,12 +1,10 @@
 import { Buffer } from "node:buffer";
-import { CoreHubLocalStorageAdapter, createCoreHubApiHandler } from "./api-server.mjs";
+import { CoreHubLocalStorageAdapter, CoreHubR2ObjectStore, createCoreHubApiHandler } from "./api-server.mjs";
 import {
   createCoreHubStateStore,
   defaultD1StateKey,
   defaultD1StateTable,
 } from "./state-store-bootstrap.mjs";
-
-const defaultWorkerStorageRoot = ".corehub-worker-storage";
 
 export async function handleCoreHubWorkerRequest(request, env = {}, context = undefined, options = {}) {
   try {
@@ -17,6 +15,7 @@ export async function handleCoreHubWorkerRequest(request, env = {}, context = un
         service: "corehub-api",
         runtime: "cloudflare-worker",
         stateStore: app.stateStoreKind,
+        objectStore: app.objectStoreKind,
       });
     }
     const app = await createCoreHubWorkerApp(env, options);
@@ -41,7 +40,7 @@ export async function createCoreHubWorkerApp(env = {}, options = {}) {
     d1Table: options.d1Table ?? env.COREHUB_D1_STATE_TABLE ?? defaultD1StateTable,
   });
   const storage = await CoreHubLocalStorageAdapter.open({
-    root: options.storageRoot ?? env.COREHUB_STORAGE_ROOT ?? defaultWorkerStorageRoot,
+    objectStore: createCoreHubWorkerObjectStore(env, options),
     stateStore: stateStoreConfig.stateStore,
     publicBaseUrl: options.publicBaseUrl ?? env.COREHUB_PUBLIC_BASE_URL ?? "https://coreblow.com/corehub",
     auditRetentionDays: options.auditRetentionDays ?? env.COREHUB_AUDIT_RETENTION_DAYS ?? 365,
@@ -51,7 +50,19 @@ export async function createCoreHubWorkerApp(env = {}, options = {}) {
     stateStoreKind: stateStoreConfig.stateStoreKind,
     stateStoreKey: stateStoreConfig.stateStoreKey,
     stateStoreTable: stateStoreConfig.stateStoreTable,
+    objectStoreKind: storage.objectStore.kind,
   };
+}
+
+export function createCoreHubWorkerObjectStore(env = {}, options = {}) {
+  const bucket = options.r2Bucket ?? env.COREHUB_R2;
+  if (!bucket) {
+    throw new Error("CoreHub Worker requires COREHUB_R2 binding for artifact storage");
+  }
+  return new CoreHubR2ObjectStore({
+    bucket,
+    bucketName: options.r2BucketName ?? env.COREHUB_R2_BUCKET_NAME ?? "COREHUB_R2",
+  });
 }
 
 async function toNodeLikeRequest(request) {

@@ -646,14 +646,19 @@ try {
 }
 
 const workerRows = new Map();
+const workerObjects = new Map();
 const workerEnv = {
   COREHUB_STATE_STORE: "d1",
   COREHUB_D1: createMockD1Database(workerRows),
+  COREHUB_R2: createMockR2Bucket(workerObjects),
+  COREHUB_R2_BUCKET_NAME: "corehub-artifacts-test",
   COREHUB_PUBLIC_BASE_URL: "https://coreblow.com/corehub",
 };
 const workerHealth = await coreHubWorker.fetch(new Request("https://coreblow.com/healthz"), workerEnv);
 assert.equal(workerHealth.status, 200);
-assert.equal((await workerHealth.json()).stateStore, "d1");
+const workerHealthPayload = await workerHealth.json();
+assert.equal(workerHealthPayload.stateStore, "d1");
+assert.equal(workerHealthPayload.objectStore, "r2");
 const workerUploadResponse = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/corehub/api/v2/artifacts/uploads", {
     method: "POST",
@@ -679,6 +684,20 @@ const workerUploadResponse = await handleCoreHubWorkerRequest(
 assert.equal(workerUploadResponse.status, 201);
 const workerUploadPayload = await workerUploadResponse.json();
 assert.equal(workerUploadPayload.data.uploadSlot.id, "upload-plugin-lab-0-4-0");
+const workerPutResponse = await coreHubWorker.fetch(
+  new Request(`https://coreblow.com/corehub/api/v2/artifacts/uploads/${workerUploadPayload.data.uploadSlot.id}`, {
+    method: "PUT",
+    headers: {
+      "content-type": "application/vnd.coreblow.plugin-archive+gzip",
+      "x-corehub-user": "github:coreblow-admin",
+      "x-corehub-artifact-sha256": entries[2].versions[0].artifact.sha256,
+    },
+    body: pluginLabArtifactBytes,
+  }),
+  workerEnv,
+);
+assert.equal(workerPutResponse.status, 200);
+assert.equal(workerObjects.has(workerUploadPayload.data.uploadSlot.storage.key), true);
 const workerSnapshot = JSON.parse(workerRows.get("write-side-state").value);
 assert.equal(workerSnapshot.auditEvents[0].actor.id, "github:coreblow-admin");
 const workerRegistryInfo = await handleCoreHubWorkerRequest(
@@ -689,10 +708,16 @@ assert.equal(workerRegistryInfo.status, 200);
 assert.equal((await workerRegistryInfo.json()).data.name, "CoreHub Registry API");
 const workerMissingD1 = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/healthz"),
-  { COREHUB_STATE_STORE: "d1" },
+  { COREHUB_STATE_STORE: "d1", COREHUB_R2: createMockR2Bucket(new Map()) },
 );
 assert.equal(workerMissingD1.status, 500);
 assert.match((await workerMissingD1.json()).error, /requires a D1 database binding/);
+const workerMissingR2 = await handleCoreHubWorkerRequest(
+  new Request("https://coreblow.com/healthz"),
+  { COREHUB_STATE_STORE: "d1", COREHUB_D1: createMockD1Database(new Map()) },
+);
+assert.equal(workerMissingR2.status, 500);
+assert.match((await workerMissingR2.json()).error, /requires COREHUB_R2 binding/);
 
 const stateStoreDir = await mkdtemp(join(tmpdir(), "corehub-state-store-"));
 try {
@@ -2003,6 +2028,32 @@ function createMockD1Database(rows) {
             updated_at: this.values[2],
           });
           return { success: true };
+        },
+      };
+    },
+  };
+}
+
+function createMockR2Bucket(objects) {
+  return {
+    async put(key, bytes, options = {}) {
+      objects.set(key, {
+        body: Buffer.from(bytes),
+        httpMetadata: options.httpMetadata,
+        customMetadata: options.customMetadata,
+      });
+      return { key };
+    },
+    async get(key) {
+      const object = objects.get(key);
+      if (!object) return null;
+      return {
+        ...object,
+        async arrayBuffer() {
+          return object.body.buffer.slice(
+            object.body.byteOffset,
+            object.body.byteOffset + object.body.byteLength,
+          );
         },
       };
     },
