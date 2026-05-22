@@ -124,6 +124,14 @@ Deploy from the placeholder config:
 wrangler deploy --config ops/cloudflare/wrangler.corehub-api.persistence.example.toml
 ```
 
+Before deploying, run the Worker-local smoke:
+
+```sh
+npm run smoke:worker-local
+```
+
+The smoke invokes `src/worker.mjs` through the Fetch API with a mock D1 binding, uploads and verifies an artifact, approves the review, and checks the projected v1 registry response.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.
