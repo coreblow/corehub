@@ -88,7 +88,6 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       VERIFY_READ: ${{ inputs.verify_read || false }}
-      WRANGLER_CONFIG: ${{ runner.temp }}/wrangler.corehub-api.production.toml
     steps:
       - name: Check deploy configuration
         run: |
@@ -130,17 +129,18 @@ jobs:
       - name: Materialize production Wrangler config
         run: |
           set -euo pipefail
+          WRANGLER_CONFIG="$RUNNER_TEMP/wrangler.corehub-api.production.toml"
           node scripts/materialize-worker-config.mjs \
             --database-id "$COREHUB_D1_DATABASE_ID" \
             --output "$WRANGLER_CONFIG" \
             --force
 
       - name: Run production deploy preflight
-        run: npm run deploy:worker:check -- --config "$WRANGLER_CONFIG" --require-wrangler
+        run: npm run deploy:worker:check -- --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml" --require-wrangler
 
       - name: Deploy Worker
         if: needs.validate-deploy-request.outputs.run_deploy == 'true'
-        run: wrangler deploy --config "$WRANGLER_CONFIG"
+        run: wrangler deploy --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml"
 
       - name: Run post-deploy smoke
         run: |
