@@ -17,6 +17,7 @@
     "build:artifacts": "node scripts/build-plugin-artifacts.mjs",
     "audit:incident": "node scripts/audit-incident-check.mjs",
     "corehub": "node src/cli.mjs",
+    "deploy:worker:check": "node scripts/deploy-worker-check.mjs",
     "persistence:snapshot": "node scripts/persistence-snapshot.mjs",
     "serve": "node src/server.mjs",
     "smoke:audit-alert-pipeline": "node scripts/smoke-audit-alert-pipeline.mjs",
@@ -26,7 +27,7 @@
     "validate:alert-schema": "node scripts/validate-audit-alert-schema.mjs",
     "validate:deploy": "node scripts/validate-worker-deploy-readiness.mjs --production",
     "validate:deploy-template": "node scripts/validate-worker-deploy-readiness.mjs --template",
-    "validate:ops": "node --check src/api-server.mjs && node --check src/server.mjs && node --check src/state-store-bootstrap.mjs && node --check src/worker.mjs && node --check scripts/audit-incident-check.mjs && node --check scripts/persistence-snapshot.mjs && node --check scripts/smoke-audit-alert-pipeline.mjs && node --check scripts/smoke-worker-local.mjs && node --check scripts/validate-worker-deploy-readiness.mjs && node --check ops/cloudflare/audit-incident-worker.mjs && node --check ops/cloudflare/audit-alert-adapters.mjs && node scripts/validate-audit-alert-schema.mjs && node scripts/validate-worker-deploy-readiness.mjs --template",
+    "validate:ops": "node --check src/api-server.mjs && node --check src/server.mjs && node --check src/state-store-bootstrap.mjs && node --check src/worker.mjs && node --check scripts/audit-incident-check.mjs && node --check scripts/deploy-worker-check.mjs && node --check scripts/persistence-snapshot.mjs && node --check scripts/smoke-audit-alert-pipeline.mjs && node --check scripts/smoke-worker-local.mjs && node --check scripts/validate-worker-deploy-readiness.mjs && node --check ops/cloudflare/audit-incident-worker.mjs && node --check ops/cloudflare/audit-alert-adapters.mjs && node scripts/validate-audit-alert-schema.mjs && node scripts/validate-worker-deploy-readiness.mjs --template",
     "validate:schema": "node scripts/validate-catalog-schema.mjs",
     "validate:write-schema": "node scripts/validate-write-side-schema.mjs"
   }

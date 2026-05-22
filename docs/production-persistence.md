@@ -141,6 +141,14 @@ COREHUB_SIGNING_SECRET=replace-with-operator-managed-secret npm run validate:dep
 
 `validate:deploy-template` keeps the committed Wrangler template from drifting. `validate:deploy` is the operator preflight: it fails when D1/R2 bindings are missing, `COREHUB_SIGNING_SECRET` is absent, `COREHUB_SIGNING_KEY_ID` is invalid, `COREHUB_PUBLIC_BASE_URL` is not HTTPS, or the D1 database id is still a placeholder.
 
+For the full deploy dry-run wrapper, run:
+
+```sh
+COREHUB_SIGNING_SECRET=replace-with-operator-managed-secret npm run deploy:worker:check
+```
+
+The wrapper runs production readiness, the Worker-local smoke, and `wrangler deploy --dry-run` when Wrangler is installed. Use `npm run deploy:worker:check -- --require-wrangler` to fail when Wrangler is missing. CI uses `npm run deploy:worker:check -- --template --skip-wrangler` to exercise the wrapper without real production secrets.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.
