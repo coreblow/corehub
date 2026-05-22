@@ -6,7 +6,13 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
-import { CoreHubLocalJsonStateStore, CoreHubLocalStorageAdapter, createCoreHubApiHandler } from "../src/api-server.mjs";
+import {
+  CoreHubD1StateStore,
+  CoreHubLocalJsonStateStore,
+  CoreHubLocalStorageAdapter,
+  CoreHubSnapshotStateStore,
+  createCoreHubApiHandler,
+} from "../src/api-server.mjs";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { createCoreHubServer } from "../src/server.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
@@ -628,6 +634,61 @@ try {
   assert.equal(restoredStorage.requireSlot(slot.id).artifactUpload.status, "requested");
 } finally {
   await rm(stateStoreDir, { recursive: true, force: true });
+}
+
+const snapshotStoreDir = await mkdtemp(join(tmpdir(), "corehub-snapshot-store-"));
+try {
+  let snapshotState = null;
+  const snapshotStore = new CoreHubSnapshotStateStore({
+    kind: "memory-snapshot",
+    loadSnapshot: async () => snapshotState,
+    saveSnapshot: async (snapshot) => {
+      snapshotState = snapshot;
+    },
+  });
+  const snapshotStorage = await CoreHubLocalStorageAdapter.open({
+    root: snapshotStoreDir,
+    stateStore: snapshotStore,
+  });
+  const slot = await snapshotStorage.requestUploadSlot({
+    packageId: "plugin-lab",
+    version: "0.1.0",
+    publisherHandle: "coreblow",
+    provider: "r2",
+    artifact: {
+      name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+      mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+      size: pluginLabArtifactBytes.byteLength,
+      sha256: entries[2].versions[0].artifact.sha256,
+    },
+  });
+  assert.equal(snapshotStore.kind, "memory-snapshot");
+  assert.equal(snapshotState.slots[0].id, slot.id);
+
+  const d1Rows = new Map();
+  const d1Store = new CoreHubD1StateStore({ database: createMockD1Database(d1Rows) });
+  const d1Storage = await CoreHubLocalStorageAdapter.open({
+    root: snapshotStoreDir,
+    stateStore: d1Store,
+  });
+  await d1Storage.requestUploadSlot({
+    packageId: "plugin-lab",
+    version: "0.2.0",
+    publisherHandle: "coreblow",
+    provider: "s3",
+    artifact: {
+      name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+      mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+      size: pluginLabArtifactBytes.byteLength,
+      sha256: entries[2].versions[0].artifact.sha256,
+    },
+  });
+  assert.match(CoreHubD1StateStore.migrationSql(), /CREATE TABLE IF NOT EXISTS corehub_state/);
+  const d1Snapshot = JSON.parse(d1Rows.get("write-side-state").value);
+  assert.equal(d1Store.kind, "d1-snapshot");
+  assert.equal(d1Snapshot.slots[0].id, "upload-plugin-lab-0-2-0");
+} finally {
+  await rm(snapshotStoreDir, { recursive: true, force: true });
 }
 
 const apiStorageDir = await mkdtemp(join(tmpdir(), "corehub-api-storage-"));
@@ -1742,4 +1803,34 @@ try {
   assert.equal(JSON.parse(remoteInfo.stdout).name, "CoreHub Registry API");
 } finally {
   await new Promise((resolve) => registryServer.close(resolve));
+}
+
+function createMockD1Database(rows) {
+  return {
+    prepare(sql) {
+      return {
+        values: [],
+        bind(...values) {
+          return { ...this, values };
+        },
+        async first() {
+          if (!/^SELECT value FROM corehub_state WHERE key = \?1$/.test(sql)) {
+            throw new Error(`Unexpected mock D1 query: ${sql}`);
+          }
+          return rows.get(this.values[0]) ?? null;
+        },
+        async run() {
+          if (!sql.startsWith("INSERT INTO corehub_state")) {
+            throw new Error(`Unexpected mock D1 mutation: ${sql}`);
+          }
+          rows.set(this.values[0], {
+            key: this.values[0],
+            value: this.values[1],
+            updated_at: this.values[2],
+          });
+          return { success: true };
+        },
+      };
+    },
+  };
 }

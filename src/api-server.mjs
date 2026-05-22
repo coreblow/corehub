@@ -29,6 +29,63 @@ export class CoreHubLocalJsonStateStore {
   }
 }
 
+export class CoreHubSnapshotStateStore {
+  constructor({ kind = "snapshot", loadSnapshot, saveSnapshot } = {}) {
+    if (typeof loadSnapshot !== "function") throw new Error("CoreHubSnapshotStateStore requires loadSnapshot");
+    if (typeof saveSnapshot !== "function") throw new Error("CoreHubSnapshotStateStore requires saveSnapshot");
+    this.kind = kind;
+    this.loadSnapshot = loadSnapshot;
+    this.saveSnapshot = saveSnapshot;
+  }
+
+  async load() {
+    return this.loadSnapshot();
+  }
+
+  async save(snapshot) {
+    await this.saveSnapshot(snapshot);
+    return snapshot;
+  }
+}
+
+export class CoreHubD1StateStore extends CoreHubSnapshotStateStore {
+  constructor({ database, key = "write-side-state", table = "corehub_state" } = {}) {
+    if (!database) throw new Error("CoreHubD1StateStore requires database");
+    const tableName = normalizeSqlIdentifier(table, "table");
+    super({
+      kind: "d1-snapshot",
+      loadSnapshot: async () => {
+        const row = await database
+          .prepare(`SELECT value FROM ${tableName} WHERE key = ?1`)
+          .bind(key)
+          .first();
+        return row?.value ? JSON.parse(row.value) : null;
+      },
+      saveSnapshot: async (snapshot) => {
+        await database
+          .prepare(
+            `INSERT INTO ${tableName} (key, value, updated_at) VALUES (?1, ?2, ?3) ` +
+              `ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          )
+          .bind(key, JSON.stringify(snapshot), snapshot.savedAt ?? new Date().toISOString())
+          .run();
+      },
+    });
+    this.database = database;
+    this.key = key;
+    this.table = tableName;
+  }
+
+  static migrationSql({ table = "corehub_state" } = {}) {
+    const tableName = normalizeSqlIdentifier(table, "table");
+    return `CREATE TABLE IF NOT EXISTS ${tableName} (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);`;
+  }
+}
+
 export class CoreHubLocalStorageAdapter {
   constructor({
     root,
@@ -1091,6 +1148,14 @@ function normalizeAuditRetentionDays(value) {
     throw new Error("auditRetentionDays must be a non-negative integer");
   }
   return parsed;
+}
+
+function normalizeSqlIdentifier(value, name) {
+  const text = String(value ?? "");
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(text)) {
+    throw new Error(`${name} must be a safe SQL identifier`);
+  }
+  return text;
 }
 
 function retentionRecommendation(status) {
