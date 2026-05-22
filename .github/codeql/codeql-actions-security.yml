@@ -1,0 +1,20 @@
+name: corehub-actions-security
+
+disable-default-queries: true
+
+queries:
+  - uses: security-extended
+
+query-filters:
+  - include:
+      precision:
+        - high
+        - very-high
+      tags contain: security
+
+paths:
+  - .github/workflows
+
+paths-ignore:
+  - node_modules
+  - dist

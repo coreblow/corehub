@@ -1,0 +1,85 @@
+name: CodeQL Light
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: CodeQL light profile to run
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - api-worker
+          - cli-scripts
+          - actions
+  push:
+    branches: [main]
+    paths:
+      - ".github/codeql/**"
+      - ".github/workflows/**"
+      - "ops/**"
+      - "scripts/**"
+      - "src/**"
+      - "test/**"
+      - "package.json"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - ".github/codeql/**"
+      - ".github/workflows/**"
+      - "ops/**"
+      - "scripts/**"
+      - "src/**"
+      - "test/**"
+      - "package.json"
+  schedule:
+    - cron: "17 7 * * *"
+
+concurrency:
+  group: codeql-light-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.category }})
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            category: api-worker
+            config_file: ./.github/codeql/codeql-api-worker-security.yml
+          - language: javascript-typescript
+            category: cli-scripts
+            config_file: ./.github/codeql/codeql-cli-scripts-security.yml
+          - language: actions
+            category: actions
+            config_file: ./.github/codeql/codeql-actions-security.yml
+    steps:
+      - name: Checkout
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.profile == 'all' || inputs.profile == matrix.category }}
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Initialize CodeQL
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.profile == 'all' || inputs.profile == matrix.category }}
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          config-file: ${{ matrix.config_file }}
+
+      - name: Analyze
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.profile == 'all' || inputs.profile == matrix.category }}
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/codeql-light/${{ matrix.category }}"

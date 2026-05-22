@@ -1,0 +1,26 @@
+name: corehub-cli-scripts-security
+
+disable-default-queries: true
+
+queries:
+  - uses: security-extended
+
+query-filters:
+  - include:
+      precision:
+        - high
+        - very-high
+      tags contain: security
+
+paths:
+  - src/cli.mjs
+  - src/catalog.mjs
+  - src/corehub.mjs
+  - src/schema-validator.mjs
+  - scripts
+  - test
+
+paths-ignore:
+  - node_modules
+  - dist
+  - .corehub-local

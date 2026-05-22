@@ -244,6 +244,17 @@ Required GitHub configuration:
 
 Run `mode=check` before a real deploy. Run `mode=deploy` only after the check passes and the production environment approval is complete.
 
+## Security Gate Workflows
+
+CoreHub mirrors the ClawHub repo-level security gates with:
+
+| Workflow | Purpose |
+| --- | --- |
+| `.github/workflows/secret-scan.yml` | Runs TruffleHog verified-only secret scanning on pushes and pull requests. |
+| `.github/workflows/codeql-light.yml` | Runs focused CodeQL profiles for API/Worker code, CLI/scripts, and GitHub Actions. |
+
+`CodeQL Light` also runs on a daily schedule and can be run manually with a single profile when reviewing a narrow surface.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.

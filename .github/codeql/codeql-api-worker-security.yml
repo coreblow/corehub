@@ -1,0 +1,25 @@
+name: corehub-api-worker-security
+
+disable-default-queries: true
+
+queries:
+  - uses: security-extended
+
+query-filters:
+  - include:
+      precision:
+        - high
+        - very-high
+      tags contain: security
+
+paths:
+  - src/api-server.mjs
+  - src/server.mjs
+  - src/state-store-bootstrap.mjs
+  - src/worker.mjs
+  - ops/cloudflare
+
+paths-ignore:
+  - node_modules
+  - dist
+  - .corehub-local
