@@ -160,6 +160,22 @@ wrangler deploy --config ops/cloudflare/wrangler.corehub-api.production.toml
 
 The generated `ops/cloudflare/wrangler.corehub-api.production.toml` is ignored by git because it contains environment-specific resource ids. Re-run materialization with `--force` when replacing an existing local production config.
 
+After the real deploy finishes, run the post-deploy smoke against the public CoreHub route:
+
+```sh
+npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab
+```
+
+The post-deploy smoke is read-only for write-side publishing state. It checks `/healthz`, v1 registry discovery, the v1 package read, signed download metadata, and the default signed redirect.
+
+To also fetch the signed artifact bytes and verify the response size plus SHA-256:
+
+```sh
+npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab --verify-read
+```
+
+`--verify-read` performs an artifact read and may create the normal `artifact.download.read` audit event, but it does not create upload, submission, review, or publisher mutations.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.
