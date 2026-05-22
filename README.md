@@ -84,7 +84,7 @@ npm run smoke:local-publish
 
 See `docs/local-publish-runbook.md` for the manual command flow.
 
-See `docs/production-persistence.md` for the D1 state-store bootstrap contract and Cloudflare binding placeholder.
+See `docs/production-persistence.md` for the D1 state-store bootstrap contract, Cloudflare Worker entrypoint, and binding placeholder.
 
 Run the production-style audit incident automation check:
 

@@ -23,7 +23,7 @@
     "smoke:local-publish": "node scripts/smoke-local-publish.mjs",
     "test": "node test/catalog.test.mjs",
     "validate:alert-schema": "node scripts/validate-audit-alert-schema.mjs",
-    "validate:ops": "node --check scripts/audit-incident-check.mjs && node --check scripts/persistence-snapshot.mjs && node --check scripts/smoke-audit-alert-pipeline.mjs && node --check ops/cloudflare/audit-incident-worker.mjs && node --check ops/cloudflare/audit-alert-adapters.mjs && node scripts/validate-audit-alert-schema.mjs",
+    "validate:ops": "node --check src/server.mjs && node --check src/state-store-bootstrap.mjs && node --check src/worker.mjs && node --check scripts/audit-incident-check.mjs && node --check scripts/persistence-snapshot.mjs && node --check scripts/smoke-audit-alert-pipeline.mjs && node --check ops/cloudflare/audit-incident-worker.mjs && node --check ops/cloudflare/audit-alert-adapters.mjs && node scripts/validate-audit-alert-schema.mjs",
     "validate:schema": "node scripts/validate-catalog-schema.mjs",
     "validate:write-schema": "node scripts/validate-write-side-schema.mjs"
   }

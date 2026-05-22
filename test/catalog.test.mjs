@@ -15,6 +15,7 @@ import {
 } from "../src/api-server.mjs";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { createCoreHubServer } from "../src/server.mjs";
+import coreHubWorker, { handleCoreHubWorkerRequest } from "../src/worker.mjs";
 import { CoreHubCatalogSchemaValidator } from "../src/schema-validator.mjs";
 import { runAuditIncidentCheck } from "../ops/cloudflare/audit-incident-worker.mjs";
 import {
@@ -643,6 +644,55 @@ try {
 } finally {
   await rm(d1BootstrapDir, { recursive: true, force: true });
 }
+
+const workerRows = new Map();
+const workerEnv = {
+  COREHUB_STATE_STORE: "d1",
+  COREHUB_D1: createMockD1Database(workerRows),
+  COREHUB_PUBLIC_BASE_URL: "https://coreblow.com/corehub",
+};
+const workerHealth = await coreHubWorker.fetch(new Request("https://coreblow.com/healthz"), workerEnv);
+assert.equal(workerHealth.status, 200);
+assert.equal((await workerHealth.json()).stateStore, "d1");
+const workerUploadResponse = await handleCoreHubWorkerRequest(
+  new Request("https://coreblow.com/corehub/api/v2/artifacts/uploads", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:coreblow-admin",
+    },
+    body: JSON.stringify({
+      packageId: "plugin-lab",
+      version: "0.4.0",
+      publisherHandle: "coreblow",
+      provider: "r2",
+      artifact: {
+        name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+        mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+        size: pluginLabArtifactBytes.byteLength,
+        sha256: entries[2].versions[0].artifact.sha256,
+      },
+    }),
+  }),
+  workerEnv,
+);
+assert.equal(workerUploadResponse.status, 201);
+const workerUploadPayload = await workerUploadResponse.json();
+assert.equal(workerUploadPayload.data.uploadSlot.id, "upload-plugin-lab-0-4-0");
+const workerSnapshot = JSON.parse(workerRows.get("write-side-state").value);
+assert.equal(workerSnapshot.auditEvents[0].actor.id, "github:coreblow-admin");
+const workerRegistryInfo = await handleCoreHubWorkerRequest(
+  new Request("https://coreblow.com/corehub/api/v1"),
+  workerEnv,
+);
+assert.equal(workerRegistryInfo.status, 200);
+assert.equal((await workerRegistryInfo.json()).data.name, "CoreHub Registry API");
+const workerMissingD1 = await handleCoreHubWorkerRequest(
+  new Request("https://coreblow.com/healthz"),
+  { COREHUB_STATE_STORE: "d1" },
+);
+assert.equal(workerMissingD1.status, 500);
+assert.match((await workerMissingD1.json()).error, /requires a D1 database binding/);
 
 const stateStoreDir = await mkdtemp(join(tmpdir(), "corehub-state-store-"));
 try {

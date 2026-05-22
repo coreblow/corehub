@@ -1,9 +1,9 @@
 # CoreHub API persistence bootstrap placeholder for Cloudflare Workers.
-# Pair this with the Worker API entrypoint that passes env.COREHUB_D1 into
-# createCoreHubServer({ env, d1Database: env.COREHUB_D1 }).
+# The Worker entrypoint passes env.COREHUB_D1 into the D1 state-store bootstrap.
 
 name = "corehub-api"
 compatibility_date = "2026-05-22"
+compatibility_flags = ["nodejs_compat"]
 main = "src/worker.mjs"
 
 [vars]

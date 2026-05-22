@@ -116,7 +116,15 @@ COREHUB_D1_STATE_KEY=write-side-state \
 COREHUB_D1_STATE_TABLE=corehub_state
 ```
 
-For Cloudflare Worker deployments, bind the database as `COREHUB_D1` and pass `env.COREHUB_D1` to the server bootstrap as `d1Database`. The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
+For Cloudflare Worker deployments, bind the database as `COREHUB_D1`. The Worker entrypoint in `src/worker.mjs` passes `env.COREHUB_D1` into the same state-store bootstrap used by the local server.
+
+Deploy from the placeholder config:
+
+```sh
+wrangler deploy --config ops/cloudflare/wrangler.corehub-api.persistence.example.toml
+```
+
+The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.
 
