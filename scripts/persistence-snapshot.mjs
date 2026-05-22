@@ -4,6 +4,17 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 const supportedSchemaVersion = "corehub.local-state.v1";
+const currentPersistenceVersion = "corehub.persistence.v1";
+const migrations = [
+  {
+    id: "2026-05-22-corehub-local-state-v1",
+    from: "none",
+    to: currentPersistenceVersion,
+    snapshotSchemaVersion: supportedSchemaVersion,
+    destructive: false,
+    description: "Baseline full-snapshot persistence contract for CoreHub write-side state.",
+  },
+];
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
 const commandArgs = args.slice(1);
@@ -18,6 +29,38 @@ try {
 async function main() {
   if (command === "help" || command === "--help" || command === "-h") {
     printHelp();
+    return;
+  }
+
+  if (command === "current") {
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          currentPersistenceVersion,
+          supportedSchemaVersion,
+          latestMigrationId: migrations.at(-1)?.id ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (command === "migrations") {
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          currentPersistenceVersion,
+          supportedSchemaVersion,
+          migrations,
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -97,6 +140,28 @@ async function main() {
     return;
   }
 
+  if (command === "migrate") {
+    const input = readOption(commandArgs, "--input") ?? process.env.COREHUB_STATE_PATH;
+    const backup = readOption(commandArgs, "--backup");
+    const dryRun = hasFlag(commandArgs, "--dry-run") || !hasFlag(commandArgs, "--apply");
+    if (!input) throw new Error("persistence migrate requires --input or COREHUB_STATE_PATH");
+    if (!backup) throw new Error("persistence migrate requires --backup");
+    const snapshot = await readSnapshot(input);
+    const validation = validateSnapshot(snapshot);
+    const backupValidation = validateSnapshot(await readSnapshot(backup));
+    const plan = buildMigrationPlan({ input, backup, validation, backupValidation, dryRun });
+    if (validation.status !== "valid" || backupValidation.status !== "valid") {
+      console.log(JSON.stringify(plan, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+    if (!dryRun) {
+      await writeFile(input, `${JSON.stringify(snapshot, null, 2)}\n`);
+    }
+    console.log(JSON.stringify(plan, null, 2));
+    return;
+  }
+
   printHelp();
   process.exitCode = 2;
 }
@@ -158,6 +223,29 @@ function snapshotCounts(snapshot) {
   };
 }
 
+function buildMigrationPlan({ input, backup, validation, backupValidation, dryRun }) {
+  const steps = migrations.map((migration) => ({
+    id: migration.id,
+    from: migration.from,
+    to: migration.to,
+    destructive: migration.destructive,
+    status: validation.schemaVersion === migration.snapshotSchemaVersion ? "already_applied" : "pending",
+    description: migration.description,
+  }));
+  return {
+    status: validation.status === "valid" && backupValidation.status === "valid" ? (dryRun ? "migration_planned" : "migrated") : "blocked",
+    dryRun,
+    input: resolve(input),
+    backup: resolve(backup),
+    currentPersistenceVersion,
+    supportedSchemaVersion,
+    backupRequired: true,
+    validation,
+    backupValidation,
+    steps,
+  };
+}
+
 function sha256(text) {
   return createHash("sha256").update(text).digest("hex");
 }
@@ -182,6 +270,9 @@ function printHelp() {
 Usage:
   node scripts/persistence-snapshot.mjs export --input state.json --output backup.json
   node scripts/persistence-snapshot.mjs validate --input backup.json
+  node scripts/persistence-snapshot.mjs current
+  node scripts/persistence-snapshot.mjs migrations
+  node scripts/persistence-snapshot.mjs migrate --input state.json --backup backup.json --dry-run
   node scripts/persistence-snapshot.mjs restore --input backup.json --output state.json --dry-run
   node scripts/persistence-snapshot.mjs restore --input backup.json --output state.json --apply
 `);

@@ -58,6 +58,29 @@ The tool validates:
 | Audit chain shape | Ensures audit sequence and `previousHash` continuity can be inspected before restore. |
 | Export hash | Reports a SHA-256 for backup custody records. |
 
+## Migration Versioning Contract
+
+Inspect the current persistence version and migration list:
+
+```sh
+npm run persistence:snapshot -- current
+npm run persistence:snapshot -- migrations
+```
+
+Run migration planning with a validated backup:
+
+```sh
+npm run persistence:snapshot -- migrate --input .corehub-local/write-side-state.json --backup .corehub-backups/write-side-state.backup.json --dry-run
+```
+
+Apply only after the dry-run plan confirms both the input snapshot and backup are valid:
+
+```sh
+npm run persistence:snapshot -- migrate --input .corehub-local/write-side-state.json --backup .corehub-backups/write-side-state.backup.json --apply
+```
+
+The current baseline migration is `2026-05-22-corehub-local-state-v1`, which establishes `corehub.persistence.v1` over `corehub.local-state.v1`. It is reported as `already_applied` for existing v1 snapshots, but still requires a valid backup before apply.
+
 ## D1 Skeleton
 
 `CoreHubD1StateStore` stores the current full snapshot under a single key while the API contract is still stabilizing. This is deliberately conservative: it gives production-like persistence without changing upload, submit, approve, audit, or projection behavior.

@@ -651,6 +651,46 @@ try {
   const validateResult = await execFileAsync(process.execPath, [persistenceSnapshotPath, "validate", "--input", backupPath]);
   assert.equal(JSON.parse(validateResult.stdout).status, "valid");
 
+  const currentPersistence = await execFileAsync(process.execPath, [persistenceSnapshotPath, "current"]);
+  assert.equal(JSON.parse(currentPersistence.stdout).currentPersistenceVersion, "corehub.persistence.v1");
+
+  const migrations = await execFileAsync(process.execPath, [persistenceSnapshotPath, "migrations"]);
+  assert.equal(JSON.parse(migrations.stdout).migrations[0].id, "2026-05-22-corehub-local-state-v1");
+
+  const migrateDryRun = await execFileAsync(process.execPath, [
+    persistenceSnapshotPath,
+    "migrate",
+    "--input",
+    stateStorePath,
+    "--backup",
+    backupPath,
+    "--dry-run",
+  ]);
+  const migrateDryRunPayload = JSON.parse(migrateDryRun.stdout);
+  assert.equal(migrateDryRunPayload.status, "migration_planned");
+  assert.equal(migrateDryRunPayload.backupValidation.status, "valid");
+  assert.equal(migrateDryRunPayload.steps[0].status, "already_applied");
+
+  const invalidBackupPath = join(stateStoreDir, "invalid-backup.json");
+  await writeFile(invalidBackupPath, JSON.stringify({ schemaVersion: "bad" }));
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      persistenceSnapshotPath,
+      "migrate",
+      "--input",
+      stateStorePath,
+      "--backup",
+      invalidBackupPath,
+      "--dry-run",
+    ]),
+    (error) => {
+      const payload = JSON.parse(error.stdout);
+      assert.equal(payload.status, "blocked");
+      assert.equal(payload.backupValidation.status, "invalid");
+      return true;
+    },
+  );
+
   const restorePath = join(stateStoreDir, "restored.json");
   const restoreDryRun = await execFileAsync(process.execPath, [
     persistenceSnapshotPath,
