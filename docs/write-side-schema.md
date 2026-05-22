@@ -62,6 +62,8 @@ CoreHub API v2 now resolves a request actor from the authenticated CLI headers a
 | `POST /corehub/api/v2/submissions` | Active write membership on the submission publisher. |
 | `GET /corehub/api/v2/submissions*` | Admin or moderator actor. |
 | `GET /corehub/api/v2/reviews*` | Admin or moderator actor. |
+| `POST /corehub/api/v2/reviews/:id/assign` | Admin or moderator actor. |
+| `POST /corehub/api/v2/reviews/:id/evidence` | Admin or moderator actor. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Admin or moderator actor. |
 | `POST /corehub/api/v2/reviews/:id/block` | Admin or moderator actor. |
 | `GET /corehub/api/v2/audit/*` | Admin or moderator actor. |
@@ -84,6 +86,8 @@ The future authenticated API should expose these resources under a new versioned
 | `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Verify uploaded bytes against expected size and checksum. |
 | `POST /corehub/api/v2/submissions` | Create a package submission from uploaded artifact metadata. |
 | `GET /corehub/api/v2/submissions/:id` | Inspect submission status and review diagnostics. |
+| `POST /corehub/api/v2/reviews/:id/assign` | Assign an open or held review to a moderator actor. |
+| `POST /corehub/api/v2/reviews/:id/evidence` | Add moderation evidence such as manual notes, scan links, or policy findings. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approve a submission or version for install surfaces. |
 | `POST /corehub/api/v2/reviews/:id/block` | Block a submission, version, artifact, or publisher. |
 | `GET /corehub/api/v2/transfers` | List package ownership transfer requests with status and package filters. |
@@ -190,7 +194,16 @@ Signed read URLs use HMAC signatures from `COREHUB_SIGNING_SECRET` and include a
 
 ## Moderation Review Boundary
 
-Each remote submission receives an open moderation review id. Review decisions are explicit write-side events:
+Each remote submission receives an open moderation review id with starter evidence for artifact checksum and source attribution. Review queue work is explicit:
+
+| Action | Effect |
+| --- | --- |
+| `assign` | Stores `assignee`, `assignedBy`, and `assignedAt` on the review. |
+| `evidence add` | Appends typed evidence with summary, metadata, actor, and timestamp. |
+| `approve` | Marks submission approved and creates an installable package version. |
+| `block` | Marks submission rejected and creates a blocked, non-installable package version. |
+
+Review decisions are explicit write-side events:
 
 | Decision | Submission result | Package version result |
 | --- | --- | --- |
@@ -204,6 +217,8 @@ The admin CLI can now call these API v2 review decisions:
 ```sh
 corehub review approve review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub --notes "Artifact verified."
 corehub review block review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub --notes "Blocked by moderation."
+corehub review assign review-plugin-lab-0-1-0 --to moderator:corehub --registry http://127.0.0.1:8787/corehub
+corehub review evidence add review-plugin-lab-0-1-0 --type manual_note --summary "Source and checksum verified." --registry http://127.0.0.1:8787/corehub
 ```
 
 The current adapter is local and mocked for tests. Its storage key shape is already compatible with managed object storage:

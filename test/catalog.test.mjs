@@ -1169,6 +1169,48 @@ try {
     assert.equal(openReviewsListPayload.limit, 1);
     assert.equal(openReviewsListPayload.offset, 0);
     assert.equal(openReviewsListPayload.reviews[0].moderationReview.id, remoteSubmitPayload.moderationReview.id);
+    assert.equal(
+      openReviewsListPayload.reviews[0].moderationReview.evidence.some((event) => event.type === "artifact_checksum"),
+      true,
+    );
+
+    const assignReview = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "review",
+        "assign",
+        remoteSubmitPayload.moderationReview.id,
+        "--to",
+        "moderator:corehub",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const assignReviewPayload = JSON.parse(assignReview.stdout);
+    assert.equal(assignReviewPayload.moderationReview.assignee.id, "moderator:corehub");
+    assert.equal(assignReviewPayload.moderationReview.assignedBy.id, "github:coreblow-admin");
+
+    const addReviewEvidence = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "review",
+        "evidence",
+        "add",
+        remoteSubmitPayload.moderationReview.id,
+        "--type",
+        "manual_note",
+        "--summary",
+        "Manual moderation evidence added by test.",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const addReviewEvidencePayload = JSON.parse(addReviewEvidence.stdout);
+    assert.equal(addReviewEvidencePayload.moderationReview.evidence.some((event) => event.type === "manual_note"), true);
 
     const approve = await execFileAsync(
       process.execPath,
@@ -1208,6 +1250,8 @@ try {
     assert.equal(approvedReviewStatusPayload.status, "approved");
     assert.equal(approvedReviewStatusPayload.submission.status, "approved");
     assert.equal(approvedReviewStatusPayload.packageVersion.status, "available");
+    assert.equal(approvedReviewStatusPayload.moderationReview.assignee.id, "moderator:corehub");
+    assert.equal(approvedReviewStatusPayload.moderationReview.evidence.length, 3);
 
     const approvedSubmissionsList = await execFileAsync(
       process.execPath,
@@ -1460,6 +1504,8 @@ try {
     const reviewAuditListPayload = JSON.parse(reviewAuditList.stdout);
     assert.equal(reviewAuditListPayload.status, "ok");
     assert.equal(reviewAuditListPayload.auditEvents.some((event) => event.action === "review.approve"), true);
+    assert.equal(reviewAuditListPayload.auditEvents.some((event) => event.action === "review.assign"), true);
+    assert.equal(reviewAuditListPayload.auditEvents.some((event) => event.action === "review.evidence.add"), true);
     assert.equal(reviewAuditListPayload.auditEvents.some((event) => event.action === "review.inspect"), true);
     assert.equal(reviewAuditListPayload.auditEvents[0].actor.id, "github:coreblow-admin");
 

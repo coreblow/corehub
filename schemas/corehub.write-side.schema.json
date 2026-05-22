@@ -541,6 +541,21 @@
           "type": "string",
           "minLength": 1
         },
+        "assignee": {
+          "$ref": "#/$defs/actor"
+        },
+        "assignedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "assignedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reviewEvidence"
+          }
+        },
         "reviewedBy": {
           "$ref": "#/$defs/actor"
         },
@@ -548,6 +563,34 @@
           "$ref": "#/$defs/timestamp"
         },
         "decidedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "reviewEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "summary", "metadata", "createdBy", "createdAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]*$"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "createdBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "createdAt": {
           "$ref": "#/$defs/timestamp"
         }
       }

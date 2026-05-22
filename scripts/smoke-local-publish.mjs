@@ -127,6 +127,37 @@ try {
   assert.equal(openReviews.reviews[0].moderationReview.id, submission.moderationReview.id);
   logStep(`open reviews listed: ${openReviews.count}`);
 
+  const assignedReview = JSON.parse(
+    await runCoreHub([
+      "review",
+      "assign",
+      submission.moderationReview.id,
+      "--to",
+      "moderator:corehub",
+      "--registry",
+      registry,
+    ]),
+  );
+  assert.equal(assignedReview.moderationReview.assignee.id, "moderator:corehub");
+  logStep(`review assigned: ${assignedReview.moderationReview.assignee.id}`);
+
+  const evidenceReview = JSON.parse(
+    await runCoreHub([
+      "review",
+      "evidence",
+      "add",
+      submission.moderationReview.id,
+      "--type",
+      "manual_note",
+      "--summary",
+      "Artifact, source, and publisher scope checked during local publish smoke.",
+      "--registry",
+      registry,
+    ]),
+  );
+  assert.equal(evidenceReview.moderationReview.evidence.some((event) => event.type === "manual_note"), true);
+  logStep(`review evidence count: ${evidenceReview.moderationReview.evidence.length}`);
+
   const approval = JSON.parse(
     await runCoreHub([
       "review",

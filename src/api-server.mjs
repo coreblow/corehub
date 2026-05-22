@@ -520,6 +520,7 @@ export class CoreHubLocalStorageAdapter {
       status: "open",
       decision: "none",
       reviewedBy: actor,
+      evidence: createSubmissionReviewEvidence({ submission, artifactUpload, actor, createdAt: submittedAt }),
       createdAt: submittedAt,
     };
     this.submissions.set(id, { submission, packageVersionPreview, artifactUploadId: request.artifactUploadId });
@@ -609,6 +610,71 @@ export class CoreHubLocalStorageAdapter {
       artifactUpload: this.findArtifactUpload(record.artifactUploadId),
       packageVersion,
     };
+  }
+
+  async assignReview(reviewId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "review.assign");
+    const review = this.reviews.get(reviewId);
+    if (!review) throw httpError(404, "Moderation review not found");
+    if (review.status !== "open" && review.status !== "held") {
+      throw httpError(409, "Only open or held reviews can be assigned");
+    }
+    const assignee = normalizeActorInput(input?.assignee ?? input?.assigneeId, "assignee");
+    const assignedAt = now.toISOString();
+    const moderationReview = {
+      ...review,
+      assignee,
+      assignedBy: actor,
+      assignedAt,
+    };
+    this.reviews.set(reviewId, moderationReview);
+    this.recordAuditEvent({
+      actor,
+      action: "review.assign",
+      targetType: "review",
+      targetId: reviewId,
+      metadata: {
+        assignee,
+        targetType: review.targetType,
+        targetId: review.targetId,
+      },
+      createdAt: assignedAt,
+    });
+    await this.persistState();
+    return this.reviewInspection(moderationReview);
+  }
+
+  async addReviewEvidence(reviewId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "review.evidence.add");
+    const review = this.reviews.get(reviewId);
+    if (!review) throw httpError(404, "Moderation review not found");
+    if (!["open", "held"].includes(review.status)) {
+      throw httpError(409, "Evidence can only be added to open or held reviews");
+    }
+    const evidence = normalizeReviewEvidence(input, {
+      id: `evidence-${slugId(reviewId)}-${String((review.evidence?.length ?? 0) + 1).padStart(2, "0")}`,
+      actor,
+      createdAt: now.toISOString(),
+    });
+    const moderationReview = {
+      ...review,
+      evidence: [...(review.evidence ?? []), evidence],
+    };
+    this.reviews.set(reviewId, moderationReview);
+    this.recordAuditEvent({
+      actor,
+      action: "review.evidence.add",
+      targetType: "review",
+      targetId: reviewId,
+      metadata: {
+        evidenceId: evidence.id,
+        evidenceType: evidence.type,
+        summary: evidence.summary,
+      },
+      createdAt: evidence.createdAt,
+    });
+    await this.persistState();
+    return this.reviewInspection(moderationReview);
   }
 
   async requestOwnershipTransfer(input, { actor = defaultActor(), now = new Date() } = {}) {
@@ -1441,6 +1507,36 @@ export function createCoreHubApiHandler({
       }
 
       if (
+        request.method === "POST" &&
+        segments[0] === "reviews" &&
+        segments[2] === "assign" &&
+        segments.length === 3
+      ) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request);
+        const result = await storage.assignReview(decodeURIComponent(segments[1]), body, {
+          actor,
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "reviews" &&
+        segments[2] === "evidence" &&
+        segments.length === 3
+      ) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request);
+        const result = await storage.addReviewEvidence(decodeURIComponent(segments[1]), body, {
+          actor,
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (
         request.method === "PUT" &&
         segments[0] === "artifacts" &&
         segments[1] === "uploads" &&
@@ -1693,6 +1789,66 @@ function normalizeOwnershipTransferRequest(input) {
   }
   const reason = typeof input?.reason === "string" && input.reason.trim().length > 0 ? input.reason.trim() : undefined;
   return { packageId, fromPublisherHandle, toPublisherHandle, reason };
+}
+
+function createSubmissionReviewEvidence({ submission, artifactUpload, actor, createdAt }) {
+  const source = submission.source ?? `https://github.com/${submission.publisherHandle}/${submission.packageId}`;
+  return [
+    {
+      id: `evidence-${slugId(submission.reviewId)}-artifact`,
+      type: "artifact_checksum",
+      summary: "Verified artifact metadata is attached to the submission.",
+      metadata: {
+        artifactUploadId: artifactUpload.id,
+        storage: artifactUpload.storage,
+        size: artifactUpload.size,
+        sha256: artifactUpload.sha256,
+      },
+      createdBy: actor,
+      createdAt,
+    },
+    {
+      id: `evidence-${slugId(submission.reviewId)}-source`,
+      type: "source_attribution",
+      summary: "Submission source attribution is available for moderation review.",
+      metadata: {
+        source,
+        publisherHandle: submission.publisherHandle,
+        packageId: submission.packageId,
+        version: submission.version,
+      },
+      createdBy: actor,
+      createdAt,
+    },
+  ];
+}
+
+function normalizeReviewEvidence(input, { id, actor, createdAt }) {
+  const type = normalizeRequiredString(input?.type ?? "manual_note", "type");
+  if (!/^[a-z][a-z0-9_.-]*$/.test(type)) throw httpError(400, "evidence type must be a lowercase identifier");
+  const summary = normalizeRequiredString(input?.summary ?? input?.notes, "summary");
+  const metadata = input?.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata) ? input.metadata : {};
+  return {
+    id,
+    type,
+    summary,
+    metadata,
+    createdBy: actor,
+    createdAt,
+  };
+}
+
+function normalizeActorInput(value, name) {
+  const actorId =
+    typeof value === "string"
+      ? value
+      : typeof value?.id === "string"
+        ? value.id
+        : undefined;
+  return {
+    type: typeof value?.type === "string" && value.type.trim() ? value.type.trim() : "user",
+    id: normalizeRequiredString(actorId, name),
+  };
 }
 
 function normalizeRequiredString(value, name) {

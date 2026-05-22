@@ -29,6 +29,8 @@ npm run corehub -- submissions list --status pending_review --limit 20 --offset 
 npm run corehub -- submissions inspect submission-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- reviews list --status open --limit 20 --offset 0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- review status review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
+npm run corehub -- review assign review-plugin-lab-0-1-0 --to moderator:corehub --registry http://127.0.0.1:8787/corehub
+npm run corehub -- review evidence add review-plugin-lab-0-1-0 --type manual_note --summary "Artifact, source, and publisher scope checked." --registry http://127.0.0.1:8787/corehub
 npm run corehub -- review approve review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub --notes "Local review approved."
 npm run corehub -- reviews status review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- reviews list --status approved --limit 20 --offset 0 --registry http://127.0.0.1:8787/corehub

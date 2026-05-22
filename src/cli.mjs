@@ -382,6 +382,59 @@ async function runReviewCommand(values) {
     return;
   }
 
+  if (subcommand === "assign") {
+    if (!registry) throw new Error("review assign requires --registry or COREHUB_REGISTRY");
+    const reviewId = positionalArgs(args)[0];
+    if (!reviewId) throw new Error("review assign requires a review id");
+    const assignee = readOption(args, "--to") ?? readOption(args, "--assignee") ?? positionalArgs(args)[1];
+    if (!assignee) throw new Error("review assign requires --to <actor-id>");
+    const auth = await requireAuthState();
+    const result = await new CoreHubRegistryClient(registry).assignReview(reviewId, { assignee }, { auth });
+    console.log(
+      JSON.stringify(
+        {
+          status: result.moderationReview.status,
+          registry: normalizeRegistry(registry),
+          actor: auth.actor,
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (subcommand === "evidence") {
+    const evidenceCommand = args[0] ?? "help";
+    const evidenceArgs = args.slice(1);
+    if (evidenceCommand !== "add") {
+      printReviewHelp();
+      return;
+    }
+    if (!registry) throw new Error("review evidence add requires --registry or COREHUB_REGISTRY");
+    const reviewId = positionalArgs(evidenceArgs)[0];
+    if (!reviewId) throw new Error("review evidence add requires a review id");
+    const type = readOption(evidenceArgs, "--type") ?? "manual_note";
+    const summary = readOption(evidenceArgs, "--summary") ?? readOption(evidenceArgs, "--notes");
+    if (!summary) throw new Error("review evidence add requires --summary or --notes");
+    const auth = await requireAuthState();
+    const result = await new CoreHubRegistryClient(registry).addReviewEvidence(reviewId, { type, summary }, { auth });
+    console.log(
+      JSON.stringify(
+        {
+          status: result.moderationReview.status,
+          registry: normalizeRegistry(registry),
+          actor: auth.actor,
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
   printReviewHelp();
 }
 
@@ -2216,6 +2269,26 @@ class CoreHubRegistryClient {
     });
   }
 
+  async assignReview(reviewId, payload = {}, options = {}) {
+    return this.writeData(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}/assign`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async addReviewEvidence(reviewId, payload = {}, options = {}) {
+    return this.writeData(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}/evidence`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
   async transfers(options = {}) {
     const url = this.apiV2Url("/transfers");
     if (options.status) url.searchParams.set("status", options.status);
@@ -2355,6 +2428,8 @@ Usage:
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub review status <review-id> --registry https://coreblow.com/corehub
+  corehub review assign <review-id> --to moderator:<id> --registry https://coreblow.com/corehub
+  corehub review evidence add <review-id> --type manual_note --summary text --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub transfers list [--status requested|completed|rejected|cancelled] [--package package-id] --registry https://coreblow.com/corehub
@@ -2426,6 +2501,8 @@ Usage:
   corehub review list [--status open|approved|blocked] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub review status <review-id> --registry https://coreblow.com/corehub
   corehub review inspect <review-id> --registry https://coreblow.com/corehub
+  corehub review assign <review-id> --to moderator:<id> --registry https://coreblow.com/corehub
+  corehub review evidence add <review-id> --type manual_note --summary text --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
 `);
