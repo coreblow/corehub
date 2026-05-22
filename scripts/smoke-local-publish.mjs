@@ -361,6 +361,26 @@ try {
   assert.equal(analyticsSummary.privacy.rawIpStored, false);
   logStep(`install analytics summary total: ${analyticsSummary.total}`);
 
+  const adminStatus = JSON.parse(await runCoreHub(["admin", "status", "--registry", registry]));
+  assert.equal(adminStatus.status, "ok");
+  assert.equal(adminStatus.readiness.status, "ready");
+  assert.equal(adminStatus.counts.installEvents, 1);
+  assert.equal(adminStatus.queues.reviews.approved, 1);
+  assert.equal(adminStatus.queues.ownershipTransfers.completed, 1);
+  assert.equal(adminStatus.audit.valid, true);
+  logStep(`admin status ready with ${adminStatus.counts.auditEvents} audit events`);
+
+  const supportBundlePath = join(tempRoot, "corehub-support-bundle.json");
+  const supportBundleExport = JSON.parse(
+    await runCoreHub(["admin", "support-bundle", "--limit", "5", "--output", supportBundlePath, "--registry", registry]),
+  );
+  assert.equal(supportBundleExport.status, "exported");
+  assert.equal(supportBundleExport.healthStatus, "ok");
+  const supportBundle = JSON.parse(await readFile(supportBundlePath, "utf8"));
+  assert.equal(supportBundle.bundle.redaction.secretsIncluded, false);
+  assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
+  logStep(`support bundle exported: ${supportBundleExport.output}`);
+
   console.log("CoreHub local publish smoke passed.");
 } finally {
   await app.close();

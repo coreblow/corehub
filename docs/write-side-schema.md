@@ -68,6 +68,8 @@ CoreHub API v2 now resolves a request actor from the authenticated CLI headers a
 | `POST /corehub/api/v2/reviews/:id/block` | Admin or moderator actor. |
 | `GET /corehub/api/v2/audit/*` | Admin or moderator actor. |
 | `POST /corehub/api/v2/audit/retention/prune` | Admin or moderator actor plus export-before-prune evidence. |
+| `GET /corehub/api/v2/admin/status` | Admin or moderator actor; returns state store, object store, queue, analytics, audit, and readiness status. |
+| `GET /corehub/api/v2/admin/support-bundle` | Admin or moderator actor; exports a redacted operator support bundle. |
 
 The signed upload `PUT /corehub/api/v2/artifacts/uploads/:id` remains a capability-style upload boundary. It validates the reserved slot, expected checksum, media type, and byte limits; publisher authorization happens when the slot is requested and when the uploaded artifact is verified.
 
@@ -102,6 +104,8 @@ The future authenticated API should expose these resources under a new versioned
 | `POST /corehub/api/v2/audit/retention/prune` | Prune only after an operator export hash is supplied. |
 | `POST /corehub/api/v2/install-events` | Record opt-in, privacy-preserving install telemetry. |
 | `GET /corehub/api/v2/install-events/summary` | Return admin aggregate install analytics by package, version, event, source, and day. |
+| `GET /corehub/api/v2/admin/status` | Return one operator status document for state store, object store, queue counts, transfer counts, install analytics, audit integrity, and readiness. |
+| `GET /corehub/api/v2/admin/support-bundle` | Return the same status plus redacted recent queue and audit samples for support escalation. |
 
 ## CLI Contract Draft
 
@@ -119,6 +123,8 @@ corehub transfers request plugin-lab --to example-org --registry https://coreblo
 corehub transfers accept transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub
 corehub analytics record plugin-lab --version 0.1.0 --event installed --source cli --registry https://coreblow.com/corehub
 corehub analytics summary --package plugin-lab --registry https://coreblow.com/corehub
+corehub admin status --registry https://coreblow.com/corehub
+corehub admin support-bundle --output ./corehub-support-bundle.json --registry https://coreblow.com/corehub
 corehub package publish ./plugin --dry-run
 corehub package publish ./plugin
 corehub package submit ./plugin-lab.coreblow-plugin.tgz
@@ -202,6 +208,18 @@ The CLI shape is:
 corehub analytics record plugin-lab --version 0.1.0 --event installed --source cli --client-id local-client --registry https://coreblow.com/corehub
 corehub analytics summary --package plugin-lab --registry https://coreblow.com/corehub
 ```
+
+## Admin Visibility
+
+Admin visibility is the operator-facing read boundary for production support. It does not mutate marketplace state, but every read is audit logged so enterprise operators can prove who inspected the control plane.
+
+| Command | Purpose |
+| --- | --- |
+| `corehub admin status` | Shows state store kind, object store kind, queue counts, transfer counts, install analytics totals, audit integrity, retention policy, and deploy readiness. |
+| `corehub admin health` | Alias for `corehub admin status` for operational runbooks. |
+| `corehub admin support-bundle --output file` | Exports a redacted JSON support bundle with recent submissions, reviews, transfers, and audit events. |
+
+The support bundle intentionally omits signing secrets, raw client identifiers, raw IP addresses, and raw user agents.
 
 ## API and Storage Boundary
 

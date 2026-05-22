@@ -897,6 +897,104 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  adminStatus({ actor = defaultActor(), now = new Date(), runtime = {} } = {}) {
+    this.requireAdminPermission(actor, "admin.status");
+    const generatedAt = now.toISOString();
+    const analytics = this.installAnalyticsSummary({ authActor: actor });
+    const audit = this.verifyAuditEvents();
+    const retention = this.auditRetentionPlan({ actor, now });
+    const counts = {
+      publishers: this.publisherAccounts.size,
+      publisherMembers: this.publisherMembers.length,
+      artifactUploads: this.slots.size,
+      submissions: this.submissions.size,
+      reviews: this.reviews.size,
+      packageVersions: this.packageVersions.size,
+      ownershipTransfers: this.ownershipTransfers.size,
+      installEvents: this.installEvents.length,
+      auditEvents: this.auditEvents.length,
+      auditCheckpoints: this.auditCheckpoints.length,
+    };
+    const readinessChecks = [
+      { id: "state-store", status: this.stateStore ? "ready" : "local-memory", detail: this.stateStore?.kind ?? "memory" },
+      { id: "object-store", status: this.objectStore ? "ready" : "missing", detail: this.objectStore?.kind ?? null },
+      { id: "signed-read", status: this.signedReadKeys.size > 0 ? "ready" : "missing", detail: this.signedReadKeyId },
+      { id: "admin-actors", status: this.adminActorIds.size > 0 ? "ready" : "missing", detail: this.adminActorIds.size },
+      { id: "audit-integrity", status: audit.valid ? "ready" : "fail_closed", detail: audit.head },
+    ];
+    return {
+      status: readinessChecks.some((check) => check.status === "missing" || check.status === "fail_closed") ? "degraded" : "ok",
+      service: "corehub-api",
+      generatedAt,
+      actor,
+      runtime: {
+        stateStore: {
+          kind: runtime.stateStoreKind ?? this.stateStore?.kind ?? "memory",
+          path: this.statePath ?? null,
+          key: this.stateStore?.key ?? null,
+          table: this.stateStore?.table ?? null,
+        },
+        objectStore: {
+          kind: runtime.objectStoreKind ?? this.objectStore?.kind ?? "unknown",
+          root: this.objectStore?.root ?? null,
+          bucket: this.objectStore?.bucketName ?? null,
+        },
+        publicBaseUrl: this.publicBaseUrl,
+        signedReadKeyId: this.signedReadKeyId,
+      },
+      counts,
+      queues: {
+        submissions: countByStatus([...this.submissions.values()].map((record) => record.submission.status)),
+        reviews: countByStatus([...this.reviews.values()].map((review) => review.status)),
+        ownershipTransfers: countByStatus([...this.ownershipTransfers.values()].map((transfer) => transfer.status)),
+      },
+      analytics,
+      audit: {
+        valid: audit.valid,
+        behavior: audit.behavior,
+        count: audit.count,
+        head: audit.head,
+        checkpoint: audit.checkpoint,
+        errors: audit.errors,
+        retention: {
+          status: retention.status,
+          policy: retention.policy,
+          cutoff: retention.cutoff,
+          pruneableCount: retention.pruneableCount,
+          retainedCount: retention.retainedCount,
+          requiresExportBeforePrune: retention.requiresExportBeforePrune,
+        },
+      },
+      readiness: {
+        status: readinessChecks.every((check) => check.status === "ready") ? "ready" : "attention_required",
+        checks: readinessChecks,
+      },
+    };
+  }
+
+  adminSupportBundle({ actor = defaultActor(), now = new Date(), runtime = {}, limit = 20 } = {}) {
+    const status = this.adminStatus({ actor, now, runtime });
+    const recentAudit = this.listAuditEvents({ authActor: actor, limit, offset: 0 });
+    return {
+      ...status,
+      bundle: {
+        kind: "corehub-admin-support-bundle",
+        generatedAt: status.generatedAt,
+        redaction: {
+          secretsIncluded: false,
+          rawClientIdentifiersIncluded: false,
+          signingSecretsIncluded: false,
+        },
+      },
+      recent: {
+        submissions: latestItems([...this.submissions.values()].map((record) => record.submission), limit),
+        reviews: latestItems([...this.reviews.values()], limit),
+        ownershipTransfers: latestItems([...this.ownershipTransfers.values()], limit),
+        auditEvents: recentAudit.items,
+      },
+    };
+  }
+
   reviewInspection(moderationReview) {
     const record = moderationReview.targetType === "submission" ? this.submissions.get(moderationReview.targetId) : null;
     return {
@@ -1378,6 +1476,46 @@ export function createCoreHubApiHandler({
           targetType: "publisher",
           targetId: result.defaultPublisher?.handle ?? actor.id,
           metadata: { membershipCount: result.memberships.length },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "admin" && ["status", "health"].includes(segments[1]) && segments.length === 2) {
+        const actor = actorFromRequest(request);
+        const result = storage.adminStatus({ actor, now: now() });
+        await storage.auditRead({
+          actor,
+          action: "admin.status",
+          targetType: "admin",
+          targetId: result.status,
+          metadata: {
+            status: result.status,
+            readiness: result.readiness.status,
+            auditValid: result.audit.valid,
+          },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "admin" && segments[1] === "support-bundle" && segments.length === 2) {
+        const actor = actorFromRequest(request);
+        const result = storage.adminSupportBundle({
+          actor,
+          now: now(),
+          limit: parseNonNegativeInteger(url.searchParams.get("limit"), "limit", 20),
+        });
+        await storage.auditRead({
+          actor,
+          action: "admin.support_bundle",
+          targetType: "admin",
+          targetId: result.status,
+          metadata: {
+            status: result.status,
+            readiness: result.readiness.status,
+            recentAuditCount: result.recent.auditEvents.length,
+          },
           now: now(),
         });
         return json(response, 200, { apiVersion: "v2", data: result });
@@ -2046,6 +2184,18 @@ function aggregateInstallEvents(events, keyForEvent) {
   return [...counts.entries()]
     .map(([key, count]) => ({ key, count }))
     .sort((left, right) => right.count - left.count || left.key.localeCompare(right.key));
+}
+
+function countByStatus(statuses) {
+  return statuses.reduce((counts, status) => {
+    counts[status] = (counts[status] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function latestItems(items, limit) {
+  if (limit <= 0) return [];
+  return items.slice(-limit).reverse();
 }
 
 function normalizeSqlIdentifier(value, name) {

@@ -1768,6 +1768,34 @@ try {
     assert.equal(analyticsSummaryPayload.bySource.find((item) => item.key === "coreblow").count, 1);
     assert.equal(analyticsSummaryPayload.privacy.rawIpStored, false);
 
+    const adminStatus = await execFileAsync(
+      process.execPath,
+      [cliPath, "admin", "status", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const adminStatusPayload = JSON.parse(adminStatus.stdout);
+    assert.equal(adminStatusPayload.status, "ok");
+    assert.equal(adminStatusPayload.readiness.status, "ready");
+    assert.equal(adminStatusPayload.counts.installEvents, 2);
+    assert.equal(adminStatusPayload.queues.reviews.approved, 1);
+    assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
+    assert.equal(adminStatusPayload.analytics.uniqueClients, 1);
+    assert.equal(adminStatusPayload.audit.valid, true);
+
+    const supportBundlePath = join(apiStorageDir, "corehub-support-bundle.json");
+    const adminSupportBundle = await execFileAsync(
+      process.execPath,
+      [cliPath, "admin", "support-bundle", "--limit", "5", "--output", supportBundlePath, "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const adminSupportBundlePayload = JSON.parse(adminSupportBundle.stdout);
+    assert.equal(adminSupportBundlePayload.status, "exported");
+    assert.equal(adminSupportBundlePayload.healthStatus, "ok");
+    const supportBundle = JSON.parse(await readFile(supportBundlePath, "utf8"));
+    assert.equal(supportBundle.bundle.redaction.secretsIncluded, false);
+    assert.equal(supportBundle.counts.installEvents, 2);
+    assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
+
     const persistedState = JSON.parse(await readFile(apiStatePath, "utf8"));
     assert.equal(persistedState.schemaVersion, "corehub.local-state.v1");
     assert.equal(persistedState.slots[0].artifactUpload.status, "verified");
@@ -1779,6 +1807,8 @@ try {
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.analytics.summary"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.retention.inspect"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "admin.status"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "admin.support_bundle"), true);
     assert.equal(persistedState.auditEvents.every((event) => /^[a-f0-9]{64}$/.test(event.eventHash)), true);
 
     const reloadedStorage = await CoreHubLocalStorageAdapter.open({

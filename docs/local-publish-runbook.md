@@ -46,9 +46,13 @@ npm run corehub -- audit retention --dry-run --registry http://127.0.0.1:8787/co
 npm run corehub -- package inspect plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- analytics record plugin-lab --version 0.1.0 --event installed --source cli --client-id local-client --registry http://127.0.0.1:8787/corehub
 npm run corehub -- analytics summary --package plugin-lab --registry http://127.0.0.1:8787/corehub
+npm run corehub -- admin status --registry http://127.0.0.1:8787/corehub
+npm run corehub -- admin support-bundle --limit 20 --output ./corehub-support-bundle.json --registry http://127.0.0.1:8787/corehub
 ```
 
-Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, the transfer reaches `completed` when accepted by the target publisher, analytics summary reports aggregate install counts without raw client identifiers, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report and automation check return `status: ok`, and the retention dry run reports the export-before-prune policy.
+Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, the transfer reaches `completed` when accepted by the target publisher, analytics summary reports aggregate install counts without raw client identifiers, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report and automation check return `status: ok`, the retention dry run reports the export-before-prune policy, and `corehub admin status` reports `ok` with readiness `ready`.
+
+The support bundle is a redacted JSON artifact for operator escalation. It includes state store and object store kind, queue counts, transfer counts, install analytics totals, audit integrity, deploy readiness, and recent queue/audit samples. It does not include signing secrets, raw client identifiers, raw IP addresses, or raw user agents.
 
 ## Local State
 

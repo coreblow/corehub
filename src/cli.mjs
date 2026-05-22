@@ -46,6 +46,8 @@ async function main() {
     await runPublisherCommand(args);
   } else if (command === "registry") {
     await runRegistryCommand(args);
+  } else if (command === "admin") {
+    await runAdminCommand(args);
   } else if (command === "audit") {
     await runAuditCommand(args);
   } else if (command === "analytics" || command === "install-events") {
@@ -654,6 +656,66 @@ async function runAnalyticsCommand(values) {
   }
 
   printAnalyticsHelp();
+}
+
+async function runAdminCommand(values) {
+  const subcommand = values[0] ?? "status";
+  const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
+  if (!registry) throw new Error("admin requires --registry or COREHUB_REGISTRY");
+  const auth = await readAuthState();
+  const client = new CoreHubRegistryClient(registry);
+
+  if (subcommand === "status" || subcommand === "health") {
+    const result = await client.adminStatus({ auth });
+    console.log(
+      JSON.stringify(
+        {
+          status: result.status,
+          registry: normalizeRegistry(registry),
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    if (result.status !== "ok" || result.readiness?.status !== "ready") process.exitCode = 1;
+    return;
+  }
+
+  if (subcommand === "support-bundle") {
+    const output = readOption(args, "--output");
+    const limit = readOptionalNonNegativeInteger(args, "--limit") ?? 20;
+    const result = await client.adminSupportBundle({ auth, limit });
+    const payload = {
+      status: result.status,
+      registry: normalizeRegistry(registry),
+      ...result,
+    };
+    const rendered = `${JSON.stringify(payload, null, 2)}\n`;
+    if (output) {
+      await writeTextOutput(output, rendered);
+      console.log(
+        JSON.stringify(
+          {
+            status: "exported",
+            healthStatus: result.status,
+            readiness: result.readiness?.status,
+            registry: normalizeRegistry(registry),
+            output: resolve(output),
+          },
+          null,
+          2,
+        ),
+      );
+    } else {
+      console.log(rendered);
+    }
+    if (result.status !== "ok" || result.readiness?.status !== "ready") process.exitCode = 1;
+    return;
+  }
+
+  printAdminHelp();
 }
 
 async function runAuditCommand(values) {
@@ -2266,6 +2328,16 @@ class CoreHubRegistryClient {
     return this.readV2Data(this.apiV2Url("/audit/retention"), { auth: options.auth });
   }
 
+  async adminStatus(options = {}) {
+    return this.readV2Data(this.apiV2Url("/admin/status"), { auth: options.auth });
+  }
+
+  async adminSupportBundle(options = {}) {
+    const url = this.apiV2Url("/admin/support-bundle");
+    if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+    return this.readV2Data(url, { auth: options.auth });
+  }
+
   async pruneAuditRetention(options = {}) {
     return this.writeData(this.apiV2Url("/audit/retention/prune"), {
       auth: options.auth,
@@ -2502,6 +2574,8 @@ Usage:
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
+  corehub admin status --registry https://coreblow.com/corehub
+  corehub admin support-bundle [--output file] [--limit n] --registry https://coreblow.com/corehub
   corehub audit list [--target id] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub audit verify --registry https://coreblow.com/corehub
   corehub audit retention [--dry-run] [--prune --output file] --registry https://coreblow.com/corehub
@@ -2564,6 +2638,16 @@ function printRegistryHelp() {
 
 Usage:
   corehub registry info --registry https://coreblow.com/corehub
+`);
+}
+
+function printAdminHelp() {
+  console.log(`CoreHub admin commands
+
+Usage:
+  corehub admin status --registry https://coreblow.com/corehub
+  corehub admin health --registry https://coreblow.com/corehub
+  corehub admin support-bundle [--output file] [--limit n] --registry https://coreblow.com/corehub
 `);
 }
 
