@@ -97,12 +97,34 @@ CREATE TABLE IF NOT EXISTS corehub_state (
 
 Future phases can split this snapshot into normalized tables for artifact uploads, submissions, reviews, package versions, audit events, and audit checkpoints.
 
-## Local Bootstrap
+## Bootstrap Selection
 
 The server still defaults to local JSON:
 
 ```sh
+COREHUB_STATE_STORE=local-json \
 COREHUB_STATE_PATH=.corehub-local/write-side-state.json npm run serve
 ```
 
 This keeps local development and CI deterministic while the production persistence adapter is introduced.
+
+D1 is opt-in and requires the runtime to pass a D1 binding object into the server bootstrap. Shell env alone is not enough because `COREHUB_D1` must be a Worker binding object:
+
+```sh
+COREHUB_STATE_STORE=d1 \
+COREHUB_D1_STATE_KEY=write-side-state \
+COREHUB_D1_STATE_TABLE=corehub_state
+```
+
+For Cloudflare Worker deployments, bind the database as `COREHUB_D1` and pass `env.COREHUB_D1` to the server bootstrap as `d1Database`. The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
+
+The production environment template is in `ops/corehub-api.production.env.example`.
+
+| Env | Default | Purpose |
+| --- | --- | --- |
+| `COREHUB_STATE_STORE` | `local-json` | Selects `local-json` or `d1`. |
+| `COREHUB_STATE_PATH` | `.corehub-local/write-side-state.json` | Local JSON snapshot path. |
+| `COREHUB_D1_STATE_KEY` | `write-side-state` | D1 row key for the full snapshot. |
+| `COREHUB_D1_STATE_TABLE` | `corehub_state` | D1 table used by `CoreHubD1StateStore`. |
+| `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` | Public registry URL used in upload contracts. |
+| `COREHUB_AUDIT_RETENTION_DAYS` | `365` | Audit retention window before prune planning. |

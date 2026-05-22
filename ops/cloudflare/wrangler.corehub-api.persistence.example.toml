@@ -1,0 +1,19 @@
+# CoreHub API persistence bootstrap placeholder for Cloudflare Workers.
+# Pair this with the Worker API entrypoint that passes env.COREHUB_D1 into
+# createCoreHubServer({ env, d1Database: env.COREHUB_D1 }).
+
+name = "corehub-api"
+compatibility_date = "2026-05-22"
+main = "src/worker.mjs"
+
+[vars]
+COREHUB_STATE_STORE = "d1"
+COREHUB_D1_STATE_KEY = "write-side-state"
+COREHUB_D1_STATE_TABLE = "corehub_state"
+COREHUB_PUBLIC_BASE_URL = "https://coreblow.com/corehub"
+COREHUB_AUDIT_RETENTION_DAYS = "365"
+
+[[d1_databases]]
+binding = "COREHUB_D1"
+database_name = "corehub"
+database_id = "replace-with-cloudflare-d1-database-id"

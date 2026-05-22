@@ -74,7 +74,7 @@ npm run validate:alert-schema
 npm run serve
 ```
 
-The local server defaults to `http://127.0.0.1:8787/corehub`, persists write-side state under `.corehub-local/write-side-state.json`, and stores uploaded bytes under `.corehub-local/storage`. Override with `COREHUB_PORT`, `COREHUB_DATA_ROOT`, `COREHUB_STATE_PATH`, `COREHUB_STORAGE_ROOT`, and `COREHUB_PUBLIC_BASE_URL`.
+The local server defaults to `http://127.0.0.1:8787/corehub`, persists write-side state under `.corehub-local/write-side-state.json`, and stores uploaded bytes under `.corehub-local/storage`. Override with `COREHUB_PORT`, `COREHUB_DATA_ROOT`, `COREHUB_STATE_STORE=local-json|d1`, `COREHUB_STATE_PATH`, `COREHUB_STORAGE_ROOT`, and `COREHUB_PUBLIC_BASE_URL`. D1 is opt-in for production bootstrap only; local JSON remains the default.
 
 Run the local publish smoke:
 
@@ -83,6 +83,8 @@ npm run smoke:local-publish
 ```
 
 See `docs/local-publish-runbook.md` for the manual command flow.
+
+See `docs/production-persistence.md` for the D1 state-store bootstrap contract and Cloudflare binding placeholder.
 
 Run the production-style audit incident automation check:
 

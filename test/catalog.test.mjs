@@ -597,10 +597,51 @@ try {
   const registryInfo = await fetch(`${bootstrapInfo.url}/api/v1`);
   assert.equal(registryInfo.status, 200);
   assert.equal((await registryInfo.json()).data.name, "CoreHub Registry API");
+  assert.equal(bootstrapServer.stateStoreKind, "local-json");
   assert.match(bootstrapServer.statePath, /write-side-state\.json$/);
 } finally {
   await bootstrapServer.close();
   await rm(bootstrapDir, { recursive: true, force: true });
+}
+
+const d1BootstrapDir = await mkdtemp(join(tmpdir(), "corehub-server-d1-"));
+try {
+  const d1Rows = new Map();
+  const d1BootstrapServer = await createCoreHubServer({
+    dataRoot: d1BootstrapDir,
+    host: "127.0.0.1",
+    port: 0,
+    stateStoreKind: "d1",
+    d1Database: createMockD1Database(d1Rows),
+  });
+  const slot = await d1BootstrapServer.storage.requestUploadSlot({
+    packageId: "plugin-lab",
+    version: "0.3.0",
+    publisherHandle: "coreblow",
+    provider: "r2",
+    artifact: {
+      name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+      mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+      size: pluginLabArtifactBytes.byteLength,
+      sha256: entries[2].versions[0].artifact.sha256,
+    },
+  });
+  const d1Snapshot = JSON.parse(d1Rows.get("write-side-state").value);
+  assert.equal(d1BootstrapServer.stateStoreKind, "d1");
+  assert.equal(d1BootstrapServer.statePath, null);
+  assert.equal(d1BootstrapServer.stateStoreKey, "write-side-state");
+  assert.equal(d1BootstrapServer.stateStoreTable, "corehub_state");
+  assert.equal(d1Snapshot.slots[0].id, slot.id);
+  await d1BootstrapServer.close();
+  await assert.rejects(
+    createCoreHubServer({
+      dataRoot: d1BootstrapDir,
+      stateStoreKind: "d1",
+    }),
+    /requires a D1 database binding/,
+  );
+} finally {
+  await rm(d1BootstrapDir, { recursive: true, force: true });
 }
 
 const stateStoreDir = await mkdtemp(join(tmpdir(), "corehub-state-store-"));
