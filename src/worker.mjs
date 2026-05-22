@@ -4,6 +4,7 @@ import {
   createCoreHubStateStore,
   defaultD1StateKey,
   defaultD1StateTable,
+  parseSigningKeyRotationEnv,
 } from "./state-store-bootstrap.mjs";
 
 export async function handleCoreHubWorkerRequest(request, env = {}, context = undefined, options = {}) {
@@ -16,6 +17,7 @@ export async function handleCoreHubWorkerRequest(request, env = {}, context = un
         runtime: "cloudflare-worker",
         stateStore: app.stateStoreKind,
         objectStore: app.objectStoreKind,
+        signedReadKeyId: app.signedReadKeyId,
       });
     }
     const app = await createCoreHubWorkerApp(env, options);
@@ -43,6 +45,9 @@ export async function createCoreHubWorkerApp(env = {}, options = {}) {
     objectStore: createCoreHubWorkerObjectStore(env, options),
     stateStore: stateStoreConfig.stateStore,
     publicBaseUrl: options.publicBaseUrl ?? env.COREHUB_PUBLIC_BASE_URL ?? "https://coreblow.com/corehub",
+    signedReadSecret: requireWorkerSigningSecret(env, options),
+    signedReadKeyId: options.signedReadKeyId ?? env.COREHUB_SIGNING_KEY_ID ?? "primary",
+    signedReadKeys: options.signedReadKeys ?? parseSigningKeyRotationEnv(env.COREHUB_SIGNING_PREVIOUS_SECRETS),
     auditRetentionDays: options.auditRetentionDays ?? env.COREHUB_AUDIT_RETENTION_DAYS ?? 365,
   });
   return {
@@ -51,7 +56,14 @@ export async function createCoreHubWorkerApp(env = {}, options = {}) {
     stateStoreKey: stateStoreConfig.stateStoreKey,
     stateStoreTable: stateStoreConfig.stateStoreTable,
     objectStoreKind: storage.objectStore.kind,
+    signedReadKeyId: storage.signedReadKeyId,
   };
+}
+
+function requireWorkerSigningSecret(env = {}, options = {}) {
+  const secret = options.signedReadSecret ?? env.COREHUB_SIGNING_SECRET;
+  if (!secret) throw new Error("CoreHub Worker requires COREHUB_SIGNING_SECRET for artifact read signatures");
+  return secret;
 }
 
 export function createCoreHubWorkerObjectStore(env = {}, options = {}) {

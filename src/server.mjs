@@ -8,6 +8,7 @@ import {
   defaultD1StateKey,
   defaultD1StateTable,
   defaultStateStoreKind,
+  parseSigningKeyRotationEnv,
 } from "./state-store-bootstrap.mjs";
 
 const defaultHost = "127.0.0.1";
@@ -25,6 +26,10 @@ export async function createCoreHubServer(options = {}) {
   const configuredStatePath = resolve(options.statePath ?? env.COREHUB_STATE_PATH ?? join(dataRoot, "write-side-state.json"));
   const publicBaseUrl = options.publicBaseUrl ?? env.COREHUB_PUBLIC_BASE_URL ?? "https://coreblow.com/corehub";
   const auditRetentionDays = options.auditRetentionDays ?? env.COREHUB_AUDIT_RETENTION_DAYS ?? 365;
+  const signedReadSecret =
+    options.signedReadSecret ?? env.COREHUB_SIGNING_SECRET ?? "corehub-local-development-signing-secret";
+  const signedReadKeyId = options.signedReadKeyId ?? env.COREHUB_SIGNING_KEY_ID ?? "local-dev";
+  const signedReadKeys = options.signedReadKeys ?? parseSigningKeyRotationEnv(env.COREHUB_SIGNING_PREVIOUS_SECRETS);
   const stateStoreConfig = createCoreHubStateStore({
     stateStoreKind: options.stateStoreKind ?? env.COREHUB_STATE_STORE ?? defaultStateStoreKind,
     statePath: configuredStatePath,
@@ -37,6 +42,9 @@ export async function createCoreHubServer(options = {}) {
     root: storageRoot,
     stateStore: stateStoreConfig.stateStore,
     publicBaseUrl,
+    signedReadSecret,
+    signedReadKeyId,
+    signedReadKeys,
     auditRetentionDays,
   });
   const apiHandler = createCoreHubApiHandler({ storage });
@@ -57,6 +65,7 @@ export async function createCoreHubServer(options = {}) {
     stateStoreKey: stateStoreConfig.stateStoreKey,
     stateStoreTable: stateStoreConfig.stateStoreTable,
     publicBaseUrl,
+    signedReadKeyId,
     storage,
     server,
     async listen() {

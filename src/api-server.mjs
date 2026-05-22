@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
@@ -8,6 +8,8 @@ const defaultPublicBaseUrl = "https://coreblow.com/corehub";
 const defaultAuditRetentionDays = 365;
 const localStateSchemaVersion = "corehub.local-state.v1";
 const signedReadTtlMs = 5 * 60 * 1000;
+const defaultSignedReadKeyId = "local-dev";
+const defaultSignedReadSecret = "corehub-local-development-signing-secret";
 
 export class CoreHubLocalJsonStateStore {
   constructor({ statePath } = {}) {
@@ -158,6 +160,9 @@ export class CoreHubLocalStorageAdapter {
     statePath,
     stateStore,
     objectStore,
+    signedReadSecret = defaultSignedReadSecret,
+    signedReadKeyId = defaultSignedReadKeyId,
+    signedReadKeys,
     auditRetentionDays = defaultAuditRetentionDays,
   } = {}) {
     if (!root && !objectStore) throw new Error("CoreHubLocalStorageAdapter requires root or objectStore");
@@ -166,6 +171,8 @@ export class CoreHubLocalStorageAdapter {
     this.publicBaseUrl = publicBaseUrl.replace(/\/$/, "");
     this.stateStore = stateStore ?? (statePath ? new CoreHubLocalJsonStateStore({ statePath }) : null);
     this.statePath = this.stateStore?.statePath ?? (statePath ? resolve(statePath) : null);
+    this.signedReadKeyId = normalizeSigningKeyId(signedReadKeyId);
+    this.signedReadKeys = normalizeSigningKeys({ signedReadSecret, signedReadKeyId: this.signedReadKeyId, signedReadKeys });
     this.auditRetentionDays = normalizeAuditRetentionDays(auditRetentionDays);
     this.slots = new Map();
     this.submissions = new Map();
@@ -352,35 +359,68 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
-  createArtifactDownload(artifact, { baseUrl = this.publicBaseUrl, now = new Date() } = {}) {
+  async createArtifactDownload(artifact, { actor = defaultActor(), baseUrl = this.publicBaseUrl, now = new Date() } = {}) {
     const key = artifact?.storage?.key;
     if (!key || !artifact?.sha256 || !Number.isSafeInteger(artifact?.size)) {
       return { available: false, reason: "Artifact storage locator or checksum metadata is incomplete." };
     }
     const expiresAt = new Date(now.getTime() + signedReadTtlMs).toISOString();
-    const signature = signArtifactRead({ key, sha256: artifact.sha256, size: artifact.size, expiresAt });
+    const keyId = this.signedReadKeyId;
+    const signature = signArtifactRead({
+      key,
+      sha256: artifact.sha256,
+      size: artifact.size,
+      expiresAt,
+      keyId,
+      secret: this.requireSigningSecret(keyId),
+    });
     const url = new URL(`${baseUrl.replace(/\/$/, "")}/api/v1/artifacts/read`);
     url.searchParams.set("key", key);
     url.searchParams.set("expires", expiresAt);
+    url.searchParams.set("keyId", keyId);
     url.searchParams.set("signature", signature);
+    this.recordAuditEvent({
+      actor,
+      action: "artifact.download.sign",
+      targetType: "artifact",
+      targetId: key,
+      metadata: {
+        key,
+        keyId,
+        sha256: artifact.sha256,
+        size: artifact.size,
+        expiresAt,
+      },
+      createdAt: now.toISOString(),
+    });
+    await this.persistState();
     return {
       available: true,
       method: "GET",
       url: url.toString(),
       redirect: "signed-read",
       expiresAt,
+      keyId,
       signature,
     };
   }
 
-  async readSignedArtifact(url, { now = new Date() } = {}) {
+  async readSignedArtifact(url, { actor = defaultActor(), now = new Date() } = {}) {
     const key = normalizeRequiredString(url.searchParams.get("key"), "key");
     const expiresAt = normalizeRequiredString(url.searchParams.get("expires"), "expires");
+    const keyId = normalizeSigningKeyId(url.searchParams.get("keyId") ?? this.signedReadKeyId);
     const signature = normalizeRequiredString(url.searchParams.get("signature"), "signature");
     const artifact = this.findProjectedArtifactByStorageKey(key);
     if (!artifact) throw httpError(404, "Artifact storage key not found");
     if (new Date(expiresAt).getTime() < now.getTime()) throw httpError(403, "Artifact read signature expired");
-    const expected = signArtifactRead({ key, sha256: artifact.sha256, size: artifact.size, expiresAt });
+    const expected = signArtifactRead({
+      key,
+      sha256: artifact.sha256,
+      size: artifact.size,
+      expiresAt,
+      keyId,
+      secret: this.requireSigningSecret(keyId),
+    });
     if (signature !== expected) throw httpError(403, "Artifact read signature is invalid");
     const bytes = await this.objectStore.get(key);
     if (!bytes) throw httpError(404, "Artifact object not found");
@@ -388,7 +428,28 @@ export class CoreHubLocalStorageAdapter {
     if (digest !== artifact.sha256 || bytes.byteLength !== artifact.size) {
       throw httpError(409, "Artifact object does not match projected checksum metadata");
     }
+    this.recordAuditEvent({
+      actor,
+      action: "artifact.download.read",
+      targetType: "artifact",
+      targetId: key,
+      metadata: {
+        key,
+        keyId,
+        sha256: artifact.sha256,
+        size: artifact.size,
+        bytes: bytes.byteLength,
+      },
+      createdAt: now.toISOString(),
+    });
+    await this.persistState();
     return { artifact, bytes };
+  }
+
+  requireSigningSecret(keyId) {
+    const secret = this.signedReadKeys.get(keyId);
+    if (!secret) throw httpError(403, "Artifact read signing key is not active");
+    return secret;
   }
 
   async createSubmission(input, { actor = defaultActor(), now = new Date() } = {}) {
@@ -903,7 +964,10 @@ export function createCoreHubApiHandler({
       const url = new URL(request.url, "http://127.0.0.1");
       const v1Segments = trimBasePath(url.pathname, "/corehub/api/v1");
       if (v1Segments) {
-        const result = await handleProjectedRegistryV1(storage, request, url, v1Segments, { now: now() });
+        const result = await handleProjectedRegistryV1(storage, request, url, v1Segments, {
+          actor: actorFromRequest(request),
+          now: now(),
+        });
         if (result) return sendApiResult(response, result);
       }
 
@@ -1092,7 +1156,7 @@ export function createCoreHubApiHandler({
   };
 }
 
-async function handleProjectedRegistryV1(storage, request, url, segments, { now = new Date() } = {}) {
+async function handleProjectedRegistryV1(storage, request, url, segments, { actor = defaultActor(), now = new Date() } = {}) {
   if (request.method !== "GET") return null;
   const entries = storage.projectCatalogEntries();
   const baseUrl = requestBaseUrl(request, url);
@@ -1117,10 +1181,10 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { now 
   }
   if (segments[0] === "download" && segments.length === 1) {
     const entry = findProjectedEntry(entries, url.searchParams.get("id"));
-    return entry ? projectedDownloadResponse(storage, request, url, entry, { baseUrl, now }) : dataResponse(null, 0, 404);
+    return entry ? projectedDownloadResponse(storage, request, url, entry, { actor, baseUrl, now }) : dataResponse(null, 0, 404);
   }
   if (segments[0] === "artifacts" && segments[1] === "read" && segments.length === 2) {
-    const result = await storage.readSignedArtifact(url, { now });
+    const result = await storage.readSignedArtifact(url, { actor, now });
     return binaryResponse(result.bytes, {
       "Content-Type": result.artifact.mediaType ?? "application/octet-stream",
       "Content-Length": String(result.bytes.byteLength),
@@ -1142,7 +1206,7 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { now 
     if (segments[2] === "versions" && segments.length === 3) return dataResponse(entry.versions, entry.versions.length);
     if (segments[2] === "artifact" && segments.length === 3) {
       const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
-      const download = storage.createArtifactDownload(version.artifact, { baseUrl, now });
+      const download = await storage.createArtifactDownload(version.artifact, { actor, baseUrl, now });
       return dataResponse({
         package: { id: entry.id, kind: entry.kind, name: entry.name },
         version: version.version,
@@ -1153,15 +1217,15 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { now 
       });
     }
     if (segments[2] === "download" && segments.length === 3) {
-      return projectedDownloadResponse(storage, request, url, entry, { baseUrl, now });
+      return projectedDownloadResponse(storage, request, url, entry, { actor, baseUrl, now });
     }
   }
   return null;
 }
 
-function projectedDownloadResponse(storage, request, url, entry, { baseUrl, now }) {
+async function projectedDownloadResponse(storage, request, url, entry, { actor, baseUrl, now }) {
   const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
-  const download = storage.createArtifactDownload(version.artifact, { baseUrl, now });
+  const download = await storage.createArtifactDownload(version.artifact, { actor, baseUrl, now });
   if (download.available && url.searchParams.get("redirect") !== "false") {
     return redirectResponse(download.url);
   }
@@ -1253,6 +1317,30 @@ function normalizeUploadRequest(input) {
       sha256: sha256.toLowerCase(),
     },
   };
+}
+
+function normalizeSigningKeyId(value) {
+  const keyId = normalizeRequiredString(value, "signedReadKeyId");
+  if (!/^[a-zA-Z0-9._-]+$/.test(keyId)) throw new Error("signedReadKeyId must use letters, numbers, dot, underscore, or dash");
+  return keyId;
+}
+
+function normalizeSigningKeys({ signedReadSecret, signedReadKeyId, signedReadKeys } = {}) {
+  const keys = new Map();
+  if (signedReadKeys) {
+    for (const [keyId, secret] of signedReadKeys instanceof Map ? signedReadKeys.entries() : Object.entries(signedReadKeys)) {
+      const normalizedKeyId = normalizeSigningKeyId(keyId);
+      if (typeof secret !== "string" || secret.length < 12) {
+        throw new Error(`Signing secret for ${normalizedKeyId} must be at least 12 characters`);
+      }
+      keys.set(normalizedKeyId, secret);
+    }
+  }
+  if (typeof signedReadSecret !== "string" || signedReadSecret.length < 12) {
+    throw new Error("COREHUB_SIGNING_SECRET must be at least 12 characters");
+  }
+  keys.set(signedReadKeyId, signedReadSecret);
+  return keys;
 }
 
 function normalizeSubmissionRequest(input) {
@@ -1441,9 +1529,9 @@ function createSignedUploadContract({ uploadSlotId, storage, mediaType, sha256, 
   };
 }
 
-function signArtifactRead({ key, sha256, size, expiresAt }) {
-  return createHash("sha256")
-    .update([key, sha256, size, expiresAt, "corehub-artifact-read"].join("\n"))
+function signArtifactRead({ key, sha256, size, expiresAt, keyId, secret }) {
+  return createHmac("sha256", secret)
+    .update([key, sha256, size, expiresAt, keyId, "corehub-artifact-read.v1"].join("\n"))
     .digest("hex");
 }
 

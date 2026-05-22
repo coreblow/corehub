@@ -16,6 +16,9 @@ const env = {
   COREHUB_R2: createMockR2Bucket(r2Objects),
   COREHUB_R2_BUCKET_NAME: "corehub-artifacts-smoke",
   COREHUB_PUBLIC_BASE_URL: "https://coreblow.com/corehub",
+  COREHUB_SIGNING_SECRET: "corehub-worker-smoke-signing-secret",
+  COREHUB_SIGNING_KEY_ID: "smoke-primary",
+  COREHUB_SIGNING_PREVIOUS_SECRETS: "smoke-previous:corehub-worker-smoke-previous-secret",
 };
 
 function logStep(message) {
@@ -33,6 +36,7 @@ assert.equal(health.response.status, 200);
 assert.equal(health.payload.runtime, "cloudflare-worker");
 assert.equal(health.payload.stateStore, "d1");
 assert.equal(health.payload.objectStore, "r2");
+assert.equal(health.payload.signedReadKeyId, "smoke-primary");
 logStep("worker health reports D1 state store and R2 object store");
 
 const uploadRequest = await workerJson("/corehub/api/v2/artifacts/uploads", {
@@ -125,6 +129,7 @@ logStep("projected v1 entry served from Worker D1 state");
 const downloadMeta = await workerJson("/corehub/api/v1/packages/plugin-lab/download?redirect=false");
 assert.equal(downloadMeta.response.status, 200);
 assert.equal(downloadMeta.payload.data.download.available, true);
+assert.equal(downloadMeta.payload.data.download.keyId, "smoke-primary");
 assert.match(downloadMeta.payload.data.download.url, /\/corehub\/api\/v1\/artifacts\/read\?/);
 logStep("signed download metadata generated");
 
@@ -144,6 +149,8 @@ logStep("signed artifact read returned verified bytes from mock R2");
 
 const snapshot = JSON.parse(d1Rows.get("write-side-state").value);
 assert.equal(snapshot.packageVersions.length, 1);
+assert.equal(snapshot.auditEvents.some((event) => event.action === "artifact.download.sign"), true);
+assert.equal(snapshot.auditEvents.some((event) => event.action === "artifact.download.read"), true);
 assert.equal(snapshot.auditEvents.some((event) => event.action === "review.approve"), true);
 logStep(`D1 snapshot persisted with ${snapshot.auditEvents.length} audit events`);
 

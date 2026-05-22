@@ -36,3 +36,18 @@ export function createCoreHubStateStore({
   }
   throw new Error("COREHUB_STATE_STORE must be local-json or d1");
 }
+
+export function parseSigningKeyRotationEnv(value) {
+  if (!value) return undefined;
+  return Object.fromEntries(
+    String(value)
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const separator = entry.indexOf(":");
+        if (separator <= 0) throw new Error("COREHUB_SIGNING_PREVIOUS_SECRETS entries must use keyId:secret");
+        return [entry.slice(0, separator), entry.slice(separator + 1)];
+      }),
+  );
+}

@@ -134,6 +134,8 @@ Phase 18 adds the server-side shape before wiring production R2 or S3 credential
 | `GET /corehub/api/v1/packages/:id/download` | Returns signed read metadata, or redirects to a signed read URL by default. |
 | `GET /corehub/api/v1/artifacts/read` | Reads the stored artifact through CoreHub after validating signature, expiry, size, and SHA-256. |
 
+Signed read URLs use HMAC signatures from `COREHUB_SIGNING_SECRET` and include a `keyId` so operators can stage rotation with `COREHUB_SIGNING_PREVIOUS_SECRETS`. Download signing and successful reads are recorded as `artifact.download.sign` and `artifact.download.read` audit events.
+
 ## Moderation Review Boundary
 
 Each remote submission receives an open moderation review id. Review decisions are explicit write-side events:

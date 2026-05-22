@@ -653,12 +653,15 @@ const workerEnv = {
   COREHUB_R2: createMockR2Bucket(workerObjects),
   COREHUB_R2_BUCKET_NAME: "corehub-artifacts-test",
   COREHUB_PUBLIC_BASE_URL: "https://coreblow.com/corehub",
+  COREHUB_SIGNING_SECRET: "corehub-worker-test-signing-secret",
+  COREHUB_SIGNING_KEY_ID: "test-primary",
 };
 const workerHealth = await coreHubWorker.fetch(new Request("https://coreblow.com/healthz"), workerEnv);
 assert.equal(workerHealth.status, 200);
 const workerHealthPayload = await workerHealth.json();
 assert.equal(workerHealthPayload.stateStore, "d1");
 assert.equal(workerHealthPayload.objectStore, "r2");
+assert.equal(workerHealthPayload.signedReadKeyId, "test-primary");
 const workerUploadResponse = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/corehub/api/v2/artifacts/uploads", {
     method: "POST",
@@ -714,10 +717,24 @@ assert.equal(workerMissingD1.status, 500);
 assert.match((await workerMissingD1.json()).error, /requires a D1 database binding/);
 const workerMissingR2 = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/healthz"),
-  { COREHUB_STATE_STORE: "d1", COREHUB_D1: createMockD1Database(new Map()) },
+  {
+    COREHUB_STATE_STORE: "d1",
+    COREHUB_D1: createMockD1Database(new Map()),
+    COREHUB_SIGNING_SECRET: "corehub-worker-test-signing-secret",
+  },
 );
 assert.equal(workerMissingR2.status, 500);
 assert.match((await workerMissingR2.json()).error, /requires COREHUB_R2 binding/);
+const workerMissingSigningSecret = await handleCoreHubWorkerRequest(
+  new Request("https://coreblow.com/healthz"),
+  {
+    COREHUB_STATE_STORE: "d1",
+    COREHUB_D1: createMockD1Database(new Map()),
+    COREHUB_R2: createMockR2Bucket(new Map()),
+  },
+);
+assert.equal(workerMissingSigningSecret.status, 500);
+assert.match((await workerMissingSigningSecret.json()).error, /requires COREHUB_SIGNING_SECRET/);
 
 const stateStoreDir = await mkdtemp(join(tmpdir(), "corehub-state-store-"));
 try {

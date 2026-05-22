@@ -116,7 +116,7 @@ COREHUB_D1_STATE_KEY=write-side-state \
 COREHUB_D1_STATE_TABLE=corehub_state
 ```
 
-For Cloudflare Worker deployments, bind the database as `COREHUB_D1` and artifact storage as `COREHUB_R2`. The Worker entrypoint in `src/worker.mjs` passes `env.COREHUB_D1` into the same state-store bootstrap used by the local server and uses `env.COREHUB_R2` for uploaded artifact bytes.
+For Cloudflare Worker deployments, bind the database as `COREHUB_D1`, artifact storage as `COREHUB_R2`, and a signing secret as `COREHUB_SIGNING_SECRET`. The Worker entrypoint in `src/worker.mjs` passes `env.COREHUB_D1` into the same state-store bootstrap used by the local server, uses `env.COREHUB_R2` for uploaded artifact bytes, and signs artifact read URLs with `COREHUB_SIGNING_KEY_ID`.
 
 Deploy from the placeholder config:
 
@@ -143,5 +143,8 @@ The production environment template is in `ops/corehub-api.production.env.exampl
 | `COREHUB_D1_STATE_KEY` | `write-side-state` | D1 row key for the full snapshot. |
 | `COREHUB_D1_STATE_TABLE` | `corehub_state` | D1 table used by `CoreHubD1StateStore`. |
 | `COREHUB_R2_BUCKET_NAME` | `COREHUB_R2` | Human-readable bucket label reported in uploaded artifact metadata. |
+| `COREHUB_SIGNING_SECRET` | none in Worker | Required HMAC secret for signed artifact read URLs. |
+| `COREHUB_SIGNING_KEY_ID` | `primary` in Worker | Current signing key id included in signed read URLs for rotation. |
+| `COREHUB_SIGNING_PREVIOUS_SECRETS` | unset | Optional comma-separated `keyId:secret` rotation placeholder accepted for old read URLs. |
 | `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` | Public registry URL used in upload contracts. |
 | `COREHUB_AUDIT_RETENTION_DAYS` | `365` | Audit retention window before prune planning. |
