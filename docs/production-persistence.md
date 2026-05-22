@@ -217,6 +217,33 @@ npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package p
 
 Set `verify_read` on manual runs when the operator wants the workflow to fetch signed artifact bytes and verify SHA-256. The default scheduled run avoids artifact byte reads and only checks web, API, signed metadata, redirect, admin readiness, audit integrity, and the support bundle.
 
+## Production Deploy Workflow
+
+CoreHub has a manual production deploy workflow at `.github/workflows/deploy.yml`.
+
+The workflow follows the ClawHub production deploy shape:
+
+- `workflow_dispatch` only.
+- Main branch guard.
+- GitHub environment `Production`.
+- `check` mode for production preflight and Wrangler dry run.
+- `deploy` mode for real `wrangler deploy`.
+- Post-deploy smoke with admin visibility and a redacted support bundle.
+- Artifact upload for deploy logs, post-deploy smoke output, support bundle, and the materialized Wrangler config.
+
+Required GitHub configuration:
+
+| Name | Kind | Purpose |
+| --- | --- | --- |
+| `COREHUB_D1_DATABASE_ID` | variable or workflow input | Production Cloudflare D1 database id. |
+| `COREHUB_USER` | variable | Audit actor for admin smoke, for example `github:coreblow-admin`. |
+| `COREHUB_SIGNING_SECRET` | secret | HMAC signing secret for artifact reads. |
+| `COREHUB_TOKEN` | secret | Operator token for admin status/support-bundle smoke. |
+| `CLOUDFLARE_API_TOKEN` | secret | Wrangler authentication. |
+| `CLOUDFLARE_ACCOUNT_ID` | secret | Cloudflare account used by Wrangler. |
+
+Run `mode=check` before a real deploy. Run `mode=deploy` only after the check passes and the production environment approval is complete.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.

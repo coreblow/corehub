@@ -1,0 +1,170 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run production checks only or deploy the Worker"
+        required: true
+        default: check
+        type: choice
+        options:
+          - check
+          - deploy
+      registry:
+        description: "CoreHub registry URL for post-deploy smoke"
+        required: true
+        default: "https://coreblow.com/corehub"
+      package:
+        description: "Package id to verify after deploy"
+        required: true
+        default: "plugin-lab"
+      d1_database_id:
+        description: "Cloudflare D1 database id. Falls back to vars.COREHUB_D1_DATABASE_ID"
+        required: false
+        default: ""
+      verify_read:
+        description: "Fetch signed artifact bytes during post-deploy smoke"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: corehub-deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate-deploy-request:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_deploy: ${{ steps.mode.outputs.run_deploy }}
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - name: Require main ref for production deploy
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Production deploys must run from main."
+            exit 1
+          fi
+
+      - name: Resolve deploy mode
+        id: mode
+        run: |
+          set -euo pipefail
+          case "${{ inputs.mode }}" in
+            check)
+              echo "run_deploy=false" >> "$GITHUB_OUTPUT"
+              echo "mode=check" >> "$GITHUB_OUTPUT"
+              ;;
+            deploy)
+              echo "run_deploy=true" >> "$GITHUB_OUTPUT"
+              echo "mode=deploy" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported deploy mode: ${{ inputs.mode }}" >&2
+              exit 1
+              ;;
+          esac
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: validate-deploy-request
+    environment:
+      name: Production
+      url: https://coreblow.com/corehub
+    env:
+      COREHUB_REGISTRY: ${{ inputs.registry }}
+      COREHUB_SMOKE_PACKAGE: ${{ inputs.package }}
+      COREHUB_D1_DATABASE_ID: ${{ inputs.d1_database_id || vars.COREHUB_D1_DATABASE_ID }}
+      COREHUB_SIGNING_SECRET: ${{ secrets.COREHUB_SIGNING_SECRET }}
+      COREHUB_TOKEN: ${{ secrets.COREHUB_TOKEN }}
+      COREHUB_USER: ${{ vars.COREHUB_USER || 'github:coreblow-admin' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      VERIFY_READ: ${{ inputs.verify_read || false }}
+      WRANGLER_CONFIG: ${{ runner.temp }}/wrangler.corehub-api.production.toml
+    steps:
+      - name: Check deploy configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          if [[ -z "$COREHUB_D1_DATABASE_ID" ]]; then
+            missing+=("COREHUB_D1_DATABASE_ID")
+          fi
+          if [[ -z "$COREHUB_SIGNING_SECRET" ]]; then
+            missing+=("COREHUB_SIGNING_SECRET")
+          fi
+          if [[ -z "$COREHUB_TOKEN" ]]; then
+            missing+=("COREHUB_TOKEN")
+          fi
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            missing+=("CLOUDFLARE_API_TOKEN")
+          fi
+          if [[ -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            missing+=("CLOUDFLARE_ACCOUNT_ID")
+          fi
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required production deploy configuration: ${missing[*]}"
+            exit 1
+          fi
+          echo "Mode: ${{ needs.validate-deploy-request.outputs.mode }}"
+          echo "Registry: $COREHUB_REGISTRY"
+          echo "Package: $COREHUB_SMOKE_PACKAGE"
+          echo "Actor: $COREHUB_USER"
+
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Materialize production Wrangler config
+        run: |
+          set -euo pipefail
+          node scripts/materialize-worker-config.mjs \
+            --database-id "$COREHUB_D1_DATABASE_ID" \
+            --output "$WRANGLER_CONFIG" \
+            --force
+
+      - name: Run production deploy preflight
+        run: npm run deploy:worker:check -- --config "$WRANGLER_CONFIG" --require-wrangler
+
+      - name: Deploy Worker
+        if: needs.validate-deploy-request.outputs.run_deploy == 'true'
+        run: wrangler deploy --config "$WRANGLER_CONFIG"
+
+      - name: Run post-deploy smoke
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/corehub-deploy"
+          args=(
+            "--registry" "$COREHUB_REGISTRY"
+            "--package" "$COREHUB_SMOKE_PACKAGE"
+            "--verify-admin"
+            "--admin-support-bundle-output" "$RUNNER_TEMP/corehub-deploy/corehub-support-bundle.json"
+            "--admin-limit" "20"
+          )
+          if [[ "$VERIFY_READ" == "true" ]]; then
+            args+=("--verify-read")
+          fi
+          npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-deploy/post-deploy-smoke.log"
+
+      - name: Upload deploy artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: corehub-deploy-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/corehub-deploy/post-deploy-smoke.log
+            ${{ runner.temp }}/corehub-deploy/corehub-support-bundle.json
+            ${{ runner.temp }}/wrangler.corehub-api.production.toml
+          if-no-files-found: ignore
