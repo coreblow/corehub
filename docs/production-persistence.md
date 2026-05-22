@@ -166,7 +166,13 @@ After the real deploy finishes, run the post-deploy smoke against the public Cor
 npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab
 ```
 
-The post-deploy smoke is read-only for write-side publishing state. It checks `/healthz` when the deployment exposes it, falls back to v1 registry discovery as the public health proof when `/healthz` is routed elsewhere, then checks the v1 package read, signed download metadata, and the default signed redirect.
+The post-deploy smoke is read-only for write-side publishing state. It checks the canonical web surface at `https://coreblow.com/corehub/`, checks `/healthz` when the deployment exposes it, falls back to v1 registry discovery as the public health proof when `/healthz` is routed elsewhere, then checks the v1 package read, signed download metadata, and the default signed redirect.
+
+To point the web smoke at another route explicitly:
+
+```sh
+npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --web-url https://coreblow.com/corehub/ --verify-web --package plugin-lab
+```
 
 To also fetch the signed artifact bytes and verify the response size plus SHA-256:
 

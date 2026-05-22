@@ -8,6 +8,8 @@ const args = process.argv.slice(2);
 const registry = normalizeRegistry(readOption("--registry") ?? process.env.COREHUB_REGISTRY ?? "https://coreblow.com/corehub");
 const packageId = readOption("--package") ?? readOption("--id") ?? process.env.COREHUB_SMOKE_PACKAGE ?? "plugin-lab";
 const verifyRead = args.includes("--verify-read");
+const webUrl = normalizeWebUrl(readOption("--web-url") ?? process.env.COREHUB_WEB_URL ?? `${registry}/`);
+const verifyWeb = args.includes("--verify-web") || webUrl === "https://coreblow.com/corehub/";
 const adminSupportBundleOutput = readOption("--admin-support-bundle-output");
 const verifyAdmin = args.includes("--verify-admin") || Boolean(process.env.COREHUB_TOKEN) || Boolean(adminSupportBundleOutput);
 const adminLimit = readNonNegativeInteger(readOption("--admin-limit") ?? process.env.COREHUB_ADMIN_SMOKE_LIMIT ?? "20", "admin limit");
@@ -29,6 +31,14 @@ function normalizeRegistry(value) {
   url.hash = "";
   url.search = "";
   return url.toString().replace(/\/$/, "");
+}
+
+function normalizeWebUrl(value) {
+  if (typeof value !== "string" || value.trim() === "") throw new Error("web URL is required");
+  const url = new URL(value);
+  url.hash = "";
+  url.search = "";
+  return url.toString();
 }
 
 function apiUrl(path) {
@@ -70,6 +80,21 @@ async function readJson(url, init = {}) {
     throw new Error(`Request failed for ${url}: ${response.status} ${JSON.stringify(payload)}`);
   }
   return { response, payload };
+}
+
+async function readText(url, init = {}) {
+  const response = await fetch(url, {
+    redirect: "follow",
+    ...init,
+    headers: {
+      accept: "text/html,application/xhtml+xml",
+      "user-agent": userAgent,
+      ...(init.headers ?? {}),
+    },
+  });
+  const body = await response.text();
+  if (!response.ok) throw new Error(`Request failed for ${url}: ${response.status} ${body.slice(0, 300)}`);
+  return { response, body };
 }
 
 async function readHealth() {
@@ -131,6 +156,26 @@ const health = await readHealth();
 assert.equal(health.payload.ok, true);
 assert.equal(health.payload.service, "corehub-api");
 logStep(`health ok from ${health.source}`);
+
+let web = { enabled: false };
+if (verifyWeb) {
+  const webResponse = await readText(webUrl);
+  const contentType = webResponse.response.headers.get("content-type") ?? "";
+  assert.match(contentType, /text\/html/);
+  assert.match(webResponse.body, /<title>CoreHub \| CoreBlow Skill and Plugin Directory<\/title>/);
+  assert.match(webResponse.body, /CoreHub/);
+  assert.match(webResponse.body, /CoreBlow/);
+  assert.match(webResponse.body, /CoreHub Directory Metadata/);
+  assert.match(webResponse.body, /plugin-lab/);
+  assert.match(webResponse.body, /github\.com\/coreblow\/corehub/);
+  web = {
+    enabled: true,
+    url: webUrl,
+    contentType,
+    bytes: Buffer.byteLength(webResponse.body),
+  };
+  logStep(`web surface ok at ${webUrl}`);
+}
 
 const registryInfo = await readJson(apiUrl("/api/v1"));
 assertCatalogEnvelope(registryInfo.payload, "registry info");
@@ -248,6 +293,7 @@ console.log(
         objectStore: health.payload.objectStore,
         signedReadKeyId: health.payload.signedReadKeyId,
       },
+      web,
       download: {
         keyId: download.keyId,
         expiresAt: download.expiresAt ?? download.expires,
