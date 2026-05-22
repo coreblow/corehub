@@ -19,5 +19,6 @@ jobs:
       - run: npm run smoke:worker-local
       - run: npm run smoke:audit-alert-pipeline
       - run: npm run validate:ops
+      - run: npm run validate:deploy-template
       - run: npm run validate:schema
       - run: npm run validate:write-schema
