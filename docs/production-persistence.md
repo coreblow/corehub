@@ -196,6 +196,27 @@ COREHUB_TOKEN=<operator-token> COREHUB_USER=github:coreblow-admin npm run smoke:
 
 The support bundle includes state store, object store, queue counts, transfer counts, install analytics totals, audit integrity, readiness, and recent queue/audit samples. It does not include signing secrets, raw client identifiers, raw IP addresses, or raw user agents.
 
+## Operator Smoke Workflow
+
+CoreHub also has a scheduled/manual operator smoke workflow at `.github/workflows/operator-smoke.yml`.
+
+The workflow follows the ClawHub operator pattern:
+
+- `workflow_dispatch` for manual checks.
+- `schedule` for recurring production confidence checks.
+- GitHub environment `Production`.
+- `COREHUB_TOKEN` secret for admin API access.
+- `COREHUB_USER` variable for audit actor attribution.
+- `actions/upload-artifact@v7` for the post-deploy smoke output and redacted support bundle.
+
+Run it manually from GitHub Actions when checking production after deploy, or let the schedule exercise the same read-only path. The workflow runs:
+
+```sh
+npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab --verify-admin --admin-support-bundle-output <artifact> --admin-limit 20
+```
+
+Set `verify_read` on manual runs when the operator wants the workflow to fetch signed artifact bytes and verify SHA-256. The default scheduled run avoids artifact byte reads and only checks web, API, signed metadata, redirect, admin readiness, audit integrity, and the support bundle.
+
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 
 The production environment template is in `ops/corehub-api.production.env.example`.

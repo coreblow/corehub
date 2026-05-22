@@ -1,0 +1,91 @@
+name: Operator Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: "CoreHub registry URL"
+        required: true
+        default: "https://coreblow.com/corehub"
+      package:
+        description: "Package id to verify"
+        required: true
+        default: "plugin-lab"
+      verify_read:
+        description: "Fetch signed artifact bytes and verify checksum"
+        required: true
+        default: false
+        type: boolean
+      admin_limit:
+        description: "Recent admin records to include in the support bundle"
+        required: true
+        default: "20"
+  schedule:
+    - cron: "17,47 * * * *"
+
+concurrency:
+  group: corehub-operator-smoke
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  post-deploy-admin-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Production
+    env:
+      COREHUB_REGISTRY: ${{ inputs.registry || 'https://coreblow.com/corehub' }}
+      COREHUB_SMOKE_PACKAGE: ${{ inputs.package || 'plugin-lab' }}
+      COREHUB_ADMIN_SMOKE_LIMIT: ${{ inputs.admin_limit || '20' }}
+      COREHUB_TOKEN: ${{ secrets.COREHUB_TOKEN }}
+      COREHUB_USER: ${{ vars.COREHUB_USER || 'github:coreblow-admin' }}
+      VERIFY_READ: ${{ inputs.verify_read || false }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Check operator smoke configuration
+        run: |
+          set -euo pipefail
+          if [[ -z "$COREHUB_TOKEN" ]]; then
+            echo "::error::COREHUB_TOKEN is required for admin post-deploy smoke."
+            exit 1
+          fi
+          if [[ -z "$COREHUB_USER" ]]; then
+            echo "::error::COREHUB_USER is required for audit actor attribution."
+            exit 1
+          fi
+          echo "Registry: $COREHUB_REGISTRY"
+          echo "Package: $COREHUB_SMOKE_PACKAGE"
+          echo "Actor: $COREHUB_USER"
+
+      - name: Run admin post-deploy smoke
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/corehub-operator-smoke"
+          args=(
+            "--registry" "$COREHUB_REGISTRY"
+            "--package" "$COREHUB_SMOKE_PACKAGE"
+            "--verify-admin"
+            "--admin-support-bundle-output" "$RUNNER_TEMP/corehub-operator-smoke/corehub-support-bundle.json"
+            "--admin-limit" "$COREHUB_ADMIN_SMOKE_LIMIT"
+          )
+          if [[ "$VERIFY_READ" == "true" ]]; then
+            args+=("--verify-read")
+          fi
+          npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-operator-smoke/post-deploy-smoke.log"
+
+      - name: Upload operator smoke artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: corehub-operator-smoke-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/corehub-operator-smoke/post-deploy-smoke.log
+            ${{ runner.temp }}/corehub-operator-smoke/corehub-support-bundle.json
+          if-no-files-found: ignore
