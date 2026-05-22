@@ -166,7 +166,7 @@ After the real deploy finishes, run the post-deploy smoke against the public Cor
 npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab
 ```
 
-The post-deploy smoke is read-only for write-side publishing state. It checks `/healthz`, v1 registry discovery, the v1 package read, signed download metadata, and the default signed redirect.
+The post-deploy smoke is read-only for write-side publishing state. It checks `/healthz` when the deployment exposes it, falls back to v1 registry discovery as the public health proof when `/healthz` is routed elsewhere, then checks the v1 package read, signed download metadata, and the default signed redirect.
 
 To also fetch the signed artifact bytes and verify the response size plus SHA-256:
 
@@ -175,6 +175,20 @@ npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package p
 ```
 
 `--verify-read` performs an artifact read and may create the normal `artifact.download.read` audit event, but it does not create upload, submission, review, or publisher mutations.
+
+To include admin visibility in the post-deploy gate, provide an admin token and run:
+
+```sh
+COREHUB_TOKEN=<operator-token> COREHUB_USER=github:coreblow-admin npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab --verify-admin
+```
+
+The admin check calls `GET /corehub/api/v2/admin/status` and fails unless readiness is `ready` and audit integrity is valid. To also export a redacted support bundle:
+
+```sh
+COREHUB_TOKEN=<operator-token> COREHUB_USER=github:coreblow-admin npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab --verify-admin --admin-support-bundle-output ./corehub-support-bundle.json --admin-limit 20
+```
+
+The support bundle includes state store, object store, queue counts, transfer counts, install analytics totals, audit integrity, readiness, and recent queue/audit samples. It does not include signing secrets, raw client identifiers, raw IP addresses, or raw user agents.
 
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 

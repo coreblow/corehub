@@ -381,6 +381,34 @@ try {
   assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
   logStep(`support bundle exported: ${supportBundleExport.output}`);
 
+  const postDeployBundlePath = join(tempRoot, "corehub-post-deploy-support-bundle.json");
+  const postDeploySmoke = await execFileAsync(
+    process.execPath,
+    [
+      join(repoRoot, "scripts/smoke-worker-post-deploy.mjs"),
+      "--registry",
+      registry,
+      "--package",
+      "plugin-lab",
+      "--verify-admin",
+      "--token",
+      "local-dev-token",
+      "--user",
+      "github:coreblow-admin",
+      "--admin-support-bundle-output",
+      postDeployBundlePath,
+      "--admin-limit",
+      "5",
+    ],
+    { cwd: repoRoot },
+  );
+  assert.match(postDeploySmoke.stdout, /"adminVisibility": \{/);
+  assert.match(postDeploySmoke.stdout, /"enabled": true/);
+  const postDeployBundle = JSON.parse(await readFile(postDeployBundlePath, "utf8"));
+  assert.equal(postDeployBundle.bundle.redaction.secretsIncluded, false);
+  assert.equal(postDeployBundle.readiness.status, "ready");
+  logStep("post-deploy admin visibility smoke passed");
+
   console.log("CoreHub local publish smoke passed.");
 } finally {
   await app.close();
