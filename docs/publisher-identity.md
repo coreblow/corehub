@@ -60,6 +60,20 @@ Future API v2 will replace fixture lookup with:
 GET /corehub/api/v2/publishers/me
 ```
 
+## Ownership Transfers
+
+Ownership transfer is now an authenticated API v2 boundary. Source publisher members can request a transfer, target publisher members can accept or reject it, and source publisher members can cancel it while it is pending.
+
+```sh
+corehub transfers request plugin-lab --to example-org --registry https://coreblow.com/corehub
+corehub transfers list --status requested --package plugin-lab --registry https://coreblow.com/corehub
+corehub transfers accept transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub
+corehub transfers reject transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub
+corehub transfers cancel transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub
+```
+
+Completed transfers change the effective package owner for future submissions without rewriting historical package versions. Every transfer action is recorded as an `ownership.transfer.*` audit event.
+
 ## Planned Follow-Up
 
 - Browser login at `https://coreblow.com/corehub/cli/auth`.

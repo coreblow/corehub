@@ -86,6 +86,12 @@ The future authenticated API should expose these resources under a new versioned
 | `GET /corehub/api/v2/submissions/:id` | Inspect submission status and review diagnostics. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approve a submission or version for install surfaces. |
 | `POST /corehub/api/v2/reviews/:id/block` | Block a submission, version, artifact, or publisher. |
+| `GET /corehub/api/v2/transfers` | List package ownership transfer requests with status and package filters. |
+| `GET /corehub/api/v2/transfers/:id` | Inspect one ownership transfer and current package owner. |
+| `POST /corehub/api/v2/transfers` | Request package ownership transfer from the current publisher to a verified target publisher. |
+| `POST /corehub/api/v2/transfers/:id/accept` | Target publisher accepts and completes ownership transfer. |
+| `POST /corehub/api/v2/transfers/:id/reject` | Target publisher or admin rejects ownership transfer. |
+| `POST /corehub/api/v2/transfers/:id/cancel` | Source publisher cancels a pending transfer. |
 | `GET /corehub/api/v2/audit/events` | List write-side audit events with target, action, actor, and pagination filters. |
 | `GET /corehub/api/v2/audit/verify` | Verify the append-only audit hash chain and return the current head hash. |
 | `GET /corehub/api/v2/audit/retention` | Inspect retention policy, prune cutoff, and integrity failure behavior. |
@@ -105,6 +111,8 @@ corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upl
 corehub package submit ./plugin --dry-run
 corehub package submit ./plugin-lab.coreblow-plugin.tgz --dry-run
 corehub package submit ./plugin-lab.coreblow-plugin.tgz --registry https://coreblow.com/corehub --dry-run
+corehub transfers request plugin-lab --to example-org --registry https://coreblow.com/corehub
+corehub transfers accept transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub
 corehub package publish ./plugin --dry-run
 corehub package publish ./plugin
 corehub package submit ./plugin-lab.coreblow-plugin.tgz
@@ -139,6 +147,29 @@ corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upl
 When `--registry` is provided, the CLI uses the API v2 upload boundary. Without `--registry`, it keeps the local dry-run fallback so publishers can inspect the planned payload before the hosted write API is available.
 
 `corehub package submit <artifact> --registry <url> --dry-run` uses the verified artifact upload id for the package and version. A custom id can be passed with `--artifact-upload <id>` when the upload slot does not follow the default `artifact-<package>-<version>` shape.
+
+## Ownership Transfer
+
+Ownership transfer moves the effective package owner for future submissions without rewriting historical package versions.
+
+| Step | Contract |
+| --- | --- |
+| Request | Source publisher owner, admin, or maintainer calls `POST /corehub/api/v2/transfers` with `packageId`, `fromPublisherHandle`, and verified `toPublisherHandle`. |
+| Accept | Target publisher owner, admin, or maintainer accepts the pending transfer. CoreHub marks it `completed` and future submissions must use the target publisher. |
+| Reject | Target publisher or CoreHub admin rejects the pending transfer. |
+| Cancel | Source publisher cancels the pending transfer before acceptance. |
+| Audit | Every request, accept, reject, cancel, list, and inspect action records an `ownership.transfer.*` audit event. |
+
+The CLI shape is:
+
+```sh
+corehub transfers request plugin-lab --to example-org --registry https://coreblow.com/corehub --reason "Move to org publisher."
+corehub transfers list --status requested --package plugin-lab --registry https://coreblow.com/corehub
+corehub transfers inspect transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub
+corehub transfers accept transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub --notes "Accepted."
+corehub transfers reject transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub --notes "Rejected."
+corehub transfers cancel transfer-plugin-lab-coreblow-to-example-org --registry https://coreblow.com/corehub --notes "Cancelled."
+```
 
 ## API and Storage Boundary
 

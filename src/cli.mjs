@@ -52,6 +52,8 @@ async function main() {
     await runSubmissionCommand(args);
   } else if (command === "review" || command === "reviews") {
     await runReviewCommand(args);
+  } else if (command === "transfer" || command === "transfers") {
+    await runTransferCommand(args);
   } else if (command === "skill") {
     await runSkillCommand(args);
   } else if (command === "inspect") {
@@ -277,6 +279,11 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "transfer") {
+    await runTransferCommand(args);
+    return;
+  }
+
   if (subcommand === "search") {
     const query = positionalArgs(args).join(" ").trim();
     if (!query) throw new Error("package search requires a query");
@@ -422,6 +429,115 @@ async function runSubmissionCommand(values) {
   }
 
   printSubmissionHelp();
+}
+
+async function runTransferCommand(values) {
+  const subcommand = values[0] ?? "help";
+  const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
+  const auth = await readAuthState();
+
+  if (subcommand === "list") {
+    if (!registry) throw new Error("transfers list requires --registry or COREHUB_REGISTRY");
+    const result = await new CoreHubRegistryClient(registry).transfers({
+      ...readQueueListOptions(args),
+      packageId: readOption(args, "--package"),
+      auth,
+    });
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          registry: normalizeRegistry(registry),
+          ...result.meta,
+          transfers: result.data,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (subcommand === "inspect" || subcommand === "status") {
+    if (!registry) throw new Error(`transfers ${subcommand} requires --registry or COREHUB_REGISTRY`);
+    const transferId = positionalArgs(args)[0];
+    if (!transferId) throw new Error(`transfers ${subcommand} requires a transfer id`);
+    const result = await new CoreHubRegistryClient(registry).transfer(transferId, { auth });
+    console.log(
+      JSON.stringify(
+        {
+          status: result.transfer.status,
+          registry: normalizeRegistry(registry),
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (subcommand === "request") {
+    if (!registry) throw new Error("transfers request requires --registry or COREHUB_REGISTRY");
+    const packageId = positionalArgs(args)[0];
+    if (!packageId) throw new Error("transfers request requires a package id");
+    const fromPublisherHandle = normalizeHandle(readOption(args, "--from") ?? auth?.defaultPublisherHandle);
+    const toPublisherHandle = normalizeHandle(readOption(args, "--to"));
+    if (!fromPublisherHandle) throw new Error("transfers request requires --from or a login publisher");
+    if (!toPublisherHandle) throw new Error("transfers request requires --to <publisher>");
+    const requiredAuth = await requireAuthState();
+    const result = await new CoreHubRegistryClient(registry).requestTransfer(
+      {
+        packageId,
+        fromPublisherHandle,
+        toPublisherHandle,
+        reason: readOption(args, "--reason") ?? readOption(args, "--notes"),
+      },
+      { auth: requiredAuth },
+    );
+    console.log(
+      JSON.stringify(
+        {
+          status: result.transfer.status,
+          registry: normalizeRegistry(registry),
+          actor: requiredAuth.actor,
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (["accept", "reject", "cancel"].includes(subcommand)) {
+    if (!registry) throw new Error(`transfers ${subcommand} requires --registry or COREHUB_REGISTRY`);
+    const transferId = positionalArgs(args)[0];
+    if (!transferId) throw new Error(`transfers ${subcommand} requires a transfer id`);
+    const requiredAuth = await requireAuthState();
+    const result = await new CoreHubRegistryClient(registry).decideTransfer(
+      transferId,
+      subcommand,
+      { notes: readOption(args, "--notes") },
+      { auth: requiredAuth },
+    );
+    console.log(
+      JSON.stringify(
+        {
+          status: result.transfer.status,
+          registry: normalizeRegistry(registry),
+          actor: requiredAuth.actor,
+          ...result,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  printTransferHelp();
 }
 
 async function runAuditCommand(values) {
@@ -2100,6 +2216,41 @@ class CoreHubRegistryClient {
     });
   }
 
+  async transfers(options = {}) {
+    const url = this.apiV2Url("/transfers");
+    if (options.status) url.searchParams.set("status", options.status);
+    if (options.packageId) url.searchParams.set("package", options.packageId);
+    if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+    if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
+    return this.readV2Envelope(url, { auth: options.auth });
+  }
+
+  async transfer(transferId, options = {}) {
+    return this.readV2Data(this.apiV2Url(`/transfers/${encodeURIComponent(transferId)}`), {
+      auth: options.auth,
+    });
+  }
+
+  async requestTransfer(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/transfers"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async decideTransfer(transferId, decision, payload = {}, options = {}) {
+    return this.writeData(this.apiV2Url(`/transfers/${encodeURIComponent(transferId)}/${decision}`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
   apiUrl(path) {
     return new URL(`${this.registry}/api/v1${path}`);
   }
@@ -2206,6 +2357,9 @@ Usage:
   corehub review status <review-id> --registry https://coreblow.com/corehub
   corehub review approve <review-id> --registry https://coreblow.com/corehub [--notes text]
   corehub review block <review-id> --registry https://coreblow.com/corehub [--notes text]
+  corehub transfers list [--status requested|completed|rejected|cancelled] [--package package-id] --registry https://coreblow.com/corehub
+  corehub transfers request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
+  corehub transfers accept|reject|cancel <transfer-id> --registry https://coreblow.com/corehub [--notes text]
   corehub skill publish <skill-folder>
   corehub package explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
   corehub package search <query> [--registry https://coreblow.com/corehub]
@@ -2218,6 +2372,7 @@ Usage:
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
+  corehub package transfer request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
   corehub package publish <source>
   corehub registry info --registry https://coreblow.com/corehub
 `);
@@ -2238,6 +2393,7 @@ Usage:
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
+  corehub package transfer request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
   corehub package publish <source>
 `);
 }
@@ -2282,6 +2438,20 @@ Usage:
   corehub submissions list [--status pending_review|approved|rejected] [--limit n] [--offset n] --registry https://coreblow.com/corehub
   corehub submissions inspect <submission-id> --registry https://coreblow.com/corehub
   corehub submissions status <submission-id> --registry https://coreblow.com/corehub
+`);
+}
+
+function printTransferHelp() {
+  console.log(`CoreHub transfer commands
+
+Usage:
+  corehub transfers list [--status requested|completed|rejected|cancelled] [--package package-id] [--limit n] [--offset n] --registry https://coreblow.com/corehub
+  corehub transfers inspect <transfer-id> --registry https://coreblow.com/corehub
+  corehub transfers status <transfer-id> --registry https://coreblow.com/corehub
+  corehub transfers request <package-id> --to <publisher> [--from publisher] [--reason text] --registry https://coreblow.com/corehub
+  corehub transfers accept <transfer-id> --registry https://coreblow.com/corehub [--notes text]
+  corehub transfers reject <transfer-id> --registry https://coreblow.com/corehub [--notes text]
+  corehub transfers cancel <transfer-id> --registry https://coreblow.com/corehub [--notes text]
 `);
 }
 

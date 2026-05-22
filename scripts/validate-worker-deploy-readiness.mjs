@@ -42,6 +42,7 @@ else fail("public base URL scheme", "COREHUB_PUBLIC_BASE_URL must use https");
 requirePresent("D1 state key", config.vars.COREHUB_D1_STATE_KEY);
 requirePresent("D1 state table", config.vars.COREHUB_D1_STATE_TABLE);
 requirePresent("R2 bucket name", config.vars.COREHUB_R2_BUCKET_NAME);
+requirePresent("admin actors", config.vars.COREHUB_ADMIN_ACTORS);
 requireSigningKeyId(config.vars.COREHUB_SIGNING_KEY_ID);
 
 const d1 = config.d1Databases.find((item) => item.binding === "COREHUB_D1");

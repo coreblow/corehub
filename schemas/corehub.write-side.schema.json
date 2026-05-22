@@ -581,16 +581,36 @@
           "type": "string",
           "enum": ["requested", "accepted", "rejected", "cancelled", "completed"]
         },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1
+        },
         "requestedBy": {
           "$ref": "#/$defs/actor"
         },
         "acceptedBy": {
           "$ref": "#/$defs/actor"
         },
+        "rejectedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "cancelledBy": {
+          "$ref": "#/$defs/actor"
+        },
         "requestedAt": {
           "$ref": "#/$defs/timestamp"
         },
         "acceptedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "rejectedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "cancelledAt": {
           "$ref": "#/$defs/timestamp"
         },
         "completedAt": {

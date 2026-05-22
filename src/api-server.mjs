@@ -187,6 +187,7 @@ export class CoreHubLocalStorageAdapter {
     this.submissions = new Map();
     this.reviews = new Map();
     this.packageVersions = new Map();
+    this.ownershipTransfers = new Map();
     this.auditEvents = [];
     this.auditCheckpoints = [];
   }
@@ -466,6 +467,10 @@ export class CoreHubLocalStorageAdapter {
   async createSubmission(input, { actor = defaultActor(), now = new Date() } = {}) {
     const request = normalizeSubmissionRequest(input);
     this.requirePublisherPermission(actor, request.publisherHandle, "submission.create");
+    const currentOwner = this.packageOwnerHandle(request.packageId);
+    if (currentOwner && currentOwner !== request.publisherHandle) {
+      throw httpError(409, `Package ${request.packageId} is owned by ${currentOwner}, not ${request.publisherHandle}`);
+    }
     const artifactUpload = this.findArtifactUpload(request.artifactUploadId);
     if (!artifactUpload) throw httpError(404, "Verified artifact upload not found");
     if (artifactUpload.status !== "verified") {
@@ -606,6 +611,100 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  async requestOwnershipTransfer(input, { actor = defaultActor(), now = new Date() } = {}) {
+    const request = normalizeOwnershipTransferRequest(input);
+    this.requirePublisherPermission(actor, request.fromPublisherHandle, "ownership.transfer.request");
+    const currentOwner = this.packageOwnerHandle(request.packageId);
+    if (!currentOwner) throw httpError(404, "Package ownership source not found");
+    if (currentOwner !== request.fromPublisherHandle) {
+      throw httpError(409, `Package ${request.packageId} is owned by ${currentOwner}, not ${request.fromPublisherHandle}`);
+    }
+    this.requireVerifiedPublisher(request.toPublisherHandle, "ownership.transfer.request");
+    const baseId = `transfer-${request.packageId}-${request.fromPublisherHandle}-to-${request.toPublisherHandle}`;
+    if ([...this.ownershipTransfers.values()].some((transfer) => transfer.id.startsWith(baseId) && transfer.status === "requested")) {
+      throw httpError(409, "Ownership transfer is already requested");
+    }
+    const existingCount = [...this.ownershipTransfers.values()].filter((transfer) => transfer.id.startsWith(baseId)).length;
+    const id = existingCount === 0 ? baseId : `${baseId}-${existingCount + 1}`;
+    const requestedAt = now.toISOString();
+    const transfer = {
+      id,
+      packageId: request.packageId,
+      fromPublisherHandle: request.fromPublisherHandle,
+      toPublisherHandle: request.toPublisherHandle,
+      status: "requested",
+      requestedBy: actor,
+      requestedAt,
+      ...(request.reason ? { reason: request.reason } : {}),
+    };
+    this.ownershipTransfers.set(id, transfer);
+    this.recordAuditEvent({
+      actor,
+      action: "ownership.transfer.request",
+      targetType: "ownershipTransfer",
+      targetId: id,
+      metadata: {
+        packageId: transfer.packageId,
+        fromPublisherHandle: transfer.fromPublisherHandle,
+        toPublisherHandle: transfer.toPublisherHandle,
+      },
+      createdAt: requestedAt,
+    });
+    await this.persistState();
+    return { transfer };
+  }
+
+  async decideOwnershipTransfer(transferId, decision, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    if (!["accept", "reject", "cancel"].includes(decision)) {
+      throw httpError(400, "Ownership transfer decision must be accept, reject, or cancel");
+    }
+    const transfer = this.ownershipTransfers.get(transferId);
+    if (!transfer) throw httpError(404, "Ownership transfer not found");
+    if (transfer.status !== "requested") {
+      throw httpError(409, "Ownership transfer is not pending");
+    }
+    if (decision === "accept") {
+      this.requirePublisherPermission(actor, transfer.toPublisherHandle, "ownership.transfer.accept");
+    } else if (decision === "cancel") {
+      this.requirePublisherPermission(actor, transfer.fromPublisherHandle, "ownership.transfer.cancel");
+    } else {
+      this.requireTransferDecisionPermission(actor, transfer, "ownership.transfer.reject");
+    }
+    const decidedAt = now.toISOString();
+    const status = decision === "accept" ? "completed" : decision === "reject" ? "rejected" : "cancelled";
+    const updated = {
+      ...transfer,
+      status,
+      ...(decision === "accept"
+        ? {
+            acceptedBy: actor,
+            acceptedAt: decidedAt,
+            completedAt: decidedAt,
+          }
+        : {}),
+      ...(decision === "reject" ? { rejectedBy: actor, rejectedAt: decidedAt } : {}),
+      ...(decision === "cancel" ? { cancelledBy: actor, cancelledAt: decidedAt } : {}),
+      ...(typeof input.notes === "string" && input.notes.trim().length > 0 ? { notes: input.notes.trim() } : {}),
+    };
+    this.ownershipTransfers.set(transferId, updated);
+    this.recordAuditEvent({
+      actor,
+      action: `ownership.transfer.${decision}`,
+      targetType: "ownershipTransfer",
+      targetId: transferId,
+      metadata: {
+        packageId: transfer.packageId,
+        fromPublisherHandle: transfer.fromPublisherHandle,
+        toPublisherHandle: transfer.toPublisherHandle,
+        status,
+        notes: updated.notes ?? null,
+      },
+      createdAt: decidedAt,
+    });
+    await this.persistState();
+    return { transfer: updated, packageOwnerHandle: this.packageOwnerHandle(transfer.packageId) };
+  }
+
   listSubmissions(options = {}) {
     this.requireAdminPermission(options.authActor ?? defaultActor(), "submission.list");
     const records = [...this.submissions.values()]
@@ -636,6 +735,22 @@ export class CoreHubLocalStorageAdapter {
     const moderationReview = this.reviews.get(reviewId);
     if (!moderationReview) throw httpError(404, "Moderation review not found");
     return this.reviewInspection(moderationReview);
+  }
+
+  listOwnershipTransfers(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "ownership.transfer.list");
+    const records = [...this.ownershipTransfers.values()]
+      .filter((transfer) => !options.status || transfer.status === options.status)
+      .filter((transfer) => !options.packageId || transfer.packageId === options.packageId)
+      .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
+    return paginate(records, options);
+  }
+
+  inspectOwnershipTransfer(transferId, options = {}) {
+    const transfer = this.ownershipTransfers.get(transferId);
+    if (!transfer) throw httpError(404, "Ownership transfer not found");
+    this.requireTransferReadPermission(options.authActor ?? defaultActor(), transfer, "ownership.transfer.inspect");
+    return { transfer, packageOwnerHandle: this.packageOwnerHandle(transfer.packageId) };
   }
 
   reviewInspection(moderationReview) {
@@ -857,6 +972,50 @@ export class CoreHubLocalStorageAdapter {
     );
   }
 
+  requireVerifiedPublisher(publisherHandle, action) {
+    const publisher = this.publisherAccounts.get(publisherHandle);
+    if (!publisher || publisher.status !== "verified") {
+      throw httpError(403, `Publisher ${publisherHandle} is not verified for ${action}`);
+    }
+    return publisher;
+  }
+
+  requireTransferReadPermission(actor, transfer, action) {
+    if (this.hasAdminPermission(actor)) return;
+    if (this.hasPublisherMembership(actor, transfer.fromPublisherHandle) || this.hasPublisherMembership(actor, transfer.toPublisherHandle)) {
+      return;
+    }
+    throw httpError(403, `Actor ${actor.id} cannot ${action}`);
+  }
+
+  requireTransferDecisionPermission(actor, transfer, action) {
+    if (this.hasAdminPermission(actor)) return;
+    if (this.hasPublisherMembership(actor, transfer.toPublisherHandle)) return;
+    throw httpError(403, `Actor ${actor.id} cannot ${action}`);
+  }
+
+  hasPublisherMembership(actor, publisherHandle) {
+    return this.publisherMembers.some(
+      (member) =>
+        member.userId === actor.id &&
+        member.publisherHandle === publisherHandle &&
+        member.status === "active" &&
+        publisherWriteRoles.has(member.role),
+    );
+  }
+
+  packageOwnerHandle(packageId) {
+    const completedTransfer = [...this.ownershipTransfers.values()]
+      .filter((transfer) => transfer.packageId === packageId && transfer.status === "completed")
+      .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+      .at(0);
+    if (completedTransfer) return completedTransfer.toPublisherHandle;
+    const versions = [...this.packageVersions.values()]
+      .filter((version) => version.packageId === packageId && version.status === "available")
+      .sort((left, right) => (right.publishedAt ?? right.createdAt).localeCompare(left.publishedAt ?? left.createdAt));
+    return versions.at(0)?.publisherHandle ?? null;
+  }
+
   recordAuditEvent({ actor, action, targetType, targetId, metadata = {}, createdAt }) {
     const checkpoint = this.latestAuditCheckpoint();
     const previousHash = this.auditEvents.at(-1)?.eventHash ?? checkpoint?.head ?? "0".repeat(64);
@@ -954,6 +1113,7 @@ export class CoreHubLocalStorageAdapter {
       submissions: [...this.submissions.values()],
       reviews: [...this.reviews.values()],
       packageVersions: [...this.packageVersions.values()],
+      ownershipTransfers: [...this.ownershipTransfers.values()],
       auditEvents: this.auditEvents,
       auditCheckpoints: this.auditCheckpoints,
     };
@@ -974,6 +1134,7 @@ export class CoreHubLocalStorageAdapter {
     this.submissions = new Map((state.submissions ?? []).map((record) => [record.submission.id, record]));
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
+    this.ownershipTransfers = new Map((state.ownershipTransfers ?? []).map((transfer) => [transfer.id, transfer]));
     this.auditEvents = state.auditEvents ?? [];
     this.auditCheckpoints = state.auditCheckpoints ?? [];
   }
@@ -1137,6 +1298,59 @@ export function createCoreHubApiHandler({
           action: "review.inspect",
           targetType: "review",
           targetId: reviewId,
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "transfers" && segments.length === 1) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request);
+        const result = await storage.requestOwnershipTransfer(body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "transfers" && segments.length === 1) {
+        const options = readListOptions(url);
+        options.packageId = url.searchParams.get("package") ?? undefined;
+        const actor = actorFromRequest(request);
+        options.authActor = actor;
+        const result = storage.listOwnershipTransfers(options);
+        await storage.auditRead({
+          actor,
+          action: "ownership.transfer.list",
+          targetType: "ownershipTransfer",
+          targetId: options.packageId ?? options.status ?? "all",
+          metadata: options,
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
+      }
+
+      if (request.method === "GET" && segments[0] === "transfers" && segments.length === 2) {
+        const transferId = decodeURIComponent(segments[1]);
+        const actor = actorFromRequest(request);
+        const result = storage.inspectOwnershipTransfer(transferId, { authActor: actor });
+        await storage.auditRead({
+          actor,
+          action: "ownership.transfer.inspect",
+          targetType: "ownershipTransfer",
+          targetId: transferId,
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "transfers" &&
+        ["accept", "reject", "cancel"].includes(segments[2]) &&
+        segments.length === 3
+      ) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request);
+        const result = await storage.decideOwnershipTransfer(decodeURIComponent(segments[1]), segments[2], body, {
+          actor,
           now: now(),
         });
         return json(response, 200, { apiVersion: "v2", data: result });
@@ -1468,6 +1682,17 @@ function normalizeSubmissionRequest(input) {
     source,
     changelog,
   };
+}
+
+function normalizeOwnershipTransferRequest(input) {
+  const packageId = normalizeRequiredString(input?.packageId, "packageId");
+  const fromPublisherHandle = normalizeRequiredString(input?.fromPublisherHandle, "fromPublisherHandle");
+  const toPublisherHandle = normalizeRequiredString(input?.toPublisherHandle, "toPublisherHandle");
+  if (fromPublisherHandle === toPublisherHandle) {
+    throw httpError(400, "Ownership transfer requires different source and target publishers");
+  }
+  const reason = typeof input?.reason === "string" && input.reason.trim().length > 0 ? input.reason.trim() : undefined;
+  return { packageId, fromPublisherHandle, toPublisherHandle, reason };
 }
 
 function normalizeRequiredString(value, name) {

@@ -149,6 +149,59 @@ try {
   assert.equal(approvedReview.packageVersion.status, "available");
   logStep(`review status after approval: ${approvedReview.status}`);
 
+  app.storage.publisherAccounts.set("example-org", {
+    id: "publisher-example-org",
+    handle: "example-org",
+    displayName: "Example Org",
+    kind: "organization",
+    status: "verified",
+    source: "https://github.com/example-org",
+    contact: "https://github.com/example-org",
+    createdAt: "2026-05-21T00:00:00Z",
+    verifiedAt: "2026-05-21T00:00:00Z",
+  });
+  app.storage.publisherMembers.push({
+    id: "member-example-org-owner",
+    publisherHandle: "example-org",
+    userId: "github:example-owner",
+    role: "owner",
+    status: "active",
+    createdAt: "2026-05-21T00:00:00Z",
+  });
+  const transferRequest = JSON.parse(
+    await runCoreHub([
+      "transfers",
+      "request",
+      "plugin-lab",
+      "--to",
+      "example-org",
+      "--registry",
+      registry,
+      "--reason",
+      "Local publish smoke ownership transfer.",
+    ]),
+  );
+  assert.equal(transferRequest.status, "requested");
+  logStep(`ownership transfer requested: ${transferRequest.transfer.id}`);
+
+  await runCoreHub(["login", "--token", "local-dev-token", "--user", "github:example-owner", "--publisher", "example-org"]);
+  const transferAccept = JSON.parse(
+    await runCoreHub([
+      "transfers",
+      "accept",
+      transferRequest.transfer.id,
+      "--registry",
+      registry,
+      "--notes",
+      "Local publish smoke accepted.",
+    ]),
+  );
+  assert.equal(transferAccept.status, "completed");
+  assert.equal(transferAccept.packageOwnerHandle, "example-org");
+  logStep(`ownership transfer completed: ${transferAccept.transfer.id}`);
+
+  await runCoreHub(["login", "--token", "local-dev-token", "--user", "github:coreblow-admin", "--publisher", "coreblow"]);
+
   const remainingOpenReviews = JSON.parse(
     await runCoreHub(["reviews", "list", "--status", "open", "--registry", registry]),
   );

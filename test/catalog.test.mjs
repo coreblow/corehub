@@ -1226,6 +1226,207 @@ try {
     assert.equal(approvedSubmissionsListPayload.count, 1);
     assert.equal(approvedSubmissionsListPayload.submissions[0].submission.status, "approved");
 
+    apiStorage.publisherAccounts.set("example-org", {
+      id: "publisher-example-org",
+      handle: "example-org",
+      displayName: "Example Org",
+      kind: "organization",
+      status: "verified",
+      source: "https://github.com/example-org",
+      contact: "https://github.com/example-org",
+      createdAt: "2026-05-21T00:00:00Z",
+      verifiedAt: "2026-05-21T00:00:00Z",
+    });
+    apiStorage.publisherMembers.push({
+      id: "member-example-org-owner",
+      publisherHandle: "example-org",
+      userId: "github:example-owner",
+      role: "owner",
+      status: "active",
+      createdAt: "2026-05-21T00:00:00Z",
+    });
+
+    const transferRequest = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "transfers",
+        "request",
+        "plugin-lab",
+        "--to",
+        "example-org",
+        "--registry",
+        apiRegistryUrl,
+        "--reason",
+        "Move plugin-lab to Example Org.",
+      ],
+      { env: apiAuthEnv },
+    );
+    const transferRequestPayload = JSON.parse(transferRequest.stdout);
+    assert.equal(transferRequestPayload.status, "requested");
+    assert.equal(transferRequestPayload.transfer.fromPublisherHandle, "coreblow");
+    assert.equal(transferRequestPayload.transfer.toPublisherHandle, "example-org");
+
+    const requestedTransfers = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "transfers",
+        "list",
+        "--status",
+        "requested",
+        "--package",
+        "plugin-lab",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    assert.equal(JSON.parse(requestedTransfers.stdout).transfers[0].id, transferRequestPayload.transfer.id);
+
+    await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "login",
+        "--token",
+        "local-dev-token",
+        "--user",
+        "github:example-owner",
+        "--publisher",
+        "example-org",
+      ],
+      { env: apiAuthEnv },
+    );
+    const transferAccept = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "transfers",
+        "accept",
+        transferRequestPayload.transfer.id,
+        "--registry",
+        apiRegistryUrl,
+        "--notes",
+        "Accepted by target publisher.",
+      ],
+      { env: apiAuthEnv },
+    );
+    const transferAcceptPayload = JSON.parse(transferAccept.stdout);
+    assert.equal(transferAcceptPayload.status, "completed");
+    assert.equal(transferAcceptPayload.packageOwnerHandle, "example-org");
+
+    const transferBackRequest = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "transfers",
+        "request",
+        "plugin-lab",
+        "--from",
+        "example-org",
+        "--to",
+        "coreblow",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const transferBackPayload = JSON.parse(transferBackRequest.stdout);
+    await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "login",
+        "--token",
+        "local-dev-token",
+        "--user",
+        "github:coreblow-admin",
+        "--publisher",
+        "coreblow",
+      ],
+      { env: apiAuthEnv },
+    );
+    const transferReject = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "transfers",
+        "reject",
+        transferBackPayload.transfer.id,
+        "--registry",
+        apiRegistryUrl,
+        "--notes",
+        "CoreBlow keeps the package with Example Org.",
+      ],
+      { env: apiAuthEnv },
+    );
+    assert.equal(JSON.parse(transferReject.stdout).status, "rejected");
+
+    await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "login",
+        "--token",
+        "local-dev-token",
+        "--user",
+        "github:example-owner",
+        "--publisher",
+        "example-org",
+      ],
+      { env: apiAuthEnv },
+    );
+    const transferCancelRequest = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "transfers",
+        "request",
+        "plugin-lab",
+        "--from",
+        "example-org",
+        "--to",
+        "coreblow",
+        "--registry",
+        apiRegistryUrl,
+        "--reason",
+        "Cancelled transfer fixture.",
+      ],
+      { env: apiAuthEnv },
+    );
+    const transferCancelPayload = JSON.parse(transferCancelRequest.stdout);
+    const transferCancel = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "transfers",
+        "cancel",
+        transferCancelPayload.transfer.id,
+        "--registry",
+        apiRegistryUrl,
+        "--notes",
+        "Cancelled by source publisher.",
+      ],
+      { env: apiAuthEnv },
+    );
+    assert.equal(JSON.parse(transferCancel.stdout).status, "cancelled");
+
+    await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "login",
+        "--token",
+        "local-dev-token",
+        "--user",
+        "github:coreblow-admin",
+        "--publisher",
+        "coreblow",
+      ],
+      { env: apiAuthEnv },
+    );
+
     const remainingOpenReviewsList = await execFileAsync(
       process.execPath,
       [

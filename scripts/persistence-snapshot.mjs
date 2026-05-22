@@ -178,7 +178,15 @@ export function validateSnapshot(snapshot) {
     if (snapshot.schemaVersion !== supportedSchemaVersion) {
       errors.push(`schemaVersion must be ${supportedSchemaVersion}`);
     }
-    for (const key of ["slots", "submissions", "reviews", "packageVersions", "auditEvents", "auditCheckpoints"]) {
+    for (const key of [
+      "slots",
+      "submissions",
+      "reviews",
+      "packageVersions",
+      "ownershipTransfers",
+      "auditEvents",
+      "auditCheckpoints",
+    ]) {
       if (!Array.isArray(snapshot[key])) errors.push(`${key} must be an array`);
     }
     const auditErrors = validateAuditChainShape(snapshot.auditEvents ?? [], snapshot.auditCheckpoints ?? []);
@@ -218,6 +226,7 @@ function snapshotCounts(snapshot) {
     submissions: snapshot.submissions?.length ?? 0,
     reviews: snapshot.reviews?.length ?? 0,
     packageVersions: snapshot.packageVersions?.length ?? 0,
+    ownershipTransfers: snapshot.ownershipTransfers?.length ?? 0,
     auditEvents: snapshot.auditEvents?.length ?? 0,
     auditCheckpoints: snapshot.auditCheckpoints?.length ?? 0,
   };
