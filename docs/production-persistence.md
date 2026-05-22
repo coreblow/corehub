@@ -196,6 +196,21 @@ COREHUB_TOKEN=<operator-token> COREHUB_USER=github:coreblow-admin npm run smoke:
 
 The support bundle includes state store, object store, queue counts, transfer counts, install analytics totals, audit integrity, readiness, and recent queue/audit samples. It does not include signing secrets, raw client identifiers, raw IP addresses, or raw user agents.
 
+## CoreHub Admin Web Foundation
+
+CoreHub serves a read-only admin web surface at `/corehub/admin`.
+
+The current foundation intentionally stays narrow:
+
+- Browser session gate with an operator actor id and token stored in session storage.
+- Admin status and health summary from `GET /corehub/api/v2/admin/status`.
+- Redacted support bundle summary from `GET /corehub/api/v2/admin/support-bundle`.
+- Queue counters for submissions, reviews, ownership transfers, install analytics, audit events, and readiness checks.
+- Pending submissions table from `GET /corehub/api/v2/submissions?status=pending_review`.
+- Open reviews table from `GET /corehub/api/v2/reviews?status=open`.
+
+Approve, block, assignment, and evidence actions remain API/CLI driven until browser auth is hardened. The page sends `x-corehub-user`, `x-corehub-token`, and `Authorization: Bearer <token>` so the API can keep using the same actor boundary as the CLI and post-deploy smoke.
+
 ## Operator Smoke Workflow
 
 CoreHub also has a scheduled/manual operator smoke workflow at `.github/workflows/operator-smoke.yml`.

@@ -598,6 +598,14 @@ try {
   const registryInfo = await fetch(`${bootstrapInfo.url}/api/v1`);
   assert.equal(registryInfo.status, 200);
   assert.equal((await registryInfo.json()).data.name, "CoreHub Registry API");
+  const adminPage = await fetch(`${bootstrapInfo.url}/admin`);
+  assert.equal(adminPage.status, 200);
+  assert.match(adminPage.headers.get("content-type"), /text\/html/);
+  const adminPageHtml = await adminPage.text();
+  assert.match(adminPageHtml, /CoreHub Admin/);
+  assert.match(adminPageHtml, /corehub\.admin\.session\.v1/);
+  assert.match(adminPageHtml, /api\("\/admin\/status"\)/);
+  assert.match(adminPageHtml, /api\("\/reviews\?status=open&limit=25"\)/);
   assert.equal(bootstrapServer.stateStoreKind, "local-json");
   assert.match(bootstrapServer.statePath, /write-side-state\.json$/);
 } finally {
@@ -709,6 +717,13 @@ const workerRegistryInfo = await handleCoreHubWorkerRequest(
 );
 assert.equal(workerRegistryInfo.status, 200);
 assert.equal((await workerRegistryInfo.json()).data.name, "CoreHub Registry API");
+const workerAdminPage = await handleCoreHubWorkerRequest(
+  new Request("https://coreblow.com/corehub/admin"),
+  workerEnv,
+);
+assert.equal(workerAdminPage.status, 200);
+assert.match(workerAdminPage.headers.get("content-type"), /text\/html/);
+assert.match(await workerAdminPage.text(), /CoreHub Admin/);
 const workerMissingD1 = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/healthz"),
   { COREHUB_STATE_STORE: "d1", COREHUB_R2: createMockR2Bucket(new Map()) },

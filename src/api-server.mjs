@@ -1455,6 +1455,14 @@ export function createCoreHubApiHandler({
   return async function coreHubApiHandler(request, response) {
     try {
       const url = new URL(request.url, "http://127.0.0.1");
+      if (request.method === "GET" && ["/corehub/admin", "/corehub/admin/"].includes(url.pathname)) {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "text/html;charset=UTF-8");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(renderCoreHubAdminHtml());
+        return;
+      }
+
       const v1Segments = trimBasePath(url.pathname, "/corehub/api/v1");
       if (v1Segments) {
         const result = await handleProjectedRegistryV1(storage, request, url, v1Segments, {
@@ -2401,6 +2409,392 @@ function json(response, statusCode, payload) {
   response.statusCode = statusCode;
   response.setHeader("Content-Type", "application/json;charset=UTF-8");
   response.end(JSON.stringify(payload));
+}
+
+function renderCoreHubAdminHtml() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CoreHub Admin</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #172026;
+      --muted: #66727f;
+      --line: #dce1e7;
+      --accent: #0f766e;
+      --accent-ink: #ffffff;
+      --warn: #9a3412;
+      --bad: #b91c1c;
+      --good: #15803d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 64px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 18px; font-weight: 700; }
+    h2 { font-size: 15px; font-weight: 700; }
+    h3 { font-size: 13px; font-weight: 700; color: var(--muted); }
+    main {
+      width: min(1280px, 100%);
+      margin: 0 auto;
+      padding: 20px 24px 40px;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .wide-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+    section, .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    section { padding: 16px; margin-bottom: 14px; }
+    .metric { padding: 14px; min-height: 92px; }
+    .metric strong { display: block; font-size: 28px; line-height: 1.1; margin-top: 8px; }
+    .muted { color: var(--muted); }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 12px;
+      background: #f9fafb;
+      white-space: nowrap;
+    }
+    .status.good { color: var(--good); border-color: #bbf7d0; background: #f0fdf4; }
+    .status.warn { color: var(--warn); border-color: #fed7aa; background: #fff7ed; }
+    .status.bad { color: var(--bad); border-color: #fecaca; background: #fef2f2; }
+    button, input, select {
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 0 10px;
+      font: inherit;
+    }
+    button {
+      background: var(--accent);
+      color: var(--accent-ink);
+      border-color: var(--accent);
+      cursor: pointer;
+      font-weight: 650;
+    }
+    button.secondary {
+      background: #fff;
+      color: var(--ink);
+      border-color: var(--line);
+    }
+    form {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    label input { width: 100%; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin-top: 12px;
+    }
+    th, td {
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      overflow-wrap: anywhere;
+    }
+    th {
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .hidden { display: none !important; }
+    .error {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      color: var(--bad);
+      background: #fef2f2;
+    }
+    .checks {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .check-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    @media (max-width: 860px) {
+      header, main { padding-left: 14px; padding-right: 14px; }
+      .grid, .wide-grid, form { grid-template-columns: 1fr; }
+      .toolbar { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>CoreHub Admin</h1>
+      <p class="muted" id="sessionLabel">Not connected</p>
+    </div>
+    <div class="toolbar">
+      <span class="status" id="readinessPill">signed out</span>
+      <button class="secondary" id="refreshButton" type="button">Refresh</button>
+      <button class="secondary" id="signOutButton" type="button">Sign out</button>
+    </div>
+  </header>
+  <main>
+    <section id="loginPanel">
+      <h2>Admin Session</h2>
+      <p class="muted">Use an operator token and actor id allowed by CoreHub admin policy.</p>
+      <form id="sessionForm">
+        <label>Actor
+          <input id="actorInput" autocomplete="username" placeholder="github:coreblow-admin" value="github:coreblow-admin">
+        </label>
+        <label>Token
+          <input id="tokenInput" autocomplete="current-password" placeholder="operator token" type="password">
+        </label>
+        <button type="submit">Connect</button>
+      </form>
+      <div class="error hidden" id="loginError"></div>
+    </section>
+
+    <div id="dashboard" class="hidden">
+      <div class="grid">
+        <div class="metric"><h3>Readiness</h3><strong id="metricReadiness">-</strong><p class="muted" id="metricStatus">-</p></div>
+        <div class="metric"><h3>Submissions</h3><strong id="metricSubmissions">0</strong><p class="muted">write queue</p></div>
+        <div class="metric"><h3>Reviews</h3><strong id="metricReviews">0</strong><p class="muted">moderation queue</p></div>
+        <div class="metric"><h3>Audit</h3><strong id="metricAudit">-</strong><p class="muted" id="metricAuditCount">0 events</p></div>
+      </div>
+
+      <div class="wide-grid">
+        <section>
+          <h2>Deploy Readiness</h2>
+          <div class="checks" id="readinessChecks"></div>
+        </section>
+        <section>
+          <h2>Support Bundle Summary</h2>
+          <div class="checks" id="supportSummary"></div>
+        </section>
+      </div>
+
+      <section>
+        <div class="toolbar">
+          <h2>Pending Submissions</h2>
+          <span class="status" id="submissionCount">0</span>
+        </div>
+        <table>
+          <thead><tr><th>Submission</th><th>Package</th><th>Publisher</th><th>Status</th><th>Submitted</th></tr></thead>
+          <tbody id="submissionsTable"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <div class="toolbar">
+          <h2>Open Reviews</h2>
+          <span class="status" id="reviewCount">0</span>
+        </div>
+        <table>
+          <thead><tr><th>Review</th><th>Target</th><th>Status</th><th>Assignee</th><th>Updated</th></tr></thead>
+          <tbody id="reviewsTable"></tbody>
+        </table>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const sessionKey = "corehub.admin.session.v1";
+    const state = { session: readSession() };
+    const nodes = Object.fromEntries([...document.querySelectorAll("[id]")].map((node) => [node.id, node]));
+
+    nodes.sessionForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const actor = nodes.actorInput.value.trim();
+      const token = nodes.tokenInput.value.trim();
+      if (!actor || !token) return showLoginError("Actor and token are required.");
+      state.session = { actor, token };
+      sessionStorage.setItem(sessionKey, JSON.stringify(state.session));
+      await loadDashboard();
+    });
+    nodes.refreshButton.addEventListener("click", () => loadDashboard());
+    nodes.signOutButton.addEventListener("click", () => {
+      sessionStorage.removeItem(sessionKey);
+      state.session = null;
+      renderSignedOut();
+    });
+
+    if (state.session) {
+      nodes.actorInput.value = state.session.actor;
+      loadDashboard();
+    } else {
+      renderSignedOut();
+    }
+
+    function readSession() {
+      try {
+        const parsed = JSON.parse(sessionStorage.getItem(sessionKey) || "null");
+        return parsed?.actor && parsed?.token ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+
+    async function loadDashboard() {
+      if (!state.session) return renderSignedOut();
+      nodes.loginError.classList.add("hidden");
+      try {
+        const [status, bundle, submissions, reviews] = await Promise.all([
+          api("/admin/status"),
+          api("/admin/support-bundle?limit=5"),
+          api("/submissions?status=pending_review&limit=25"),
+          api("/reviews?status=open&limit=25"),
+        ]);
+        renderDashboard(status.data, bundle.data, submissions, reviews);
+      } catch (error) {
+        showLoginError(error.message || "Unable to load CoreHub admin status.");
+        renderSignedOut(false);
+      }
+    }
+
+    async function api(path) {
+      const response = await fetch("/corehub/api/v2" + path, {
+        headers: {
+          "accept": "application/json",
+          "authorization": "Bearer " + state.session.token,
+          "x-corehub-user": state.session.actor,
+          "x-corehub-token": state.session.token,
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || "CoreHub API request failed.");
+      return payload;
+    }
+
+    function renderSignedOut(clearError = true) {
+      nodes.dashboard.classList.add("hidden");
+      nodes.loginPanel.classList.remove("hidden");
+      nodes.readinessPill.textContent = "signed out";
+      nodes.readinessPill.className = "status";
+      nodes.sessionLabel.textContent = "Not connected";
+      if (clearError) nodes.loginError.classList.add("hidden");
+    }
+
+    function renderDashboard(status, bundle, submissions, reviews) {
+      nodes.loginPanel.classList.add("hidden");
+      nodes.dashboard.classList.remove("hidden");
+      nodes.sessionLabel.textContent = state.session.actor;
+      const readinessClass = status.readiness.status === "ready" ? "good" : status.status === "degraded" ? "warn" : "bad";
+      nodes.readinessPill.textContent = status.readiness.status;
+      nodes.readinessPill.className = "status " + readinessClass;
+      nodes.metricReadiness.textContent = status.readiness.status;
+      nodes.metricStatus.textContent = status.status;
+      nodes.metricSubmissions.textContent = String(status.counts.submissions || 0);
+      nodes.metricReviews.textContent = String(status.counts.reviews || 0);
+      nodes.metricAudit.textContent = status.audit.valid ? "valid" : "invalid";
+      nodes.metricAuditCount.textContent = String(status.audit.count || 0) + " events";
+      nodes.readinessChecks.innerHTML = status.readiness.checks.map((check) => row(check.id, check.status, check.detail)).join("");
+      nodes.supportSummary.innerHTML = [
+        row("state store", status.runtime.stateStore.kind, status.runtime.stateStore.table || status.runtime.stateStore.path || "memory"),
+        row("object store", status.runtime.objectStore.kind, status.runtime.objectStore.bucket || status.runtime.objectStore.root || "unknown"),
+        row("support bundle", bundle.bundle.kind, bundle.bundle.redaction.secretsIncluded ? "contains secrets" : "redacted"),
+        row("analytics", String(status.analytics.total || 0), "events"),
+        row("retention", status.audit.retention.status, String(status.audit.retention.pruneableCount || 0) + " pruneable"),
+      ].join("");
+      renderTable(nodes.submissionsTable, submissions.data, (item) => [
+        item.submission?.id,
+        [item.submission?.packageId, item.submission?.version].filter(Boolean).join("@"),
+        item.submission?.publisherHandle,
+        item.submission?.status,
+        item.submission?.submittedAt,
+      ]);
+      renderTable(nodes.reviewsTable, reviews.data, (item) => {
+        const review = item.moderationReview || item;
+        return [
+          review.id,
+          [review.targetType, review.targetId].filter(Boolean).join(":"),
+          review.status,
+          review.assignee?.id || "unassigned",
+          review.updatedAt || review.createdAt,
+        ];
+      });
+      nodes.submissionCount.textContent = String(submissions.meta?.total ?? submissions.data.length);
+      nodes.reviewCount.textContent = String(reviews.meta?.total ?? reviews.data.length);
+    }
+
+    function renderTable(target, items, cellsFor) {
+      target.innerHTML = (items || []).map((item) => "<tr>" + cellsFor(item).map((cell) => "<td>" + escapeHtml(cell || "-") + "</td>").join("") + "</tr>").join("") || "<tr><td colspan=\\"5\\" class=\\"muted\\">No records</td></tr>";
+    }
+
+    function row(label, status, detail) {
+      return "<div class=\\"check-row\\"><span>" + escapeHtml(label) + "</span><span><span class=\\"status " + statusClass(status) + "\\">" + escapeHtml(status) + "</span> <span class=\\"muted\\">" + escapeHtml(detail ?? "") + "</span></span></div>";
+    }
+
+    function statusClass(value) {
+      if (["ready", "ok", "valid", "redacted"].includes(String(value))) return "good";
+      if (["missing", "degraded", "attention_required", "held"].includes(String(value))) return "warn";
+      if (["fail_closed", "invalid", "blocked", "rejected"].includes(String(value))) return "bad";
+      return "";
+    }
+
+    function showLoginError(message) {
+      nodes.loginError.textContent = message;
+      nodes.loginError.classList.remove("hidden");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    }
+  </script>
+</body>
+</html>`;
 }
 
 function httpError(statusCode, message) {
