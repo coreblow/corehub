@@ -183,6 +183,8 @@ corehub package uninstall plugin-lab
 
 Pinned packages are never overwritten by `update` or `sync`; unpin first to allow CoreHub to refresh local state. Set `COREHUB_DISABLE_TELEMETRY=1` to skip CLI analytics record writes.
 
+Private channel packages are excluded from anonymous Registry API v1 catalog, list, search, detail, and download metadata responses. Admin actors and active members of the package publisher can read private package metadata through the same routes.
+
 The OpenClaw-style user command is `corehub install <id>`. It is the intended install entrypoint, while `corehub package install <id> --dry-run` remains the technical planner. CoreHub now publishes the `plugin-lab` version as an installable CoreBlow plugin archive; install apply fetches and verifies the archive, then reports the CoreBlow installer handoff as blocked until the installer boundary is wired.
 
 ## Search

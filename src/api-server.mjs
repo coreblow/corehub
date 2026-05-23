@@ -16,6 +16,7 @@ const defaultAnalyticsSalt = "corehub-local-analytics-salt";
 const publisherWriteRoles = new Set(["owner", "admin", "maintainer"]);
 const adminRoles = new Set(["admin", "moderator"]);
 const PUBLISHER_HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+const rateLimitBucketStores = new Map();
 
 export class CoreHubLocalJsonStateStore {
   constructor({ statePath } = {}) {
@@ -2110,11 +2111,21 @@ export function createCoreHubApiHandler({
   storage,
   basePath = defaultApiBasePath,
   now = () => new Date(),
+  rateLimit,
 } = {}) {
   if (!storage) throw new Error("createCoreHubApiHandler requires storage");
+  const limiter = createRateLimiter(rateLimit);
   return async function coreHubApiHandler(request, response) {
     try {
       const url = new URL(request.url, "http://127.0.0.1");
+      const rateLimitResult = limiter?.check(request, now());
+      if (rateLimitResult?.limited) {
+        response.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
+        return json(response, 429, {
+          error: "Rate limit exceeded",
+          retryAfterSeconds: rateLimitResult.retryAfterSeconds,
+        });
+      }
       if (request.method === "GET" && ["/corehub/admin", "/corehub/admin/"].includes(url.pathname)) {
         response.statusCode = 200;
         response.setHeader("Content-Type", "text/html;charset=UTF-8");
@@ -2668,6 +2679,7 @@ export function createCoreHubApiHandler({
 async function handleProjectedRegistryV1(storage, request, url, segments, { actor = defaultActor(), now = new Date() } = {}) {
   if (request.method !== "GET") return null;
   const entries = storage.projectCatalogEntries();
+  const visibleEntries = entries.filter((entry) => canViewProjectedEntry(storage, actor, entry));
   const baseUrl = requestBaseUrl(request, url);
 
   if (segments.length === 0) {
@@ -2678,22 +2690,22 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
     });
   }
 
-  if (segments[0] === "catalog" && segments.length === 1) return dataResponse(entries, entries.length);
+  if (segments[0] === "catalog" && segments.length === 1) return dataResponse(visibleEntries, visibleEntries.length);
   if (segments[0] === "entries" && segments.length === 1) {
-    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url));
+    const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url));
     return dataResponse(filtered, filtered.length);
   }
   if (segments[0] === "entries" && segments.length === 2) {
-    const entry = findProjectedEntry(entries, segments[1]);
+    const entry = findProjectedEntry(visibleEntries, segments[1]);
     return entry ? dataResponse(entry) : dataResponse(null, 0, 404);
   }
   if (segments[0] === "search" && segments.length === 1) {
     const query = url.searchParams.get("q") ?? "";
-    const results = searchCatalogRecords(entries, query, parseMarketplaceFiltersFromUrl(url));
+    const results = searchCatalogRecords(visibleEntries, query, parseMarketplaceFiltersFromUrl(url));
     return dataResponse(results, results.length, results.length > 0 || query.trim().length > 0 ? 200 : 400);
   }
   if (segments[0] === "download" && segments.length === 1) {
-    const entry = findProjectedEntry(entries, url.searchParams.get("id"));
+    const entry = findProjectedEntry(visibleEntries, url.searchParams.get("id"));
     return entry ? projectedDownloadResponse(storage, request, url, entry, { actor, baseUrl, now }) : dataResponse(null, 0, 404);
   }
   if (segments[0] === "artifacts" && segments[1] === "read" && segments.length === 2) {
@@ -2705,33 +2717,33 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
     });
   }
   if (segments[0] === "packages" && segments.length === 1) {
-    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url));
+    const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url));
     return dataResponse(filtered, filtered.length);
   }
   if (segments[0] === "packages" && segments[1] === "search" && segments.length === 2) {
     const query = url.searchParams.get("q") ?? "";
-    const results = searchCatalogRecords(entries, query, parseMarketplaceFiltersFromUrl(url));
+    const results = searchCatalogRecords(visibleEntries, query, parseMarketplaceFiltersFromUrl(url));
     return dataResponse(results, results.length);
   }
   if (segments[0] === "plugins" && segments.length === 1) {
-    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }));
+    const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }));
     return dataResponse(filtered, filtered.length);
   }
   if (segments[0] === "plugins" && segments[1] === "search" && segments.length === 2) {
     const query = url.searchParams.get("q") ?? "";
-    const results = searchCatalogRecords(entries, query, parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }));
+    const results = searchCatalogRecords(visibleEntries, query, parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }));
     return dataResponse(results, results.length);
   }
   if (segments[0] === "code-plugins" && segments.length === 1) {
-    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url, { family: "code-plugin" }));
+    const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url, { family: "code-plugin" }));
     return dataResponse(filtered, filtered.length);
   }
   if (segments[0] === "bundle-plugins" && segments.length === 1) {
-    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url, { family: "bundle-plugin" }));
+    const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url, { family: "bundle-plugin" }));
     return dataResponse(filtered, filtered.length);
   }
   if (segments[0] === "packages" && segments.length >= 2) {
-    const entry = findProjectedEntry(entries, segments[1]);
+    const entry = findProjectedEntry(visibleEntries, segments[1]);
     if (!entry) return dataResponse(null, 0, 404);
     if (segments.length === 2) return dataResponse(entry);
     if (segments[2] === "versions" && segments.length === 3) return dataResponse(entry.versions, entry.versions.length);
@@ -2792,6 +2804,17 @@ async function projectedDownloadResponse(storage, request, url, entry, { actor, 
 function findProjectedEntry(entries, id) {
   const decoded = decodeURIComponent(id);
   return entries.find((entry) => entry.id === decoded) ?? null;
+}
+
+function canViewProjectedEntry(storage, actor, entry) {
+  if (entry.marketplace?.channel !== "private") return true;
+  if (storage.hasAdminPermission(actor)) return true;
+  return storage.publisherMembers.some(
+    (member) =>
+      member.userId === actor.id &&
+      member.publisherHandle === entry.publisher?.handle &&
+      member.status === "active",
+  );
 }
 
 function packageReleaseTrust(version) {
@@ -3042,7 +3065,9 @@ function normalizeSubmissionRequest(input) {
   const changelog = normalizeRequiredString(input?.changelog ?? "CoreHub package submission.", "changelog");
   const source = typeof input?.source === "string" && input.source.trim().length > 0 ? input.source.trim() : undefined;
   const channel = typeof input?.channel === "string" && input.channel.trim().length > 0 ? input.channel.trim() : "stable";
-  if (!["stable", "beta", "official"].includes(channel)) throw httpError(400, "channel must be stable, beta, or official");
+  if (!["stable", "beta", "official", "private"].includes(channel)) {
+    throw httpError(400, "channel must be stable, beta, official, or private");
+  }
   const publishTokenId =
     typeof input?.publishTokenId === "string" && input.publishTokenId.trim().length > 0 ? input.publishTokenId.trim() : undefined;
   const manualOverrideReason =
@@ -3481,6 +3506,45 @@ function normalizeActorIdList(value, label) {
 function getHeader(headers, name) {
   const value = headers[name] ?? headers[name.toLowerCase()];
   return Array.isArray(value) ? value[0] : value;
+}
+
+function createRateLimiter(config) {
+  if (!config) return null;
+  const limit = Number(config.limit ?? 0);
+  const windowMs = Number(config.windowMs ?? 0);
+  if (!Number.isSafeInteger(limit) || limit <= 0 || !Number.isSafeInteger(windowMs) || windowMs <= 0) {
+    throw new Error("rateLimit requires positive integer limit and windowMs");
+  }
+  const bucketKey = config.bucketKey ?? `${limit}:${windowMs}`;
+  const buckets = rateLimitBucketStores.get(bucketKey) ?? new Map();
+  rateLimitBucketStores.set(bucketKey, buckets);
+  return {
+    check(request, now) {
+      const key = rateLimitKey(request);
+      const timestamp = now.getTime();
+      const current = buckets.get(key);
+      if (!current || timestamp >= current.resetAt) {
+        buckets.set(key, { count: 1, resetAt: timestamp + windowMs });
+        return { limited: false };
+      }
+      current.count += 1;
+      if (current.count <= limit) return { limited: false };
+      return {
+        limited: true,
+        retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - timestamp) / 1000)),
+      };
+    },
+  };
+}
+
+function rateLimitKey(request) {
+  return (
+    getHeader(request.headers, "x-corehub-client-id") ??
+    getHeader(request.headers, "cf-connecting-ip") ??
+    getHeader(request.headers, "x-forwarded-for")?.split(",")[0]?.trim() ??
+    request.socket?.remoteAddress ??
+    "unknown"
+  );
 }
 
 function createSignedUploadContract({ uploadSlotId, storage, mediaType, sha256, size, maxBytes, expiresAt, publicBaseUrl }) {

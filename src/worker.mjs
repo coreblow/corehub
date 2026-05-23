@@ -21,7 +21,10 @@ export async function handleCoreHubWorkerRequest(request, env = {}, context = un
       });
     }
     const app = await createCoreHubWorkerApp(env, options);
-    const handler = createCoreHubApiHandler({ storage: app.storage });
+    const handler = createCoreHubApiHandler({
+      storage: app.storage,
+      rateLimit: workerRateLimitConfig(env, options),
+    });
     const response = createFetchResponseRecorder();
     await handler(await toNodeLikeRequest(request), response);
     return response.toResponse();
@@ -31,6 +34,16 @@ export async function handleCoreHubWorkerRequest(request, env = {}, context = un
       { status: error?.statusCode ?? 500 },
     );
   }
+}
+
+function workerRateLimitConfig(env = {}, options = {}) {
+  if (options.rateLimit) return options.rateLimit;
+  if (!env.COREHUB_RATE_LIMIT_MAX || !env.COREHUB_RATE_LIMIT_WINDOW_MS) return undefined;
+  return {
+    limit: Number.parseInt(String(env.COREHUB_RATE_LIMIT_MAX), 10),
+    windowMs: Number.parseInt(String(env.COREHUB_RATE_LIMIT_WINDOW_MS), 10),
+    bucketKey: "worker",
+  };
 }
 
 export async function createCoreHubWorkerApp(env = {}, options = {}) {

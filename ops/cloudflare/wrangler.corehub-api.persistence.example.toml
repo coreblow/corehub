@@ -18,6 +18,8 @@ COREHUB_PUBLIC_BASE_URL = "https://coreblow.com/corehub"
 COREHUB_AUDIT_RETENTION_DAYS = "365"
 COREHUB_ADMIN_ACTORS = "github:coreblow-admin,moderator:corehub"
 COREHUB_ANALYTICS_SALT = "replace-with-operator-managed-analytics-salt"
+COREHUB_RATE_LIMIT_MAX = "120"
+COREHUB_RATE_LIMIT_WINDOW_MS = "60000"
 
 [[d1_databases]]
 binding = "COREHUB_D1"

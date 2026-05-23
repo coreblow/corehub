@@ -16,7 +16,7 @@ CoreHub uses ClawHub as the product and behavior specification, while keeping th
 
 Latest CoreHub split commit used for this plan:
 
-- `1e15e85 CoreHub: add publisher portal UI`
+- `d4805cf CoreHub: add install lifecycle state`
 
 Already implemented:
 
@@ -29,6 +29,7 @@ Already implemented:
 - Release moderation enforcement for report final actions `quarantine` and `revoke`.
 - Marketplace filters, deterministic ranking, and plugin-only v1 routes.
 - Publisher Portal self-service foundation.
+- Local install lifecycle state and telemetry opt-out.
 - Audit hash chain, retention, incident reporting, admin status, support bundle.
 - D1/R2 production persistence boundary and Worker deploy checks.
 
@@ -58,7 +59,7 @@ Already implemented:
 | Transfer UI | done | Publisher portal can request ownership transfers and list transfer statuses. |
 | Install pin/unpin/uninstall/list/update/sync | done | CLI stores CoreHub-local install state and skips pinned updates/syncs. |
 | Telemetry opt-out | done | `COREHUB_DISABLE_TELEMETRY=1` skips CLI analytics record writes. |
-| Production auth/rate limit/private visibility | partial | Harden browser OAuth, permissions, private package rules, and edge rate limits. |
+| Production auth/rate limit/private visibility | partial | Private v1 visibility and API rate-limit boundary are wired; real OAuth remains. |
 | Production deploy/rollback drill | partial | Persistence runbooks exist; final applied production drill remains. |
 
 ## Implementation Phases From Here
@@ -183,6 +184,8 @@ Implemented:
 
 ### Phase J: Production Finalization
 
+Status: in progress. Private package visibility and rate-limit boundary are implemented; real OAuth, production D1/R2/secrets application, and live rollback drills remain operator-applied.
+
 Goal: CoreHub v1 package marketplace can be called final for ClawHub-inspired parity.
 
 Tasks:
@@ -196,6 +199,12 @@ Tasks:
 - Post-deploy smoke against real deployment.
 - Final docs/runbooks.
 - Release readiness decision for CLI/npm only with explicit operator approval.
+
+Implemented in this phase:
+
+- Registry API v1 hides `private` channel packages from anonymous catalog/list/search/detail/download metadata.
+- Admin actors and active publisher members can read private package metadata.
+- API handler supports a fixed-window rate limit via `COREHUB_RATE_LIMIT_MAX` and `COREHUB_RATE_LIMIT_WINDOW_MS`.
 
 ## Done Criteria For Final
 

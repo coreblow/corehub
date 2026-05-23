@@ -304,6 +304,17 @@ Run `mode=check` before a real deploy. Run `mode=deploy` only after the check pa
 
 In `deploy` mode the workflow applies the idempotent D1 schema migration before deploying the Worker. Keep `mode=check` as the required preflight so the migration plan, Worker-local smoke, and Wrangler dry run are visible before production approval.
 
+## Production Access Policy
+
+CoreHub production uses the same actor boundary across CLI, admin UI, publisher portal, and Registry API:
+
+- Public Registry API v1 hides `private` channel packages from anonymous reads, lists, search, and download metadata.
+- Private package reads require an admin actor or an active member of the package publisher.
+- `COREHUB_RATE_LIMIT_MAX` and `COREHUB_RATE_LIMIT_WINDOW_MS` enable a fixed-window request limit at the Worker/API handler boundary.
+- The rate-limit key prefers `x-corehub-client-id`, then Cloudflare/forwarded IP headers, then the socket address.
+
+The example Worker config sets `COREHUB_RATE_LIMIT_MAX=120` and `COREHUB_RATE_LIMIT_WINDOW_MS=60000`. Tune these through the protected deploy workflow after observing production smoke and traffic shape.
+
 ## Production Rollback
 
 Rollback is documented in [Production Rollback](production-rollback.md).

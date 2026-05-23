@@ -2388,6 +2388,105 @@ try {
   await rm(apiStorageDir, { recursive: true, force: true });
 }
 
+const privateStorageDir = await mkdtemp(join(tmpdir(), "corehub-private-storage-"));
+const privateStorage = new CoreHubLocalStorageAdapter({ root: privateStorageDir });
+const privateServer = createServer(
+  createCoreHubApiHandler({
+    storage: privateStorage,
+    now: () => new Date("2026-05-21T01:30:00Z"),
+  }),
+);
+await new Promise((resolve) => privateServer.listen(0, "127.0.0.1", resolve));
+try {
+  const actor = { type: "user", id: "github:coreblow-admin" };
+  const privateRegistryUrl = `http://127.0.0.1:${privateServer.address().port}/corehub`;
+  const privateSlot = await privateStorage.requestUploadSlot(
+    {
+      packageId: "private-lab",
+      version: "0.1.0",
+      publisherHandle: "coreblow",
+      provider: "r2",
+      artifact: {
+        name: "private-lab-0.1.0.coreblow-plugin.tgz",
+        mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+        size: pluginLabArtifactBytes.byteLength,
+        sha256: entries[2].versions[0].artifact.sha256,
+      },
+    },
+    { actor },
+  );
+  await privateStorage.putObject(
+    privateSlot.id,
+    pluginLabArtifactBytes,
+    { "x-corehub-artifact-sha256": entries[2].versions[0].artifact.sha256 },
+    { actor },
+  );
+  const verifiedPrivateUpload = await privateStorage.verifyUpload(privateSlot.id, { actor });
+  const privateSubmission = await privateStorage.createSubmission(
+    {
+      packageId: "private-lab",
+      version: "0.1.0",
+      publisherHandle: "coreblow",
+      kind: "plugin",
+      channel: "private",
+      artifactUploadId: verifiedPrivateUpload.artifactUpload.id,
+      source: "https://github.com/coreblow/private-lab",
+      changelog: "Private visibility fixture.",
+    },
+    { actor },
+  );
+  await privateStorage.decideReview(
+    privateSubmission.moderationReview.id,
+    "approve",
+    { notes: "Approve private visibility fixture." },
+    { actor },
+  );
+
+  const publicPrivateList = await fetch(`${privateRegistryUrl}/api/v1/packages`);
+  assert.equal(publicPrivateList.status, 200);
+  assert.equal((await publicPrivateList.json()).data.some((entry) => entry.id === "private-lab"), false);
+
+  const publicPrivatePackage = await fetch(`${privateRegistryUrl}/api/v1/packages/private-lab`);
+  assert.equal(publicPrivatePackage.status, 404);
+
+  const authorizedPrivatePackage = await fetch(`${privateRegistryUrl}/api/v1/packages/private-lab`, {
+    headers: { "x-corehub-user": "github:coreblow-admin" },
+  });
+  assert.equal(authorizedPrivatePackage.status, 200);
+  const authorizedPrivatePackagePayload = await authorizedPrivatePackage.json();
+  assert.equal(authorizedPrivatePackagePayload.data.marketplace.channel, "private");
+
+  const authorizedPrivateList = await fetch(`${privateRegistryUrl}/api/v1/packages?channel=private`, {
+    headers: { "x-corehub-user": "github:coreblow-admin" },
+  });
+  assert.equal(authorizedPrivateList.status, 200);
+  assert.equal((await authorizedPrivateList.json()).data[0].id, "private-lab");
+} finally {
+  await new Promise((resolve) => privateServer.close(resolve));
+  await rm(privateStorageDir, { recursive: true, force: true });
+}
+
+const rateLimitStorageDir = await mkdtemp(join(tmpdir(), "corehub-rate-limit-storage-"));
+const rateLimitServer = createServer(
+  createCoreHubApiHandler({
+    storage: new CoreHubLocalStorageAdapter({ root: rateLimitStorageDir }),
+    rateLimit: { limit: 1, windowMs: 60_000 },
+  }),
+);
+await new Promise((resolve) => rateLimitServer.listen(0, "127.0.0.1", resolve));
+try {
+  const rateLimitUrl = `http://127.0.0.1:${rateLimitServer.address().port}/corehub/api/v1`;
+  const firstRateLimited = await fetch(rateLimitUrl, { headers: { "x-corehub-client-id": "rate-limit-test" } });
+  assert.equal(firstRateLimited.status, 200);
+  const secondRateLimited = await fetch(rateLimitUrl, { headers: { "x-corehub-client-id": "rate-limit-test" } });
+  assert.equal(secondRateLimited.status, 429);
+  assert.equal(secondRateLimited.headers.get("retry-after"), "60");
+  assert.equal((await secondRateLimited.json()).error, "Rate limit exceeded");
+} finally {
+  await new Promise((resolve) => rateLimitServer.close(resolve));
+  await rm(rateLimitStorageDir, { recursive: true, force: true });
+}
+
 const blockStorageDir = await mkdtemp(join(tmpdir(), "corehub-block-storage-"));
 const blockStorage = new CoreHubLocalStorageAdapter({ root: blockStorageDir });
 const blockServer = createServer(

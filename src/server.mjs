@@ -26,6 +26,14 @@ export async function createCoreHubServer(options = {}) {
   const configuredStatePath = resolve(options.statePath ?? env.COREHUB_STATE_PATH ?? join(dataRoot, "write-side-state.json"));
   const publicBaseUrl = options.publicBaseUrl ?? env.COREHUB_PUBLIC_BASE_URL ?? "https://coreblow.com/corehub";
   const auditRetentionDays = options.auditRetentionDays ?? env.COREHUB_AUDIT_RETENTION_DAYS ?? 365;
+  const rateLimit =
+    options.rateLimit ??
+    (env.COREHUB_RATE_LIMIT_MAX && env.COREHUB_RATE_LIMIT_WINDOW_MS
+      ? {
+          limit: Number.parseInt(String(env.COREHUB_RATE_LIMIT_MAX), 10),
+          windowMs: Number.parseInt(String(env.COREHUB_RATE_LIMIT_WINDOW_MS), 10),
+        }
+      : undefined);
   const signedReadSecret =
     options.signedReadSecret ?? env.COREHUB_SIGNING_SECRET ?? "corehub-local-development-signing-secret";
   const signedReadKeyId = options.signedReadKeyId ?? env.COREHUB_SIGNING_KEY_ID ?? "local-dev";
@@ -49,7 +57,7 @@ export async function createCoreHubServer(options = {}) {
     adminActorIds: env.COREHUB_ADMIN_ACTORS,
     analyticsSalt: env.COREHUB_ANALYTICS_SALT,
   });
-  const apiHandler = createCoreHubApiHandler({ storage });
+  const apiHandler = createCoreHubApiHandler({ storage, rateLimit });
   const server = createServer((request, response) => {
     if (request.url === "/healthz") {
       response.setHeader("Content-Type", "application/json;charset=UTF-8");
