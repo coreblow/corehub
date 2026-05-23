@@ -22,6 +22,7 @@ CoreHub should provide the same registry class of features as ClawHub:
 - Search via deterministic local search first, then hosted search when the backend is available.
 - Browse packages with family, trust, capability, review, and compatibility metadata.
 - Publish code-plugin and bundle-plugin packages through API and CLI flows.
+- Preview `package publish <source> --dry-run` as a single publisher-facing preflight before upload, verification, and submission.
 - Inspect entries without installing them.
 - Manage local installs with install, pin, unpin, uninstall, list, update, and sync flows.
 - Support publisher identity, ownership, transfers, moderation, reports, appeals, and admin review.
@@ -67,6 +68,13 @@ Still pending for full ClawHub parity:
 - write-side publish APIs
 - moderation queues and audit logs
 - install/sync telemetry
+
+Implemented package CLI parity starters:
+
+- `corehub package publish <source> --dry-run` resolves local folder or archive metadata, publisher ownership, artifact checksum, upload plan, submission plan, and pending review status.
+- `--family code-plugin|bundle-plugin` maps to the CoreHub `plugin` kind while preserving CoreBlow-native catalog metadata.
+- `corehub package verify <artifact>` checks local SHA-256 directly or compares the artifact against hosted package metadata.
+- Live registry writes remain split into `package upload request`, `package upload verify`, and `package submit` until production publish writes are explicitly enabled.
 
 ### Phase 3: Publisher Identity
 

@@ -255,6 +255,13 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "verify") {
+    const source = positionalArgs(args)[0];
+    if (!source) throw new Error("package verify requires an artifact file");
+    console.log(JSON.stringify(await createPackageVerifyResult(source, args, registry), null, 2));
+    return;
+  }
+
   if (subcommand === "install") {
     const id = positionalArgs(args)[0];
     if (!id) throw new Error("package install requires an entry id");
@@ -296,7 +303,7 @@ async function runPackageCommand(values) {
   }
 
   if (subcommand === "publish") {
-    printPlannedCommand("corehub package publish", "Registry-backed package publishing");
+    await runPackagePublishCommand(args, registry);
     return;
   }
 
@@ -1610,6 +1617,131 @@ async function runPackageUploadCommand(values) {
   printPackageHelp();
 }
 
+async function runPackagePublishCommand(values, registry) {
+  const source = positionalArgs(values)[0];
+  if (!source) throw new Error("package publish requires an artifact file or folder");
+  if (!hasFlag(values, "--dry-run")) {
+    throw new Error("package publish writes are not enabled in this phase. Re-run with --dry-run.");
+  }
+  const result = await createPackagePublishDryRun(source, values, registry);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function createPackagePublishDryRun(source, values, registry) {
+  const auth = await requireAuthState();
+  const inspected = await inspectPackageSubmitSource(source);
+  const kind = resolvePackagePublishKind(values, inspected.package.kind);
+  const publisherHandle = resolvePackagePublisherHandle(values, inspected, auth, "package publish");
+  const packageId = readOption(values, "--name") ?? inspected.package.id;
+  const version = readOption(values, "--version") ?? inspected.package.version;
+  const versionSlug = slugVersion(version);
+  const artifactUploadId = `artifact-${packageId}-${versionSlug}`;
+  const uploadSlotId = `upload-${packageId}-${versionSlug}`;
+  const sourceUrl = readOption(values, "--source") ?? inspected.source ?? `https://github.com/${publisherHandle}/${packageId}`;
+  const changelog = readOption(values, "--changelog") ?? "CoreHub package publish dry run.";
+  const provider = readOption(values, "--provider") ?? "r2";
+  if (!["r2", "s3"].includes(provider)) {
+    throw new Error("package publish --provider must be r2 or s3");
+  }
+  const storage = {
+    provider,
+    key: artifactStorageKey(publisherHandle, packageId, version, inspected.artifact.name),
+  };
+  return {
+    dryRun: true,
+    status: registry ? "remote_publish_planned" : "planned",
+    command: "package.publish",
+    ...(registry ? { registry: normalizeRegistry(registry) } : {}),
+    actor: auth.actor,
+    source: {
+      path: resolve(source),
+      type: inspected.type,
+      url: sourceUrl,
+    },
+    package: {
+      id: packageId,
+      version,
+      kind,
+      detectedKind: inspected.package.kind,
+      name: inspected.package.name ?? packageId,
+    },
+    publisherHandle,
+    artifact: {
+      name: inspected.artifact.name,
+      mediaType: inspected.artifact.mediaType,
+      size: inspected.artifact.size,
+      sha256: inspected.artifact.sha256,
+      storage,
+    },
+    uploadPlan: {
+      endpoint: "/corehub/api/v2/artifacts/uploads",
+      uploadSlotId,
+      artifactUploadId,
+      provider,
+      status: "planned",
+    },
+    submissionPlan: {
+      endpoint: "/corehub/api/v2/submissions",
+      submissionId: `submission-${packageId}-${versionSlug}`,
+      artifactUploadId,
+      changelog,
+      reviewStatus: "pending_review",
+    },
+    validation: {
+      ready: true,
+      checks: [
+        "authenticated actor resolved",
+        "publisher handle resolved",
+        "package id and version resolved",
+        "artifact checksum computed",
+        "publish is dry-run only until registry writes are explicitly enabled",
+      ],
+    },
+    nextStep: registry
+      ? "Run package upload request, package upload verify, then package submit against this registry when live writes are approved."
+      : "Run with --registry to preview the hosted CoreHub write path, then upload and submit when live writes are approved.",
+  };
+}
+
+async function createPackageVerifyResult(source, values, registry) {
+  const sourcePath = resolve(source);
+  const bytes = await readFile(sourcePath);
+  const actual = {
+    path: sourcePath,
+    name: sourcePath.split(/[\\/]/).at(-1),
+    size: bytes.byteLength,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+  const expectedSha256 = readOption(values, "--sha256");
+  const packageId = readOption(values, "--package");
+  const expected = {};
+  if (expectedSha256) expected.sha256 = expectedSha256;
+  if (packageId) {
+    if (!registry) throw new Error("package verify --package requires --registry or COREHUB_REGISTRY");
+    const artifact = await readPackageArtifact(packageId, { registry });
+    expected.packageId = packageId;
+    expected.sha256 = artifact.artifact.sha256;
+    expected.size = artifact.artifact.size;
+    expected.name = artifact.artifact.name;
+  }
+  if (!expected.sha256) {
+    throw new Error("package verify requires --sha256 or --package with --registry");
+  }
+  const checksumMatches = actual.sha256.toLowerCase() === String(expected.sha256).toLowerCase();
+  const sizeMatches = expected.size === undefined || expected.size === actual.size;
+  const nameMatches = expected.name === undefined || expected.name === actual.name;
+  return {
+    status: checksumMatches && sizeMatches && nameMatches ? "verified" : "failed",
+    artifact: actual,
+    expected,
+    verification: {
+      checksumMatches,
+      sizeMatches,
+      nameMatches,
+    },
+  };
+}
+
 async function createPackageSubmissionDryRun(source, values) {
   const auth = await requireAuthState();
   const inspected = await inspectPackageSubmitSource(source);
@@ -2095,6 +2227,20 @@ function normalizeSubmitManifest({ type, sourcePath, manifest, artifact, storage
     source: manifest.source,
     artifact,
   };
+}
+
+function resolvePackagePublishKind(values, detectedKind) {
+  const raw = readOption(values, "--family") ?? readOption(values, "--kind") ?? detectedKind;
+  const normalized = String(raw).trim();
+  const mapped =
+    new Map([
+      ["code-plugin", "plugin"],
+      ["bundle-plugin", "plugin"],
+    ]).get(normalized) ?? normalized;
+  if (!["skill", "plugin", "provider", "channel"].includes(mapped)) {
+    throw new Error("--family must be skill, plugin, provider, channel, code-plugin, or bundle-plugin");
+  }
+  return mapped;
 }
 
 async function collectFolderFiles(root) {
@@ -2603,12 +2749,13 @@ Usage:
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package verify <artifact> [--sha256 hex | --package entry-id --registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package transfer request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
-  corehub package publish <source>
+  corehub package publish <source> --dry-run [--family plugin|code-plugin|bundle-plugin] [--publisher handle] [--registry https://coreblow.com/corehub]
   corehub registry info --registry https://coreblow.com/corehub
 `);
 }
@@ -2624,12 +2771,13 @@ Usage:
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package verify <artifact> [--sha256 hex | --package entry-id --registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package transfer request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
-  corehub package publish <source>
+  corehub package publish <source> --dry-run [--family plugin|code-plugin|bundle-plugin] [--publisher handle] [--registry https://coreblow.com/corehub]
 `);
 }
 

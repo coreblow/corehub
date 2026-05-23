@@ -22,6 +22,7 @@ In another terminal, log in and publish through the local server:
 
 ```sh
 npm run corehub -- login --token local-dev-token --user github:coreblow-admin --publisher coreblow
+npm run corehub -- package publish artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --family code-plugin --registry http://127.0.0.1:8787/corehub --dry-run
 npm run corehub -- package upload request artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --registry http://127.0.0.1:8787/corehub --dry-run
 npm run corehub -- package upload verify artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub --dry-run
 npm run corehub -- package submit artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --registry http://127.0.0.1:8787/corehub --dry-run
@@ -44,6 +45,7 @@ npm run corehub -- audit incident report --limit 5 --registry http://127.0.0.1:8
 npm run audit:incident -- --registry http://127.0.0.1:8787/corehub --output ./corehub-audit-incident.md --limit 5
 npm run corehub -- audit retention --dry-run --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package inspect plugin-lab --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package verify artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- analytics record plugin-lab --version 0.1.0 --event installed --source cli --client-id local-client --registry http://127.0.0.1:8787/corehub
 npm run corehub -- analytics summary --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- admin status --registry http://127.0.0.1:8787/corehub

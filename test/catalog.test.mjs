@@ -432,6 +432,16 @@ const packageDownload = await execFileAsync(process.execPath, [
 ]);
 assert.equal(JSON.parse(packageDownload.stdout).download.available, true);
 
+const packageVerify = await execFileAsync(process.execPath, [
+  cliPath,
+  "package",
+  "verify",
+  new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+  "--sha256",
+  pluginLabEntry.versions[0].artifact.sha256,
+]);
+assert.equal(JSON.parse(packageVerify.stdout).status, "verified");
+
 const packageInstall = await execFileAsync(process.execPath, [
   cliPath,
   "package",
@@ -571,6 +581,30 @@ try {
   assert.equal(uploadVerifyPayload.artifactUpload.status, "verified");
   assert.equal(uploadVerifyPayload.verification.checksumMatches, true);
   assert.equal(uploadVerifyPayload.verification.uploadSlotMatchesSource, true);
+
+  const packagePublish = await execFileAsync(
+    process.execPath,
+    [
+      cliPath,
+      "package",
+      "publish",
+      new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+      "--family",
+      "code-plugin",
+      "--dry-run",
+      "--registry",
+      "https://coreblow.com/corehub",
+    ],
+    { env: authEnv },
+  );
+  const packagePublishPayload = JSON.parse(packagePublish.stdout);
+  assert.equal(packagePublishPayload.dryRun, true);
+  assert.equal(packagePublishPayload.status, "remote_publish_planned");
+  assert.equal(packagePublishPayload.package.id, "plugin-lab");
+  assert.equal(packagePublishPayload.package.kind, "plugin");
+  assert.equal(packagePublishPayload.artifact.sha256, pluginLabEntry.versions[0].artifact.sha256);
+  assert.equal(packagePublishPayload.uploadPlan.endpoint, "/corehub/api/v2/artifacts/uploads");
+  assert.equal(packagePublishPayload.submissionPlan.reviewStatus, "pending_review");
 
   const logout = await execFileAsync(process.execPath, [cliPath, "logout"], { env: authEnv });
   assert.match(logout.stdout, /Logged out/);
@@ -2323,6 +2357,21 @@ try {
     registryUrl,
   ]);
   assert.equal(JSON.parse(remoteDownload.stdout).download.available, true);
+
+  const remoteVerify = await execFileAsync(process.execPath, [
+    cliPath,
+    "package",
+    "verify",
+    new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url).pathname,
+    "--package",
+    "plugin-lab",
+    "--registry",
+    registryUrl,
+  ]);
+  const remoteVerifyPayload = JSON.parse(remoteVerify.stdout);
+  assert.equal(remoteVerifyPayload.status, "verified");
+  assert.equal(remoteVerifyPayload.expected.packageId, "plugin-lab");
+  assert.equal(remoteVerifyPayload.verification.checksumMatches, true);
 
   const downloadDir = await mkdtemp(join(tmpdir(), "corehub-download-"));
   try {
