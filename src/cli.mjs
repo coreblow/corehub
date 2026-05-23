@@ -2238,13 +2238,12 @@ async function createPackagePublishDryRun(source, values, registry) {
   const uploadSlotId = `upload-${packageId}-${versionSlug}`;
   const sourceUrl = readOption(values, "--source") ?? inspected.source ?? `https://github.com/${publisherHandle}/${packageId}`;
   const changelog = readOption(values, "--changelog") ?? "CoreHub package publish dry run.";
-  const provider = readOption(values, "--provider") ?? "r2";
-  if (!["r2", "s3"].includes(provider)) {
-    throw new Error("package publish --provider must be r2 or s3");
-  }
+  const provider = readPackageStorageProvider(values, "package publish");
+  const artifactUrl = readOption(values, "--artifact-url");
   const storage = {
     provider,
     key: artifactStorageKey(publisherHandle, packageId, version, inspected.artifact.name),
+    ...(artifactUrl ? { url: artifactUrl } : {}),
   };
   return {
     dryRun: true,
@@ -2481,10 +2480,8 @@ async function createArtifactUploadRequestDryRun(source, values) {
   const packageId = inspected.package.id;
   const version = inspected.package.version;
   const versionSlug = slugVersion(version);
-  const provider = readOption(values, "--provider") ?? "r2";
-  if (!["r2", "s3"].includes(provider)) {
-    throw new Error("package upload request --provider must be r2 or s3");
-  }
+  const provider = readPackageStorageProvider(values, "package upload request");
+  const artifactUrl = readOption(values, "--artifact-url");
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
   const maxBytes = Number.parseInt(readOption(values, "--max-bytes") ?? "104857600", 10);
@@ -2494,6 +2491,7 @@ async function createArtifactUploadRequestDryRun(source, values) {
   const storage = {
     provider,
     key: artifactStorageKey(publisherHandle, packageId, version, inspected.artifact.name),
+    ...(artifactUrl ? { url: artifactUrl } : {}),
   };
   const region = readOption(values, "--region");
   if (region) storage.region = region;
@@ -2512,7 +2510,7 @@ async function createArtifactUploadRequestDryRun(source, values) {
     packageId,
     version,
     publisherHandle,
-    status: "requested",
+    status: isExternalPackageStorageProvider(provider) ? "verified" : "requested",
     storage,
     upload,
     mediaType: inspected.artifact.mediaType,
@@ -2520,6 +2518,7 @@ async function createArtifactUploadRequestDryRun(source, values) {
     sha256: inspected.artifact.sha256,
     uploadedBy: auth.actor,
     createdAt: now,
+    ...(isExternalPackageStorageProvider(provider) ? { verifiedAt: now } : {}),
   };
   return {
     dryRun: true,
@@ -2549,11 +2548,13 @@ async function createArtifactUploadRequestDryRun(source, values) {
         "authenticated actor resolved",
         "publisher handle resolved",
         "artifact checksum computed",
-        "managed storage locator reserved",
-        "signed upload metadata generated",
+        isExternalPackageStorageProvider(provider) ? "external artifact URL recorded" : "managed storage locator reserved",
+        isExternalPackageStorageProvider(provider) ? "artifact upload marked verified by reference" : "signed upload metadata generated",
       ],
     },
-    nextStep: `Upload artifact bytes with ${upload.method}, then run corehub package upload verify ${inspected.artifact.name} --upload-slot ${uploadSlotId} --dry-run.`,
+    nextStep: isExternalPackageStorageProvider(provider)
+      ? "Create a package submission that references this verified external artifact URL."
+      : `Upload artifact bytes with ${upload.method}, then run corehub package upload verify ${inspected.artifact.name} --upload-slot ${uploadSlotId} --dry-run.`,
   };
 }
 
@@ -2561,10 +2562,8 @@ async function createArtifactUploadRequestViaRegistry(source, values, registry) 
   const auth = await requireAuthState();
   const inspected = await inspectPackageSubmitSource(source);
   const publisherHandle = resolvePackagePublisherHandle(values, inspected, auth, "package upload request");
-  const provider = readOption(values, "--provider") ?? "r2";
-  if (!["r2", "s3"].includes(provider)) {
-    throw new Error("package upload request --provider must be r2 or s3");
-  }
+  const provider = readPackageStorageProvider(values, "package upload request");
+  const artifactUrl = readOption(values, "--artifact-url");
   const maxBytes = Number.parseInt(readOption(values, "--max-bytes") ?? "104857600", 10);
   if (!Number.isSafeInteger(maxBytes) || maxBytes < inspected.artifact.size) {
     throw new Error("package upload request --max-bytes must be an integer greater than or equal to artifact size");
@@ -2582,6 +2581,7 @@ async function createArtifactUploadRequestViaRegistry(source, values, registry) 
         mediaType: inspected.artifact.mediaType,
         size: inspected.artifact.size,
         sha256: inspected.artifact.sha256,
+        ...(artifactUrl ? { url: artifactUrl } : {}),
       },
     },
     { auth },
@@ -2641,10 +2641,7 @@ async function createArtifactUploadVerificationDryRun(source, values) {
   const versionSlug = slugVersion(version);
   const uploadSlotId = readOption(values, "--upload-slot");
   const expectedSlotId = `upload-${packageId}-${versionSlug}`;
-  const provider = readOption(values, "--provider") ?? "r2";
-  if (!["r2", "s3"].includes(provider)) {
-    throw new Error("package upload verify --provider must be r2 or s3");
-  }
+  const provider = readPackageStorageProvider(values, "package upload verify");
   const storage = {
     provider,
     key: artifactStorageKey(publisherHandle, packageId, version, inspected.artifact.name),
@@ -2717,6 +2714,21 @@ function artifactStorageKey(publisherHandle, packageId, version, artifactName) {
   return `uploads/${publisherHandle}/${packageId}/${version}/${artifactName}`;
 }
 
+function readPackageStorageProvider(values, command) {
+  const provider = readOption(values, "--provider") ?? "r2";
+  if (!["r2", "s3", "github-raw", "external-url"].includes(provider)) {
+    throw new Error(`${command} --provider must be r2, s3, github-raw, or external-url`);
+  }
+  if (isExternalPackageStorageProvider(provider) && !readOption(values, "--artifact-url")) {
+    throw new Error(`${command} --provider ${provider} requires --artifact-url`);
+  }
+  return provider;
+}
+
+function isExternalPackageStorageProvider(provider) {
+  return provider === "github-raw" || provider === "external-url";
+}
+
 function createSignedUploadContract({ uploadSlotId, storage, mediaType, sha256, size, maxBytes, expiresAt }) {
   const url = `https://coreblow.com/corehub/api/v2/artifacts/uploads/${uploadSlotId}`;
   const headers = [
@@ -2776,10 +2788,8 @@ async function executePackagePublish(source, values, registry) {
     const versionSlug = slugVersion(version);
     const artifactUploadId = `artifact-${packageId}-${versionSlug}`;
 
-    const provider = readOption(values, "--provider") ?? "r2";
-    if (!["r2", "s3"].includes(provider)) {
-      throw new Error("package publish --provider must be r2 or s3");
-    }
+    const provider = readPackageStorageProvider(values, "package publish");
+    const artifactUrl = readOption(values, "--artifact-url");
 
     const maxBytes = Number.parseInt(readOption(values, "--max-bytes") ?? "104857600", 10);
     if (!Number.isSafeInteger(maxBytes) || maxBytes < inspected.artifact.size) {
@@ -2801,19 +2811,24 @@ async function executePackagePublish(source, values, registry) {
           mediaType: inspected.artifact.mediaType,
           size: inspected.artifact.size,
           sha256: inspected.artifact.sha256,
+          ...(artifactUrl ? { url: artifactUrl } : {}),
         },
       },
       { auth }
     );
 
-    const bytes = await readFile(archivePath);
-    const uploaded = await client.putArtifactUpload(uploadSlot.id, bytes, {
-      auth,
-      mediaType: inspected.artifact.mediaType,
-      sha256: inspected.artifact.sha256,
-    });
-
-    const verified = await client.verifyArtifactUpload(uploadSlot.id, { auth });
+    let artifactUpload = uploadSlot.artifactUpload;
+    let uploaded = null;
+    if (!isExternalPackageStorageProvider(provider)) {
+      const bytes = await readFile(archivePath);
+      uploaded = await client.putArtifactUpload(uploadSlot.id, bytes, {
+        auth,
+        mediaType: inspected.artifact.mediaType,
+        sha256: inspected.artifact.sha256,
+      });
+      const verified = await client.verifyArtifactUpload(uploadSlot.id, { auth });
+      artifactUpload = verified.artifactUpload;
+    }
 
     const sourceUrl = readOption(values, "--source") ?? inspected.source ?? `https://github.com/${publisherHandle}/${packageId}`;
     const changelog = readOption(values, "--changelog") ?? "CoreHub live package publish.";
@@ -2823,7 +2838,7 @@ async function executePackagePublish(source, values, registry) {
         kind: inspected.package.kind,
         publisherHandle,
         version,
-        artifactUploadId,
+        artifactUploadId: artifactUpload.id,
         source: sourceUrl,
         changelog,
         channel: readOption(values, "--channel") ?? "stable",
@@ -2843,6 +2858,7 @@ async function executePackagePublish(source, values, registry) {
         type: inspected.type,
       },
       submission: submissionResult.submission,
+      ...(uploaded ? { uploaded } : {}),
       artifactUpload: submissionResult.artifactUpload,
       packageVersionPreview: submissionResult.packageVersionPreview,
       moderationReview: submissionResult.moderationReview,
@@ -3783,7 +3799,7 @@ Usage:
   corehub package update <entry-id> [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package sync [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
-  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
+  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3|github-raw|external-url] [--artifact-url url]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package transfer request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
   corehub package publish <source> --dry-run [--family plugin|code-plugin|bundle-plugin] [--publisher handle] [--registry https://coreblow.com/corehub]
@@ -3822,7 +3838,7 @@ Usage:
   corehub package update <entry-id> [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package sync [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
-  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
+  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3|github-raw|external-url] [--artifact-url url]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package transfer request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
   corehub package publish <source> --dry-run [--family plugin|code-plugin|bundle-plugin] [--publisher handle] [--registry https://coreblow.com/corehub]

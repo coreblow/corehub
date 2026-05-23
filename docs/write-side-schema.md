@@ -228,13 +228,13 @@ The support bundle intentionally omits signing secrets, raw client identifiers, 
 
 ## API and Storage Boundary
 
-Phase 18 adds the server-side shape before wiring production R2 or S3 credentials. The API handler accepts the same write-side payload that the CLI dry run emits, stores uploaded bytes through a storage adapter, and verifies the stored object before a submission can reference it.
+Phase 18 adds the server-side shape before wiring production managed object storage. The API handler accepts the same write-side payload that the CLI dry run emits. In managed storage mode, it stores uploaded bytes through a storage adapter and verifies the stored object before a submission can reference it. In production-lite `external-url` mode, it records a verified artifact URL reference with size and SHA-256 metadata so CoreHub can moderate and publish without R2.
 
 | Route | Behavior |
 | --- | --- |
-| `POST /corehub/api/v2/artifacts/uploads` | Validates publisher, package, artifact metadata, expected size, expected SHA-256, storage provider, and max byte limit, then returns an upload slot. |
-| `PUT /corehub/api/v2/artifacts/uploads/:id` | Accepts artifact bytes for the reserved slot and writes them through the configured storage adapter. |
-| `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Reads the stored object, recomputes size and SHA-256, and returns a verified or rejected artifact upload record. |
+| `POST /corehub/api/v2/artifacts/uploads` | Validates publisher, package, artifact metadata, expected size, expected SHA-256, storage provider, max byte limit, and optional artifact URL, then returns an upload slot. External URL providers are marked verified by reference. |
+| `PUT /corehub/api/v2/artifacts/uploads/:id` | Accepts artifact bytes for managed storage slots and writes them through the configured storage adapter. |
+| `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Reads the managed stored object, recomputes size and SHA-256, and returns a verified or rejected artifact upload record. |
 | `POST /corehub/api/v2/submissions` | Accepts a verified artifact upload id and creates a pending-review package submission. |
 | `POST /corehub/api/v2/package-reports` | Accepts a package report tied to a published package version and records it for moderation intake. |
 | `GET /corehub/api/v2/package-reports` | Lists package reports for moderators and admins with status, package, and pagination filters. |
@@ -308,7 +308,7 @@ The current adapter is local and mocked for tests. Its storage key shape is alre
 uploads/<publisher>/<package>/<version>/<artifact>
 ```
 
-Production Worker binding now routes artifact bytes through an object-store boundary backed by `COREHUB_R2`. Local server bootstrap still uses filesystem storage for deterministic development and CI, but Worker deployments fail closed when the R2 binding is missing. The route contract, signed upload fields, checksum verification result, and artifact upload status graph remain stable.
+Production Worker binding now routes artifact bytes through an object-store boundary. The default production-lite mode uses `COREHUB_OBJECT_STORE=external-url`, so no R2 binding is required and package artifacts are referenced by URL plus checksum metadata. Setting `COREHUB_OBJECT_STORE=r2` enables managed uploads through `COREHUB_R2`. Local server bootstrap still uses filesystem storage for deterministic development and CI. The route contract, signed upload fields, checksum verification result, and artifact upload status graph remain stable.
 
 ## Projection Boundary
 

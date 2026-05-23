@@ -18,7 +18,7 @@ const texts = Object.fromEntries(
 );
 
 requirePattern("production d1 binding", texts.wrangler, /\[\[d1_databases\]\][\s\S]*binding\s*=\s*"COREHUB_D1"/);
-requirePattern("production r2 binding", texts.wrangler, /\[\[r2_buckets\]\][\s\S]*binding\s*=\s*"COREHUB_R2"/);
+requirePattern("production object store mode", texts.wrangler, /COREHUB_OBJECT_STORE\s*=\s*"external-url"/);
 requirePattern("production signing secret", texts.wrangler, /wrangler secret put COREHUB_SIGNING_SECRET/);
 requirePattern("production session token hashes", texts.wrangler, /COREHUB_REQUIRE_SESSION_TOKEN_HASHES\s*=\s*"1"[\s\S]*COREHUB_SESSION_TOKEN_SHA256/);
 requirePattern("production rate limit config", texts.wrangler, /COREHUB_RATE_LIMIT_MAX\s*=/);

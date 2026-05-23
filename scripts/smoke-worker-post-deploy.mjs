@@ -195,7 +195,7 @@ const { artifact, download } = downloadMeta.payload.data;
 assert.equal(download.available, true);
 if (download.method !== undefined) assert.equal(download.method, "GET");
 assert.equal(typeof download.url, "string");
-assertSignedDownloadUrl(download.url);
+assertDownloadUrl(download);
 assert.equal(typeof artifact.sha256, "string");
 assert.match(artifact.sha256, /^[a-f0-9]{64}$/);
 assert.equal(Number.isSafeInteger(artifact.size), true);
@@ -212,7 +212,7 @@ const redirectResponse = await fetch(apiUrl(`/api/v1/packages/${encodeURICompone
 assert.ok([301, 302, 303, 307, 308].includes(redirectResponse.status), `expected redirect, got ${redirectResponse.status}`);
 const location = redirectResponse.headers.get("location");
 assert.equal(typeof location, "string");
-assertSignedDownloadUrl(location);
+assertDownloadUrl({ ...download, url: location });
 logStep("default download endpoint returns signed redirect");
 
 let readVerification = { enabled: false };
@@ -312,8 +312,13 @@ console.log(
   ),
 );
 
-function assertSignedDownloadUrl(value) {
+function assertDownloadUrl(download) {
+  const value = download.url;
   const url = new URL(value);
+  if (download.redirect === "external-url") {
+    assert.ok(/^https?:$/.test(url.protocol), `expected external artifact URL, got ${value}`);
+    return;
+  }
   const signedCoreHubRead = /\/corehub\/api\/v1\/artifacts\/read$/.test(url.pathname);
   const signedArtifactUrl = url.searchParams.has("corehub_signature") || url.searchParams.has("sig");
   assert.ok(signedCoreHubRead || signedArtifactUrl, `expected signed artifact URL, got ${value}`);

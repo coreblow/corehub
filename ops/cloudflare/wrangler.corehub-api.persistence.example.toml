@@ -10,7 +10,7 @@ main = "src/worker.mjs"
 COREHUB_STATE_STORE = "d1"
 COREHUB_D1_STATE_KEY = "write-side-state"
 COREHUB_D1_STATE_TABLE = "corehub_state"
-COREHUB_R2_BUCKET_NAME = "corehub-artifacts"
+COREHUB_OBJECT_STORE = "external-url"
 COREHUB_SIGNING_KEY_ID = "primary"
 # Optional rotation placeholder. Put secret material in Wrangler secrets, not vars.
 # COREHUB_SIGNING_PREVIOUS_SECRETS = "previous:key-material"
@@ -26,10 +26,6 @@ COREHUB_REQUIRE_SESSION_TOKEN_HASHES = "1"
 binding = "COREHUB_D1"
 database_name = "corehub"
 database_id = "replace-with-cloudflare-d1-database-id"
-
-[[r2_buckets]]
-binding = "COREHUB_R2"
-bucket_name = "corehub-artifacts"
 
 # Required before deploy:
 # wrangler secret put COREHUB_SIGNING_SECRET --config ops/cloudflare/wrangler.corehub-api.persistence.example.toml

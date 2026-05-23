@@ -160,6 +160,20 @@ export class CoreHubR2ObjectStore {
   }
 }
 
+export class CoreHubExternalUrlObjectStore {
+  constructor() {
+    this.kind = "external-url";
+  }
+
+  async put() {
+    throw httpError(409, "Managed artifact uploads require an object store; use external artifact URL publishing or enable R2");
+  }
+
+  async get() {
+    return null;
+  }
+}
+
 export class CoreHubLocalStorageAdapter {
   constructor({
     root,
@@ -220,6 +234,7 @@ export class CoreHubLocalStorageAdapter {
     const storage = {
       provider: request.provider,
       key: storageKey(request.publisherHandle, request.packageId, request.version, request.artifact.name),
+      ...(request.artifact.url ? { url: request.artifact.url } : {}),
       ...(request.region ? { region: request.region } : {}),
     };
     const upload = createSignedUploadContract({
@@ -237,7 +252,7 @@ export class CoreHubLocalStorageAdapter {
       packageId: request.packageId,
       version: request.version,
       publisherHandle: request.publisherHandle,
-      status: "requested",
+      status: isExternalArtifactProvider(request.provider) ? "verified" : "requested",
       storage,
       upload,
       mediaType: request.artifact.mediaType,
@@ -245,6 +260,7 @@ export class CoreHubLocalStorageAdapter {
       sha256: request.artifact.sha256,
       uploadedBy: actor,
       createdAt,
+      ...(isExternalArtifactProvider(request.provider) ? { verifiedAt: createdAt } : {}),
     };
     const slot = {
       id,
@@ -384,6 +400,7 @@ export class CoreHubLocalStorageAdapter {
 
   async createArtifactDownload(artifact, { actor = defaultActor(), baseUrl = this.publicBaseUrl, now = new Date() } = {}) {
     const key = artifact?.storage?.key;
+    const externalUrl = artifact?.storage?.url;
     if (artifact?.downloadEnabled === false || artifact?.trust?.blockedFromDownload) {
       return {
         available: false,
@@ -394,6 +411,30 @@ export class CoreHubLocalStorageAdapter {
     }
     if (!key || !artifact?.sha256 || !Number.isSafeInteger(artifact?.size)) {
       return { available: false, reason: "Artifact storage locator or checksum metadata is incomplete." };
+    }
+    if (externalUrl && isExternalArtifactProvider(artifact.storage.provider)) {
+      this.recordAuditEvent({
+        actor,
+        action: "artifact.download.external_redirect",
+        targetType: "artifact",
+        targetId: key,
+        metadata: {
+          key,
+          provider: artifact.storage.provider,
+          sha256: artifact.sha256,
+          size: artifact.size,
+        },
+        createdAt: now.toISOString(),
+      });
+      await this.persistState();
+      return {
+        available: true,
+        method: "GET",
+        url: externalUrl,
+        redirect: "external-url",
+        sha256: artifact.sha256,
+        size: artifact.size,
+      };
     }
     const expiresAt = new Date(now.getTime() + signedReadTtlMs).toISOString();
     const keyId = this.signedReadKeyId;
@@ -445,6 +486,9 @@ export class CoreHubLocalStorageAdapter {
     if (!artifact) throw httpError(404, "Artifact storage key not found");
     if (artifact.downloadEnabled === false || artifact.trust?.blockedFromDownload) {
       throw httpError(403, artifact.trust?.moderationReason ?? "Package release is blocked by moderation");
+    }
+    if (isExternalArtifactProvider(artifact.storage?.provider)) {
+      throw httpError(400, "External artifact URLs are read directly from their storage URL");
     }
     if (new Date(expiresAt).getTime() < now.getTime()) throw httpError(403, "Artifact read signature expired");
     const expected = signArtifactRead({
@@ -3027,7 +3071,13 @@ function normalizeUploadRequest(input) {
   const size = artifact.size;
   if (!Number.isSafeInteger(size) || size < 0) throw httpError(400, "artifact.size must be a non-negative integer");
   const provider = input.provider ?? "r2";
-  if (!["r2", "s3"].includes(provider)) throw httpError(400, "provider must be r2 or s3");
+  if (!["r2", "s3", "github-raw", "external-url"].includes(provider)) {
+    throw httpError(400, "provider must be r2, s3, github-raw, or external-url");
+  }
+  const url = typeof artifact.url === "string" && artifact.url.trim().length > 0 ? artifact.url.trim() : undefined;
+  if (isExternalArtifactProvider(provider) && !url) {
+    throw httpError(400, "artifact.url is required for external artifact URL providers");
+  }
   const maxBytes = input.maxBytes ?? 104857600;
   if (!Number.isSafeInteger(maxBytes) || maxBytes < size) {
     throw httpError(400, "maxBytes must be greater than or equal to artifact.size");
@@ -3044,8 +3094,13 @@ function normalizeUploadRequest(input) {
       mediaType,
       size,
       sha256: sha256.toLowerCase(),
+      ...(url ? { url } : {}),
     },
   };
+}
+
+function isExternalArtifactProvider(provider) {
+  return provider === "github-raw" || provider === "external-url";
 }
 
 function normalizeSigningKeyId(value) {
@@ -4269,7 +4324,8 @@ function renderCoreHubPublisherHtml() {
         <h2>Upload Artifact and Submit Package</h2>
         <form id="publishForm">
           <div class="form-grid">
-            <label>Artifact<input id="artifactFile" type="file" required></label>
+            <label>Artifact file<input id="artifactFile" type="file" required></label>
+            <label>Artifact URL<input id="artifactUrlInput" placeholder="https://github.com/org/repo/releases/download/v0.2.0/plugin.tgz"></label>
             <label>Publisher<select id="publisherSelect"></select></label>
             <label>Package id<input id="packageIdInput" placeholder="plugin-lab" required></label>
             <label>Version<input id="versionInput" placeholder="0.2.0" required></label>
@@ -4406,32 +4462,38 @@ function renderCoreHubPublisherHtml() {
       const packageId = nodes.packageIdInput.value.trim();
       const version = nodes.versionInput.value.trim();
       const publisherHandle = nodes.publisherSelect.value;
+      const artifactUrl = nodes.artifactUrlInput.value.trim();
       const upload = await api("/artifacts/uploads", {
         method: "POST",
         body: {
           packageId,
           version,
           publisherHandle,
-          provider: "r2",
+          provider: artifactUrl ? "external-url" : "r2",
           maxBytes: Math.max(file.size, 104857600),
           artifact: {
             name: file.name,
             mediaType: file.type || "application/octet-stream",
             size: file.size,
             sha256,
+            ...(artifactUrl ? { url: artifactUrl } : {}),
           },
         },
       });
       const slot = upload.data.uploadSlot;
-      await apiRaw("/artifacts/uploads/" + encodeURIComponent(slot.id), {
-        method: "PUT",
-        headers: {
-          "content-type": file.type || "application/octet-stream",
-          "x-corehub-artifact-sha256": sha256,
-        },
-        body: bytes,
-      });
-      const verified = await api("/artifacts/uploads/" + encodeURIComponent(slot.id) + "/verify", { method: "POST" });
+      let artifactUpload = slot.artifactUpload;
+      if (!artifactUrl) {
+        await apiRaw("/artifacts/uploads/" + encodeURIComponent(slot.id), {
+          method: "PUT",
+          headers: {
+            "content-type": file.type || "application/octet-stream",
+            "x-corehub-artifact-sha256": sha256,
+          },
+          body: bytes,
+        });
+        const verified = await api("/artifacts/uploads/" + encodeURIComponent(slot.id) + "/verify", { method: "POST" });
+        artifactUpload = verified.data.artifactUpload;
+      }
       const submission = await api("/submissions", {
         method: "POST",
         body: {
@@ -4440,7 +4502,7 @@ function renderCoreHubPublisherHtml() {
           publisherHandle,
           kind: nodes.kindInput.value,
           channel: nodes.channelInput.value,
-          artifactUploadId: verified.data.artifactUpload.id,
+          artifactUploadId: artifactUpload.id,
           source: nodes.sourceInput.value.trim() || "https://github.com/" + publisherHandle + "/" + packageId,
           changelog: nodes.changelogInput.value.trim() || "CoreHub publisher portal submission.",
         },

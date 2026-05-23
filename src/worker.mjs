@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { CoreHubLocalStorageAdapter, CoreHubR2ObjectStore, createCoreHubApiHandler } from "./api-server.mjs";
+import { CoreHubExternalUrlObjectStore, CoreHubLocalStorageAdapter, CoreHubR2ObjectStore, createCoreHubApiHandler } from "./api-server.mjs";
 import {
   createCoreHubStateStore,
   defaultD1StateKey,
@@ -93,9 +93,16 @@ function requireWorkerSigningSecret(env = {}, options = {}) {
 }
 
 export function createCoreHubWorkerObjectStore(env = {}, options = {}) {
+  const mode = options.objectStoreKind ?? env.COREHUB_OBJECT_STORE ?? (env.COREHUB_R2 ? "r2" : "external-url");
+  if (mode === "external-url") {
+    return new CoreHubExternalUrlObjectStore();
+  }
+  if (mode !== "r2") {
+    throw new Error("CoreHub Worker COREHUB_OBJECT_STORE must be external-url or r2");
+  }
   const bucket = options.r2Bucket ?? env.COREHUB_R2;
   if (!bucket) {
-    throw new Error("CoreHub Worker requires COREHUB_R2 binding for artifact storage");
+    throw new Error("CoreHub Worker requires COREHUB_R2 binding when COREHUB_OBJECT_STORE=r2");
   }
   return new CoreHubR2ObjectStore({
     bucket,

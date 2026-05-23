@@ -817,7 +817,7 @@ const workerMissingD1 = await handleCoreHubWorkerRequest(
 );
 assert.equal(workerMissingD1.status, 500);
 assert.match((await workerMissingD1.json()).error, /requires a D1 database binding/);
-const workerMissingR2 = await handleCoreHubWorkerRequest(
+const workerExternalUrlStore = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/healthz"),
   {
     COREHUB_STATE_STORE: "d1",
@@ -825,8 +825,54 @@ const workerMissingR2 = await handleCoreHubWorkerRequest(
     COREHUB_SIGNING_SECRET: "corehub-worker-test-signing-secret",
   },
 );
+assert.equal(workerExternalUrlStore.status, 200);
+assert.equal((await workerExternalUrlStore.json()).objectStore, "external-url");
+const externalRows = new Map();
+const externalEnv = {
+  COREHUB_STATE_STORE: "d1",
+  COREHUB_D1: createMockD1Database(externalRows),
+  COREHUB_PUBLIC_BASE_URL: "https://coreblow.com/corehub",
+  COREHUB_SIGNING_SECRET: "corehub-worker-test-signing-secret",
+};
+const externalUploadResponse = await handleCoreHubWorkerRequest(
+  new Request("https://coreblow.com/corehub/api/v2/artifacts/uploads", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:coreblow-admin",
+    },
+    body: JSON.stringify({
+      packageId: "plugin-lab",
+      version: "0.5.0",
+      publisherHandle: "coreblow",
+      provider: "github-raw",
+      artifact: {
+        name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
+        mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+        size: pluginLabArtifactBytes.byteLength,
+        sha256: entries[2].versions[0].artifact.sha256,
+        url: "https://raw.githubusercontent.com/coreblow/corehub/main/artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz",
+      },
+    }),
+  }),
+  externalEnv,
+);
+assert.equal(externalUploadResponse.status, 201);
+const externalUploadPayload = await externalUploadResponse.json();
+assert.equal(externalUploadPayload.data.uploadSlot.artifactUpload.status, "verified");
+assert.equal(externalUploadPayload.data.uploadSlot.storage.provider, "github-raw");
+assert.match(externalUploadPayload.data.uploadSlot.storage.url, /^https:\/\/raw\.githubusercontent\.com/);
+const workerMissingR2 = await handleCoreHubWorkerRequest(
+  new Request("https://coreblow.com/healthz"),
+  {
+    COREHUB_STATE_STORE: "d1",
+    COREHUB_D1: createMockD1Database(new Map()),
+    COREHUB_OBJECT_STORE: "r2",
+    COREHUB_SIGNING_SECRET: "corehub-worker-test-signing-secret",
+  },
+);
 assert.equal(workerMissingR2.status, 500);
-assert.match((await workerMissingR2.json()).error, /requires COREHUB_R2 binding/);
+assert.match((await workerMissingR2.json()).error, /requires COREHUB_R2 binding when COREHUB_OBJECT_STORE=r2/);
 const workerMissingSigningSecret = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/healthz"),
   {
