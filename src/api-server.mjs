@@ -1879,6 +1879,8 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
     if (!entry) return dataResponse(null, 0, 404);
     if (segments.length === 2) return dataResponse(entry);
     if (segments[2] === "versions" && segments.length === 3) return dataResponse(entry.versions, entry.versions.length);
+    if (segments[2] === "moderation" && segments.length === 3) return dataResponse(createPackageModerationStatus(entry));
+    if (segments[2] === "readiness" && segments.length === 3) return dataResponse(createPackageReadiness(entry));
     if (segments[2] === "artifact" && segments.length === 3) {
       const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
       const download = await storage.createArtifactDownload(version.artifact, { actor, baseUrl, now });
@@ -1916,6 +1918,117 @@ async function projectedDownloadResponse(storage, request, url, entry, { actor, 
 function findProjectedEntry(entries, id) {
   const decoded = decodeURIComponent(id);
   return entries.find((entry) => entry.id === decoded) ?? null;
+}
+
+function createPackageModerationStatus(entry) {
+  const latest = selectLatestPackageVersion(entry);
+  const reviewState = entry.review?.state ?? "unknown";
+  const blocked = latest?.status === "blocked" || reviewState === "blocked" || latest?.artifact?.downloadEnabled === false;
+  const reasons = [];
+  if (!latest) reasons.push("latest-version-missing");
+  if (latest?.status && latest.status !== "available") reasons.push(`version-${latest.status}`);
+  if (reviewState !== "verified") reasons.push(`review-${reviewState}`);
+  if (latest?.artifact?.downloadEnabled === false) reasons.push("download-disabled");
+  return {
+    status: "ok",
+    package: {
+      id: entry.id,
+      kind: entry.kind,
+      name: entry.name,
+      publisher: entry.publisher ?? null,
+    },
+    review: entry.review ?? null,
+    latestVersion: latest
+      ? {
+          version: latest.version,
+          tag: latest.tag ?? null,
+          status: latest.status ?? "unknown",
+          moderationStatus: reviewState,
+          blockedFromDownload: blocked,
+          downloadEnabled: Boolean(latest.artifact?.downloadEnabled),
+          reasons,
+          moderationReason: entry.review?.notes ?? null,
+        }
+      : null,
+  };
+}
+
+function createPackageReadiness(entry) {
+  const latest = selectLatestPackageVersion(entry);
+  const checks = [];
+  const add = (id, label, status, message) => checks.push({ id, label, status, message });
+  add(
+    "publisher",
+    "Verified publisher",
+    entry.publisher?.verified ? "pass" : "fail",
+    entry.publisher?.verified ? `Publisher ${entry.publisher.handle} is verified.` : "Package publisher is not verified.",
+  );
+  add(
+    "latest-version",
+    "Latest version",
+    latest ? "pass" : "fail",
+    latest ? `Latest version is ${latest.version}.` : "No latest package version is available.",
+  );
+  add(
+    "artifact-digest",
+    "Artifact digest",
+    latest?.artifact?.sha256 ? "pass" : "fail",
+    latest?.artifact?.sha256 ? "Latest artifact has a SHA-256 digest." : "Latest artifact digest is missing.",
+  );
+  add(
+    "artifact-download",
+    "Artifact download",
+    latest?.artifact?.downloadEnabled ? "pass" : "fail",
+    latest?.artifact?.downloadEnabled ? "Latest artifact download is enabled." : "Latest artifact download is not enabled.",
+  );
+  add(
+    "source",
+    "Source provenance",
+    entry.source || latest?.artifact?.provenance?.source ? "pass" : "fail",
+    entry.source || latest?.artifact?.provenance?.source
+      ? `Source is ${entry.source ?? latest.artifact.provenance.source}.`
+      : "Source provenance is missing.",
+  );
+  add(
+    "coreblow-compatibility",
+    "CoreBlow compatibility",
+    entry.coreblow?.minCoreblowVersion && Array.isArray(entry.coreblow?.platforms) && entry.coreblow.platforms.length > 0
+      ? "pass"
+      : "fail",
+    entry.coreblow?.minCoreblowVersion
+      ? `minCoreblowVersion=${entry.coreblow.minCoreblowVersion}.`
+      : "CoreBlow compatibility metadata is missing.",
+  );
+  add(
+    "moderation",
+    "Moderation state",
+    entry.review?.state === "verified" && latest?.status === "available" ? "pass" : "fail",
+    entry.review?.state === "verified" && latest?.status === "available"
+      ? "Package is verified and latest version is available."
+      : `Review state is ${entry.review?.state ?? "unknown"} and latest status is ${latest?.status ?? "missing"}.`,
+  );
+  const blockers = checks.filter((check) => check.status === "fail").map((check) => check.id);
+  return {
+    status: "ok",
+    ready: blockers.length === 0,
+    package: {
+      id: entry.id,
+      kind: entry.kind,
+      name: entry.name,
+      latestVersion: latest?.version ?? null,
+      publisher: entry.publisher ?? null,
+    },
+    checks,
+    blockers,
+  };
+}
+
+function selectLatestPackageVersion(entry) {
+  return (
+    entry.versions?.find((version) => version.tag === "latest") ??
+    entry.versions?.toSorted((left, right) => String(right.publishedAt ?? "").localeCompare(String(left.publishedAt ?? ""))).at(0) ??
+    null
+  );
 }
 
 function dataResponse(data, count = data === null ? 0 : 1, statusCode = data === null ? 404 : 200) {

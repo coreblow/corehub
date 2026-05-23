@@ -143,6 +143,8 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 | `GET` | `/corehub/api/v1/packages/:id/files` | Return file metadata from the artifact manifest. |
 | `GET` | `/corehub/api/v1/packages/:id/artifact` | Return artifact manifest metadata, checksum, provenance, storage locator, and download policy. |
 | `GET` | `/corehub/api/v1/packages/:id/download` | Return a signed storage redirect, or signed download metadata with `redirect=false`. |
+| `GET` | `/corehub/api/v1/packages/:id/moderation` | Return package review state, latest-version download block state, and moderation reasons. |
+| `GET` | `/corehub/api/v1/packages/:id/readiness` | Return marketplace readiness checks for publisher, version, artifact, source, compatibility, and moderation state. |
 | `GET` | `/corehub/api/v1/download?id=<id>` | Top-level signed download alias. |
 
 ### Response Shape
@@ -183,6 +185,8 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package search <query>`
 - `corehub package inspect <entry-id>`
 - `corehub package versions <entry-id>`
+- `corehub package moderation-status <entry-id>`
+- `corehub package readiness <entry-id>`
 - `corehub package install <entry-id>`
 - `corehub package upload request <artifact|folder> --dry-run`
 - `corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run`

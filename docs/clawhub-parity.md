@@ -74,6 +74,7 @@ Implemented package CLI parity starters:
 - `corehub package publish <source> --dry-run` resolves local folder or archive metadata, publisher ownership, artifact checksum, upload plan, submission plan, and pending review status.
 - `--family code-plugin|bundle-plugin` maps to the CoreHub `plugin` kind while preserving CoreBlow-native catalog metadata.
 - `corehub package verify <artifact>` checks local SHA-256 directly or compares the artifact against hosted package metadata.
+- `corehub package moderation-status <id>` and `corehub package readiness <id>` expose read-only lifecycle and marketplace readiness state before mutating delete/undelete flows are enabled.
 - Live registry writes remain split into `package upload request`, `package upload verify`, and `package submit` until production publish writes are explicitly enabled.
 
 ### Phase 3: Publisher Identity

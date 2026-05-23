@@ -442,6 +442,27 @@ const packageVerify = await execFileAsync(process.execPath, [
 ]);
 assert.equal(JSON.parse(packageVerify.stdout).status, "verified");
 
+const packageModerationStatus = await execFileAsync(process.execPath, [
+  cliPath,
+  "package",
+  "moderation-status",
+  "plugin-lab",
+]);
+const packageModerationStatusPayload = JSON.parse(packageModerationStatus.stdout);
+assert.equal(packageModerationStatusPayload.status, "ok");
+assert.equal(packageModerationStatusPayload.latestVersion.blockedFromDownload, false);
+
+const packageReadiness = await execFileAsync(process.execPath, [
+  cliPath,
+  "package",
+  "readiness",
+  "plugin-lab",
+]);
+const packageReadinessPayload = JSON.parse(packageReadiness.stdout);
+assert.equal(packageReadinessPayload.ready, true);
+assert.deepEqual(packageReadinessPayload.blockers, []);
+assert.equal(packageReadinessPayload.checks.some((check) => check.id === "coreblow-compatibility"), true);
+
 const packageInstall = await execFileAsync(process.execPath, [
   cliPath,
   "package",
@@ -2228,6 +2249,50 @@ const registryServer = createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === "/corehub/api/v1/packages/plugin-lab/moderation") {
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: {
+          status: "ok",
+          package: { id: "plugin-lab", kind: "plugin", name: "Plugin Lab", publisher: entries[2].publisher },
+          review: entries[2].review,
+          latestVersion: {
+            version: "0.1.0",
+            tag: "latest",
+            status: "available",
+            moderationStatus: "verified",
+            blockedFromDownload: false,
+            downloadEnabled: true,
+            reasons: [],
+            moderationReason: entries[2].review.notes,
+          },
+        },
+        meta: { count: 1 },
+      }),
+    );
+    return;
+  }
+
+  if (url.pathname === "/corehub/api/v1/packages/plugin-lab/readiness") {
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: {
+          status: "ok",
+          ready: true,
+          package: { id: "plugin-lab", kind: "plugin", name: "Plugin Lab", latestVersion: "0.1.0", publisher: entries[2].publisher },
+          checks: [
+            { id: "artifact-download", label: "Artifact download", status: "pass", message: "Latest artifact download is enabled." },
+          ],
+          blockers: [],
+        },
+        meta: { count: 1 },
+      }),
+    );
+    return;
+  }
+
   if (url.pathname === "/corehub/api/v1/packages/plugin-lab/artifact") {
     response.end(
       JSON.stringify({
@@ -2372,6 +2437,30 @@ try {
   assert.equal(remoteVerifyPayload.status, "verified");
   assert.equal(remoteVerifyPayload.expected.packageId, "plugin-lab");
   assert.equal(remoteVerifyPayload.verification.checksumMatches, true);
+
+  const remoteModerationStatus = await execFileAsync(process.execPath, [
+    cliPath,
+    "package",
+    "moderation-status",
+    "plugin-lab",
+    "--registry",
+    registryUrl,
+  ]);
+  const remoteModerationStatusPayload = JSON.parse(remoteModerationStatus.stdout);
+  assert.equal(remoteModerationStatusPayload.latestVersion.blockedFromDownload, false);
+  assert.equal(remoteModerationStatusPayload.review.state, "verified");
+
+  const remoteReadiness = await execFileAsync(process.execPath, [
+    cliPath,
+    "package",
+    "readiness",
+    "plugin-lab",
+    "--registry",
+    registryUrl,
+  ]);
+  const remoteReadinessPayload = JSON.parse(remoteReadiness.stdout);
+  assert.equal(remoteReadinessPayload.ready, true);
+  assert.equal(remoteReadinessPayload.checks.some((check) => check.id === "artifact-download"), true);
 
   const downloadDir = await mkdtemp(join(tmpdir(), "corehub-download-"));
   try {

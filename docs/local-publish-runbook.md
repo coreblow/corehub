@@ -46,6 +46,8 @@ npm run audit:incident -- --registry http://127.0.0.1:8787/corehub --output ./co
 npm run corehub -- audit retention --dry-run --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package inspect plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package verify artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --package plugin-lab --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package moderation-status plugin-lab --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package readiness plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- analytics record plugin-lab --version 0.1.0 --event installed --source cli --client-id local-client --registry http://127.0.0.1:8787/corehub
 npm run corehub -- analytics summary --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- admin status --registry http://127.0.0.1:8787/corehub

@@ -111,6 +111,8 @@ npm run corehub -- package explore
 npm run corehub -- package inspect plugin-lab
 npm run corehub -- package versions plugin-lab
 npm run corehub -- package verify artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --sha256 <sha256>
+npm run corehub -- package moderation-status plugin-lab
+npm run corehub -- package readiness plugin-lab
 npm run corehub -- package upload request artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --dry-run
 npm run corehub -- package upload verify artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --dry-run
 npm run corehub -- package upload request artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz --registry https://coreblow.com/corehub --dry-run

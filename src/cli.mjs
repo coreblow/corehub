@@ -262,6 +262,21 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "moderation-status" || subcommand === "moderation") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error(`package ${subcommand} requires an entry id`);
+    console.log(JSON.stringify(await readPackageModerationStatus(id, { registry }), null, 2));
+    return;
+  }
+
+  if (subcommand === "readiness" || subcommand === "migration-status") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error(`package ${subcommand} requires an entry id`);
+    const result = await readPackageReadiness(id, { registry });
+    console.log(JSON.stringify({ ...result, command: `package.${subcommand}` }, null, 2));
+    return;
+  }
+
   if (subcommand === "install") {
     const id = positionalArgs(args)[0];
     if (!id) throw new Error("package install requires an entry id");
@@ -2229,6 +2244,139 @@ function normalizeSubmitManifest({ type, sourcePath, manifest, artifact, storage
   };
 }
 
+async function readPackageModerationStatus(id, options = {}) {
+  if (options.registry) {
+    return new CoreHubRegistryClient(options.registry).moderationStatus(id);
+  }
+
+  const catalog = await readCatalog();
+  const record = catalog.findById(id);
+  if (!record) throw new Error(`CoreHub package not found: ${id}`);
+  return createPackageModerationStatus(record);
+}
+
+async function readPackageReadiness(id, options = {}) {
+  if (options.registry) {
+    return new CoreHubRegistryClient(options.registry).readiness(id);
+  }
+
+  const catalog = await readCatalog();
+  const record = catalog.findById(id);
+  if (!record) throw new Error(`CoreHub package not found: ${id}`);
+  return createPackageReadiness(record);
+}
+
+function createPackageModerationStatus(record) {
+  const latest = selectLatestPackageVersion(record);
+  const reviewState = record.review?.state ?? "unknown";
+  const blocked = latest?.status === "blocked" || reviewState === "blocked" || latest?.artifact?.downloadEnabled === false;
+  const reasons = [];
+  if (!latest) reasons.push("latest-version-missing");
+  if (latest?.status && latest.status !== "available") reasons.push(`version-${latest.status}`);
+  if (reviewState !== "verified") reasons.push(`review-${reviewState}`);
+  if (latest?.artifact?.downloadEnabled === false) reasons.push("download-disabled");
+  return {
+    status: "ok",
+    package: {
+      id: record.id,
+      kind: record.kind,
+      name: record.name,
+      publisher: record.publisher ?? null,
+    },
+    review: record.review ?? null,
+    latestVersion: latest
+      ? {
+          version: latest.version,
+          tag: latest.tag ?? null,
+          status: latest.status ?? "unknown",
+          moderationStatus: reviewState,
+          blockedFromDownload: blocked,
+          downloadEnabled: Boolean(latest.artifact?.downloadEnabled),
+          reasons,
+          moderationReason: record.review?.notes ?? null,
+        }
+      : null,
+  };
+}
+
+function createPackageReadiness(record) {
+  const latest = selectLatestPackageVersion(record);
+  const checks = [];
+  const add = (id, label, status, message) => checks.push({ id, label, status, message });
+  add(
+    "publisher",
+    "Verified publisher",
+    record.publisher?.verified ? "pass" : "fail",
+    record.publisher?.verified ? `Publisher ${record.publisher.handle} is verified.` : "Package publisher is not verified.",
+  );
+  add(
+    "latest-version",
+    "Latest version",
+    latest ? "pass" : "fail",
+    latest ? `Latest version is ${latest.version}.` : "No latest package version is available.",
+  );
+  add(
+    "artifact-digest",
+    "Artifact digest",
+    latest?.artifact?.sha256 ? "pass" : "fail",
+    latest?.artifact?.sha256 ? "Latest artifact has a SHA-256 digest." : "Latest artifact digest is missing.",
+  );
+  add(
+    "artifact-download",
+    "Artifact download",
+    latest?.artifact?.downloadEnabled ? "pass" : "fail",
+    latest?.artifact?.downloadEnabled ? "Latest artifact download is enabled." : "Latest artifact download is not enabled.",
+  );
+  add(
+    "source",
+    "Source provenance",
+    record.source || latest?.artifact?.provenance?.source ? "pass" : "fail",
+    record.source || latest?.artifact?.provenance?.source
+      ? `Source is ${record.source ?? latest.artifact.provenance.source}.`
+      : "Source provenance is missing.",
+  );
+  add(
+    "coreblow-compatibility",
+    "CoreBlow compatibility",
+    record.coreblow?.minCoreblowVersion && Array.isArray(record.coreblow?.platforms) && record.coreblow.platforms.length > 0
+      ? "pass"
+      : "fail",
+    record.coreblow?.minCoreblowVersion
+      ? `minCoreblowVersion=${record.coreblow.minCoreblowVersion}.`
+      : "CoreBlow compatibility metadata is missing.",
+  );
+  add(
+    "moderation",
+    "Moderation state",
+    record.review?.state === "verified" && latest?.status === "available" ? "pass" : "fail",
+    record.review?.state === "verified" && latest?.status === "available"
+      ? "Package is verified and latest version is available."
+      : `Review state is ${record.review?.state ?? "unknown"} and latest status is ${latest?.status ?? "missing"}.`,
+  );
+  const blockers = checks.filter((check) => check.status === "fail").map((check) => check.id);
+  return {
+    status: "ok",
+    ready: blockers.length === 0,
+    package: {
+      id: record.id,
+      kind: record.kind,
+      name: record.name,
+      latestVersion: latest?.version ?? null,
+      publisher: record.publisher ?? null,
+    },
+    checks,
+    blockers,
+  };
+}
+
+function selectLatestPackageVersion(record) {
+  return (
+    record.versions?.find((version) => version.tag === "latest") ??
+    record.versions?.toSorted((left, right) => String(right.publishedAt ?? "").localeCompare(String(left.publishedAt ?? ""))).at(0) ??
+    null
+  );
+}
+
 function resolvePackagePublishKind(values, detectedKind) {
   const raw = readOption(values, "--family") ?? readOption(values, "--kind") ?? detectedKind;
   const normalized = String(raw).trim();
@@ -2417,6 +2565,14 @@ class CoreHubRegistryClient {
     const url = this.apiUrl(`/packages/${encodeURIComponent(id)}/download`);
     url.searchParams.set("redirect", "false");
     return this.readData(url, { allowStatuses: new Set([501]) });
+  }
+
+  async moderationStatus(id) {
+    return this.readData(this.apiUrl(`/packages/${encodeURIComponent(id)}/moderation`));
+  }
+
+  async readiness(id) {
+    return this.readData(this.apiUrl(`/packages/${encodeURIComponent(id)}/readiness`));
   }
 
   async publishers() {
@@ -2750,6 +2906,8 @@ Usage:
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package verify <artifact> [--sha256 hex | --package entry-id --registry https://coreblow.com/corehub]
+  corehub package moderation-status <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package readiness <entry-id> [--registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
@@ -2772,6 +2930,8 @@ Usage:
   corehub package artifact <entry-id> [--registry https://coreblow.com/corehub]
   corehub package download <entry-id> [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package verify <artifact> [--sha256 hex | --package entry-id --registry https://coreblow.com/corehub]
+  corehub package moderation-status <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package readiness <entry-id> [--registry https://coreblow.com/corehub]
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
