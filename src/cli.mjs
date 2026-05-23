@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { CoreHubSkillInspector, readCatalog } from "./corehub.mjs";
+import { CoreHubSkillInspector, listCatalogRecords, readCatalog } from "./corehub.mjs";
 
 const command = process.argv[2] ?? "help";
 const args = process.argv.slice(3);
@@ -223,7 +223,7 @@ async function runPackageCommand(values) {
   const registry = readOption(args, "--registry") ?? defaultRegistry;
 
   if (subcommand === "explore" || subcommand === "list") {
-    printRecords(await listRecords({ registry, kind: readOption(args, "--kind") }));
+    printRecords(await listRecords({ registry, packageRoute: true, ...readDiscoveryOptions(args) }));
     return;
   }
 
@@ -409,7 +409,7 @@ async function runPackageCommand(values) {
   if (subcommand === "search") {
     const query = positionalArgs(args).join(" ").trim();
     if (!query) throw new Error("package search requires a query");
-    printRecords(await searchRecords(query, { registry, packageRoute: true }));
+    printRecords(await searchRecords(query, { registry, packageRoute: true, ...readDiscoveryOptions(args) }));
     return;
   }
 
@@ -1086,11 +1086,11 @@ async function runInspect(values) {
 
 async function listRecords(options = {}) {
   if (options.registry) {
-    return new CoreHubRegistryClient(options.registry).list({ kind: options.kind });
+    return new CoreHubRegistryClient(options.registry).list(options);
   }
 
   const catalog = await readCatalog();
-  return catalog.list({ kind: options.kind });
+  return listCatalogRecords(catalog.list({ kind: options.kind }), options);
 }
 
 async function listPublishers(options = {}) {
@@ -1117,11 +1117,12 @@ async function searchRecords(query, options = {}) {
   if (options.registry) {
     return new CoreHubRegistryClient(options.registry).search(query, {
       packageRoute: options.packageRoute,
+      ...options,
     });
   }
 
   const catalog = await readCatalog();
-  return catalog.search(query);
+  return catalog.search(query, options);
 }
 
 async function printRecord(id, options = {}) {
@@ -1386,6 +1387,29 @@ function readQueueListOptions(values) {
   };
 }
 
+function readDiscoveryOptions(values) {
+  return {
+    kind: readOption(values, "--kind"),
+    family: readOption(values, "--family"),
+    channel: readOption(values, "--channel"),
+    category: readOption(values, "--category"),
+    capabilityTag: readOption(values, "--capability") ?? readOption(values, "--capability-tag"),
+    sort: readOption(values, "--sort"),
+    isOfficial: hasFlag(values, "--official") ? true : readBooleanOption(values, "--is-official"),
+    featured: hasFlag(values, "--featured") ? true : readBooleanOption(values, "--featured"),
+    executesCode: readBooleanOption(values, "--executes-code") ?? readBooleanOption(values, "--executesCode"),
+  };
+}
+
+function readBooleanOption(values, name) {
+  const value = readOption(values, name);
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0") return false;
+  throw new Error(`${name} must be true or false`);
+}
+
 function readOptionalNonNegativeInteger(values, name) {
   const value = readOption(values, name);
   if (value === undefined) return undefined;
@@ -1646,6 +1670,15 @@ function optionTakesValue(name) {
     "--changelog",
     "--display-name",
     "--format",
+    "--family",
+    "--channel",
+    "--category",
+    "--capability",
+    "--capability-tag",
+    "--sort",
+    "--is-official",
+    "--executes-code",
+    "--executesCode",
     "--kind",
     "--limit",
     "--max-bytes",
@@ -1669,10 +1702,23 @@ function optionTakesValue(name) {
 function printRecords(records) {
   for (const record of records) {
     const score = record.score === undefined ? "" : ` score=${record.score}`;
-    console.log(`${record.id}\t${record.kind}\t${record.name}${score}`);
+    const marketplace = record.marketplace ? ` ${record.marketplace.family}/${record.marketplace.channel}` : "";
+    console.log(`${record.id}\t${record.kind}\t${record.name}${marketplace}${score}`);
     console.log(`  ${record.summary}`);
     console.log(`  ${record.source}`);
   }
+}
+
+function appendDiscoverySearchParams(url, options = {}) {
+  if (options.kind) url.searchParams.set("kind", options.kind);
+  if (options.family) url.searchParams.set("family", options.family);
+  if (options.channel) url.searchParams.set("channel", options.channel);
+  if (options.category) url.searchParams.set("category", options.category);
+  if (options.capabilityTag) url.searchParams.set("capabilityTag", options.capabilityTag);
+  if (options.sort) url.searchParams.set("sort", options.sort);
+  if (options.isOfficial !== undefined) url.searchParams.set("isOfficial", String(options.isOfficial));
+  if (options.featured !== undefined) url.searchParams.set("featured", String(options.featured));
+  if (options.executesCode !== undefined) url.searchParams.set("executesCode", String(options.executesCode));
 }
 
 function printVersions(versions) {
@@ -2967,8 +3013,8 @@ class CoreHubRegistryClient {
   }
 
   async list(options = {}) {
-    const url = this.apiUrl("/entries");
-    if (options.kind) url.searchParams.set("kind", options.kind);
+    const url = this.apiUrl(options.packageRoute ? "/packages" : "/entries");
+    appendDiscoverySearchParams(url, options);
     return this.readData(url);
   }
 
@@ -2980,6 +3026,7 @@ class CoreHubRegistryClient {
     const path = options.packageRoute ? "/packages/search" : "/search";
     const url = this.apiUrl(path);
     url.searchParams.set("q", query);
+    appendDiscoverySearchParams(url, options);
     return this.readData(url);
   }
 
@@ -3467,8 +3514,8 @@ Usage:
   corehub transfers request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
   corehub transfers accept|reject|cancel <transfer-id> --registry https://coreblow.com/corehub [--notes text]
   corehub skill publish <skill-folder>
-  corehub package explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
-  corehub package search <query> [--registry https://coreblow.com/corehub]
+  corehub package explore [--family skill|code-plugin|bundle-plugin] [--category dev-tools] [--official] [--registry https://coreblow.com/corehub]
+  corehub package search <query> [--family skill|code-plugin|bundle-plugin] [--category dev-tools] [--capability tag] [--official] [--registry https://coreblow.com/corehub]
   corehub package inspect <entry-id> [--registry https://coreblow.com/corehub]
   corehub package versions <entry-id> [--registry https://coreblow.com/corehub]
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]
@@ -3502,8 +3549,8 @@ function printPackageHelp() {
   console.log(`CoreHub package commands
 
 Usage:
-  corehub package explore [--kind skill|plugin|provider|channel] [--registry https://coreblow.com/corehub]
-  corehub package search <query> [--registry https://coreblow.com/corehub]
+  corehub package explore [--family skill|code-plugin|bundle-plugin] [--category dev-tools] [--official] [--registry https://coreblow.com/corehub]
+  corehub package search <query> [--family skill|code-plugin|bundle-plugin] [--category dev-tools] [--capability tag] [--official] [--registry https://coreblow.com/corehub]
   corehub package inspect <entry-id> [--registry https://coreblow.com/corehub]
   corehub package versions <entry-id> [--registry https://coreblow.com/corehub]
   corehub package files <entry-id> [--registry https://coreblow.com/corehub]

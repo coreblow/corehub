@@ -5,6 +5,8 @@ import { join, relative, resolve, sep } from "node:path";
 export const ENTRY_KINDS = new Set(["skill", "plugin", "provider", "channel"]);
 export const REVIEW_STATES = new Set(["draft", "review", "verified", "deprecated"]);
 export const VERSION_STATES = new Set(["metadata-only", "available", "deprecated", "blocked"]);
+export const PACKAGE_FAMILIES = new Set(["skill", "code-plugin", "bundle-plugin"]);
+export const PACKAGE_CHANNELS = new Set(["official", "community", "private"]);
 export const TEXT_FILE_EXTENSIONS = new Set([
   "md",
   "mdx",
@@ -84,6 +86,9 @@ export class CoreHubEntry {
       this.summary,
       tags,
       capabilities,
+      marketplaceFamily(this.raw),
+      marketplaceChannel(this.raw),
+      pluginCategory(this.raw),
       this.raw.publisher?.handle,
       this.raw.publisher?.displayName,
     ]
@@ -103,6 +108,8 @@ export class CoreHubEntry {
       version: this.raw.version,
       tags: this.raw.tags ?? [],
       capabilities: this.raw.capabilities ?? [],
+      marketplace: this.raw.marketplace,
+      stats: this.raw.stats,
       publisher: this.raw.publisher ?? null,
       versions: this.raw.versions ?? [],
       review: this.raw.review,
@@ -130,8 +137,14 @@ export class CoreHubCatalog {
     return this.entries
       .filter((entry) => !kind || entry.kind === kind)
       .filter((entry) => !verifiedOnly || entry.raw.review?.state === "verified")
-      .sort((a, b) => a.id.localeCompare(b.id))
-      .map((entry) => entry.toPublicRecord());
+      .map((entry) => entry.toPublicRecord())
+      .filter((record) => matchesMarketplaceFilters(record, options))
+      .sort((left, right) => compareDiscoveryRecords(left, right, options))
+      .map((record) => withDiscoveryMetadata(record));
+  }
+
+  plugins(options = {}) {
+    return this.list({ ...options, pluginOnly: true });
   }
 
   findById(id) {
@@ -180,6 +193,259 @@ export class CoreHubCatalog {
   search(query, options = {}) {
     return new CoreHubSearchIndex(this.entries).search(query, options);
   }
+}
+
+export function searchCatalogRecords(records, query, options = {}) {
+  const terms = tokenize(query);
+  const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : 10;
+  if (terms.length === 0) return [];
+
+  return records
+    .filter((record) => matchesMarketplaceFilters(record, options))
+    .map((record) => ({ record, score: scoreRecord(record, terms) }))
+    .filter((result) => result.score > 0)
+    .sort((a, b) => b.score - a.score || compareDiscoveryRecords(a.record, b.record))
+    .slice(0, limit)
+    .map((result) => ({ score: result.score, ...withDiscoveryMetadata(result.record) }));
+}
+
+export function listCatalogRecords(records, options = {}) {
+  return records
+    .filter((record) => matchesMarketplaceFilters(record, options))
+    .sort((left, right) => compareDiscoveryRecords(left, right, options))
+    .map((record) => withDiscoveryMetadata(record));
+}
+
+export function parseMarketplaceFiltersFromUrl(url, defaults = {}) {
+  const filters = { ...defaults };
+  const family = url.searchParams.get("family")?.trim();
+  if (family) filters.family = family;
+  const kind = url.searchParams.get("kind")?.trim();
+  if (kind) filters.kind = kind;
+  const channel = url.searchParams.get("channel")?.trim();
+  if (channel) filters.channel = channel;
+  const capabilityTag = url.searchParams.get("capabilityTag")?.trim() ?? url.searchParams.get("capability")?.trim();
+  if (capabilityTag) filters.capabilityTag = capabilityTag;
+  const category = url.searchParams.get("category")?.trim();
+  if (category) filters.category = category;
+  const sort = url.searchParams.get("sort")?.trim();
+  if (sort) filters.sort = sort;
+
+  const isOfficial = parseOptionalBoolean(url.searchParams, "isOfficial") ?? parseOptionalBoolean(url.searchParams, "official");
+  if (isOfficial !== undefined) filters.isOfficial = isOfficial;
+  const executesCode = parseOptionalBoolean(url.searchParams, "executesCode");
+  if (executesCode !== undefined) filters.executesCode = executesCode;
+  const featured = parseOptionalBoolean(url.searchParams, "featured") ?? parseOptionalBoolean(url.searchParams, "highlightedOnly");
+  if (featured !== undefined) filters.featured = featured;
+  return filters;
+}
+
+export function withDiscoveryMetadata(record) {
+  const marketplace = marketplaceMetadata(record);
+  return {
+    ...record,
+    marketplace,
+  };
+}
+
+export function marketplaceMetadata(record) {
+  const family = marketplaceFamily(record);
+  const channel = marketplaceChannel(record);
+  const latestVersion = latestPublicVersion(record);
+  const stats = {
+    installs: safeNumber(record.stats?.installs ?? record.analytics?.installs),
+    downloads: safeNumber(record.stats?.downloads ?? record.analytics?.downloads),
+  };
+  return {
+    family,
+    channel,
+    isOfficial: marketplaceOfficial(record),
+    featured: marketplaceFeatured(record),
+    executesCode: marketplaceExecutesCode(record, family),
+    category: pluginCategory(record),
+    capabilityTags: marketplaceCapabilityTags(record),
+    latestVersion: latestVersion?.version ?? record.version ?? null,
+    stats,
+  };
+}
+
+export function matchesMarketplaceFilters(record, options = {}) {
+  const marketplace = marketplaceMetadata(record);
+  if (options.pluginOnly && !["code-plugin", "bundle-plugin"].includes(marketplace.family)) return false;
+  if (options.kind && record.kind !== options.kind) return false;
+  if (options.family && marketplace.family !== normalizeFamilyFilter(options.family)) return false;
+  if (options.channel && marketplace.channel !== options.channel) return false;
+  if (options.isOfficial !== undefined && marketplace.isOfficial !== options.isOfficial) return false;
+  if (options.featured !== undefined && marketplace.featured !== options.featured) return false;
+  if (options.executesCode !== undefined && marketplace.executesCode !== options.executesCode) return false;
+  if (options.capabilityTag && !marketplace.capabilityTags.includes(normalizeDiscoveryToken(options.capabilityTag))) return false;
+  if (options.category && marketplace.category !== normalizeDiscoveryToken(options.category)) return false;
+  return true;
+}
+
+export function compareDiscoveryRecords(left, right, options = {}) {
+  const leftMeta = marketplaceMetadata(left);
+  const rightMeta = marketplaceMetadata(right);
+  if (options.sort === "downloads") {
+    return rightMeta.stats.downloads - leftMeta.stats.downloads || left.id.localeCompare(right.id);
+  }
+  if (options.sort === "installs") {
+    return rightMeta.stats.installs - leftMeta.stats.installs || left.id.localeCompare(right.id);
+  }
+  if (options.sort === "updated") {
+    return versionTimestamp(right) - versionTimestamp(left) || left.id.localeCompare(right.id);
+  }
+  return discoveryPriority(rightMeta) - discoveryPriority(leftMeta) || left.id.localeCompare(right.id);
+}
+
+function scoreRecord(record, terms) {
+  const haystack = searchableRecordText(record);
+  const id = record.id.toLowerCase();
+  const name = (record.name ?? "").toLowerCase();
+  const summary = (record.summary ?? "").toLowerCase();
+  const capabilities = marketplaceCapabilityTags(record);
+  const category = pluginCategory(record);
+  let score = 0;
+  for (const term of terms) {
+    if (id === term) score += 24;
+    if (name === term) score += 20;
+    if (id.includes(term)) score += 10;
+    if (name.includes(term)) score += 8;
+    if (summary.includes(term)) score += 4;
+    if (capabilities.includes(term)) score += 6;
+    if (category === term) score += 6;
+    if (haystack.includes(term)) score += 2;
+  }
+  const metadata = marketplaceMetadata(record);
+  if (metadata.isOfficial) score += 2;
+  if (metadata.featured) score += 1;
+  score += Math.min(3, Math.floor(metadata.stats.downloads / 100));
+  score += Math.min(3, Math.floor(metadata.stats.installs / 100));
+  return score;
+}
+
+function searchableRecordText(record) {
+  return [
+    record.id,
+    record.kind,
+    record.name,
+    record.summary,
+    marketplaceFamily(record),
+    marketplaceChannel(record),
+    pluginCategory(record),
+    ...(record.tags ?? []),
+    ...(record.capabilities ?? []),
+    ...(record.marketplace?.capabilityTags ?? []),
+    record.publisher?.handle,
+    record.publisher?.displayName,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function marketplaceFamily(record) {
+  const explicit = normalizeFamilyFilter(record.marketplace?.family ?? record.family);
+  if (explicit) return explicit;
+  if (record.kind === "skill") return "skill";
+  if (record.kind === "plugin") return record.marketplace?.bundle ? "bundle-plugin" : "code-plugin";
+  return record.kind;
+}
+
+function normalizeFamilyFilter(value) {
+  if (value === "plugin") return "code-plugin";
+  return PACKAGE_FAMILIES.has(value) ? value : undefined;
+}
+
+function marketplaceChannel(record) {
+  const explicit = record.marketplace?.channel ?? record.channel ?? latestPublicVersion(record)?.channel;
+  if (PACKAGE_CHANNELS.has(explicit)) return explicit;
+  return marketplaceOfficial(record) ? "official" : "community";
+}
+
+function marketplaceOfficial(record) {
+  if (typeof record.marketplace?.isOfficial === "boolean") return record.marketplace.isOfficial;
+  if (typeof record.isOfficial === "boolean") return record.isOfficial;
+  return Boolean(record.publisher?.verified && record.review?.state === "verified");
+}
+
+function marketplaceFeatured(record) {
+  if (typeof record.marketplace?.featured === "boolean") return record.marketplace.featured;
+  if (typeof record.featured === "boolean") return record.featured;
+  return Boolean(marketplaceOfficial(record) && latestPublicVersion(record)?.status === "available");
+}
+
+function marketplaceExecutesCode(record, family = marketplaceFamily(record)) {
+  if (typeof record.marketplace?.executesCode === "boolean") return record.marketplace.executesCode;
+  if (typeof record.executesCode === "boolean") return record.executesCode;
+  return family === "code-plugin";
+}
+
+function marketplaceCapabilityTags(record) {
+  const tags = [
+    ...(record.capabilities ?? []),
+    ...(record.tags ?? []),
+    ...(record.marketplace?.capabilityTags ?? []),
+  ].map(normalizeDiscoveryToken).filter(Boolean);
+  if (marketplaceExecutesCode(record)) tags.push("executes-code");
+  const category = pluginCategory(record);
+  if (category) tags.push(category);
+  return [...new Set(tags)];
+}
+
+function pluginCategory(record) {
+  const explicit = record.marketplace?.category ?? record.category;
+  if (explicit) return normalizeDiscoveryToken(explicit);
+  const text = searchableRecordTextShallow(record);
+  if (/\b(channel|telegram|discord|slack|signal|whatsapp|matrix|teams)\b/.test(text)) return "channels";
+  if (/\b(security|audit|scan|policy|trust)\b/.test(text)) return "security";
+  if (/\b(observability|metrics|logs|monitor|analytics)\b/.test(text)) return "observability";
+  if (/\b(deploy|deployment|release|ci|workflow)\b/.test(text)) return "deployment";
+  if (/\b(data|storage|database|catalog)\b/.test(text)) return "data";
+  if (/\b(automation|queue|scheduled|trigger)\b/.test(text)) return "automation";
+  if (/\b(mcp|tooling|tool)\b/.test(text)) return "mcp-tooling";
+  return "dev-tools";
+}
+
+function searchableRecordTextShallow(record) {
+  return [record.id, record.name, record.summary, ...(record.tags ?? []), ...(record.capabilities ?? [])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function latestPublicVersion(record) {
+  return (record.versions ?? []).find((version) => version.tag === "latest") ?? record.versions?.[0] ?? null;
+}
+
+function discoveryPriority(metadata) {
+  return (metadata.featured ? 4 : 0) + (metadata.isOfficial ? 2 : 0) + Math.min(2, metadata.stats.downloads + metadata.stats.installs);
+}
+
+function versionTimestamp(record) {
+  const date = latestPublicVersion(record)?.publishedAt ?? record.updatedAt ?? record.versionPublishedAt;
+  const time = date ? Date.parse(date) : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function safeNumber(value) {
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function parseOptionalBoolean(params, name) {
+  if (!params.has(name)) return undefined;
+  const value = params.get(name)?.trim().toLowerCase();
+  if (value === "true" || value === "1") return true;
+  if (value === "false" || value === "0") return false;
+  return undefined;
+}
+
+function normalizeDiscoveryToken(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9:]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export class CoreHubCatalogValidator {
@@ -389,16 +655,11 @@ export class CoreHubSearchIndex {
   }
 
   search(query, options = {}) {
-    const terms = tokenize(query);
-    const limit = Number.isInteger(options.limit) && options.limit > 0 ? options.limit : 10;
-    if (terms.length === 0) return [];
-
-    return this.entries
-      .map((entry) => ({ entry, score: scoreEntry(entry, terms) }))
-      .filter((result) => result.score > 0)
-      .sort((a, b) => b.score - a.score || a.entry.id.localeCompare(b.entry.id))
-      .slice(0, limit)
-      .map((result) => ({ score: result.score, ...result.entry.toPublicRecord() }));
+    return searchCatalogRecords(
+      this.entries.map((entry) => entry.toPublicRecord()),
+      query,
+      options,
+    );
   }
 }
 

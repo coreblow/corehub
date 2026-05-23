@@ -46,9 +46,9 @@ Already implemented:
 | CI/OIDC publish token flow | partial | CoreHub-native mint/use/revoke exists; real GitHub OIDC JWT verification remains. |
 | Official channel guard | partial | Submission guard exists; needs full CI publish wrapper and public deploy policy. |
 | Direct package publish endpoint parity | partial | Current flow is upload/verify/submit; add CI-friendly publish wrapper only after trusted publisher boundary. |
-| Marketplace filters | partial | Add family/channel/category/capability/official/featured filters. |
-| Marketplace ranking | partial | Add deterministic ranking with downloads/install signals and exact-token boosts. |
-| Plugin-specific list/search | missing | Add plugin-only search/list parity for code-plugin and bundle-plugin families. |
+| Marketplace filters | done | Family, channel, category, capability, official, featured, and executes-code filters are wired into API v1/CLI. |
+| Marketplace ranking | done | Search uses deterministic exact/id/name/category/capability boosts with download/install tie-breakers. |
+| Plugin-specific list/search | done | `/corehub/api/v1/plugins` and `/corehub/api/v1/plugins/search` provide plugin-only parity. |
 | Publisher portal UI | partial | Admin exists; publisher self-service portal still missing. |
 | Browser login/session for publisher portal | partial | Token/session UX exists in pieces; needs real portal-grade flow. |
 | Artifact upload UI | missing | Add publisher-facing upload/submission form. |
@@ -105,6 +105,8 @@ git diff --check
 ```
 
 ### Phase G: Marketplace Search and Discovery Depth
+
+Status: implemented for CoreHub static/projected API v1 and CLI discovery filters.
 
 Goal: ClawHub-style discovery behavior with deterministic CoreHub implementation.
 

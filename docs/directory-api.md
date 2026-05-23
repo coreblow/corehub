@@ -134,8 +134,10 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 | `GET` | `/corehub/api/v1/entries` | Entry list, optionally filtered by `kind`. |
 | `GET` | `/corehub/api/v1/entries/:id` | Inspect one catalog entry. |
 | `GET` | `/corehub/api/v1/search?q=<query>` | Search entries by id, kind, name, summary, tags, capabilities, platforms, and review state. |
-| `GET` | `/corehub/api/v1/packages` | ClawHub-style package list alias over the catalog. |
-| `GET` | `/corehub/api/v1/packages/search?q=<query>` | ClawHub-style package search alias. |
+| `GET` | `/corehub/api/v1/packages` | ClawHub-style package list alias with family, channel, official, featured, category, and capability filters. |
+| `GET` | `/corehub/api/v1/packages/search?q=<query>` | ClawHub-style package search alias with deterministic ranking and the same discovery filters. |
+| `GET` | `/corehub/api/v1/plugins` | Plugin-only package browse across CoreHub code-plugin and bundle-plugin families. |
+| `GET` | `/corehub/api/v1/plugins/search?q=<query>` | Plugin-only search in relevance order. |
 | `GET` | `/corehub/api/v1/publishers` | List publishers represented in the catalog. |
 | `GET` | `/corehub/api/v1/publishers/:handle` | Inspect one publisher and its catalog entries. |
 | `GET` | `/corehub/api/v1/packages/:id` | Inspect one package-compatible entry. |
@@ -171,7 +173,19 @@ The OpenClaw-style user command is `corehub install <id>`. It is the intended in
 
 ## Search
 
-The local search index scores matches across id, kind, name, summary, tags, and capabilities. This is intentionally deterministic so CI can validate catalog behavior before a hosted search service exists.
+The local search index scores matches across id, kind, name, summary, tags, capabilities, marketplace family, channel, and plugin category. This is intentionally deterministic so CI can validate catalog behavior before a hosted search service exists.
+
+Discovery filters match the ClawHub package marketplace shape where CoreHub can express it today:
+
+- `family=skill|code-plugin|bundle-plugin`
+- `channel=official|community|private`
+- `isOfficial=true|false`
+- `featured=true|false`
+- `executesCode=true|false`
+- `category=dev-tools|channels|security|observability|deployment|data|automation|mcp-tooling`
+- `capabilityTag=<tag>`
+
+Plugin browse aliases apply `pluginOnly=true` internally, so `/corehub/api/v1/plugins` and `/corehub/api/v1/plugins/search` only return code-plugin or bundle-plugin marketplace entries.
 
 ## ClawHub-Compatible Command Shape
 
@@ -182,7 +196,7 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub inspect <entry-id|skill-folder>`
 - `corehub skill publish <skill-folder>`
 - `corehub package explore`
-- `corehub package search <query>`
+- `corehub package search <query> [--family code-plugin] [--category dev-tools] [--capability tag] [--official]`
 - `corehub package inspect <entry-id>`
 - `corehub package versions <entry-id>`
 - `corehub package moderation-status <entry-id>`

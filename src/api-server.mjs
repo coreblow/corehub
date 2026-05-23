@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { listCatalogRecords, parseMarketplaceFiltersFromUrl, searchCatalogRecords } from "./corehub.mjs";
 
 const defaultApiBasePath = "/corehub/api/v2";
 const defaultPublicBaseUrl = "https://coreblow.com/corehub";
@@ -1878,6 +1879,7 @@ export class CoreHubLocalStorageAdapter {
       const trust = packageReleaseTrust(version);
       const submission = submissionRecord.submission;
       const source = submission.source ?? `https://github.com/${version.publisherHandle}/${version.packageId}`;
+      const installStats = this.installEvents.filter((event) => event.packageId === version.packageId);
       entries.push({
         id: version.packageId,
         kind: submission.kind,
@@ -1888,6 +1890,19 @@ export class CoreHubLocalStorageAdapter {
         version: version.version,
         tags: [submission.kind, "published"],
         capabilities: [],
+        stats: {
+          installs: installStats.filter((event) => event.event === "installed").length,
+          downloads: installStats.filter((event) => event.event === "downloaded").length,
+        },
+        marketplace: {
+          family: submission.kind === "skill" ? "skill" : "code-plugin",
+          channel: submission.channel ?? version.channel ?? "community",
+          isOfficial: (submission.channel ?? version.channel) === "official",
+          featured: false,
+          executesCode: submission.kind === "plugin",
+          category: "dev-tools",
+          capabilityTags: [submission.kind, "published"],
+        },
         publisher: {
           handle: version.publisherHandle,
           displayName: titleizeHandle(version.publisherHandle),
@@ -2587,13 +2602,17 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
 
   if (segments[0] === "catalog" && segments.length === 1) return dataResponse(entries, entries.length);
   if (segments[0] === "entries" && segments.length === 1) {
-    const kind = url.searchParams.get("kind");
-    const filtered = kind ? entries.filter((entry) => entry.kind === kind) : entries;
+    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url));
     return dataResponse(filtered, filtered.length);
   }
   if (segments[0] === "entries" && segments.length === 2) {
     const entry = findProjectedEntry(entries, segments[1]);
     return entry ? dataResponse(entry) : dataResponse(null, 0, 404);
+  }
+  if (segments[0] === "search" && segments.length === 1) {
+    const query = url.searchParams.get("q") ?? "";
+    const results = searchCatalogRecords(entries, query, parseMarketplaceFiltersFromUrl(url));
+    return dataResponse(results, results.length, results.length > 0 || query.trim().length > 0 ? 200 : 400);
   }
   if (segments[0] === "download" && segments.length === 1) {
     const entry = findProjectedEntry(entries, url.searchParams.get("id"));
@@ -2607,13 +2626,31 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
       "X-CoreHub-Artifact-SHA256": result.artifact.sha256,
     });
   }
-  if (segments[0] === "packages" && segments.length === 1) return dataResponse(entries, entries.length);
+  if (segments[0] === "packages" && segments.length === 1) {
+    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url));
+    return dataResponse(filtered, filtered.length);
+  }
   if (segments[0] === "packages" && segments[1] === "search" && segments.length === 2) {
-    const query = (url.searchParams.get("q") ?? "").toLowerCase();
-    const results = entries
-      .filter((entry) => JSON.stringify(entry).toLowerCase().includes(query))
-      .map((entry) => ({ ...entry, score: query ? 1 : 0 }));
+    const query = url.searchParams.get("q") ?? "";
+    const results = searchCatalogRecords(entries, query, parseMarketplaceFiltersFromUrl(url));
     return dataResponse(results, results.length);
+  }
+  if (segments[0] === "plugins" && segments.length === 1) {
+    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }));
+    return dataResponse(filtered, filtered.length);
+  }
+  if (segments[0] === "plugins" && segments[1] === "search" && segments.length === 2) {
+    const query = url.searchParams.get("q") ?? "";
+    const results = searchCatalogRecords(entries, query, parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }));
+    return dataResponse(results, results.length);
+  }
+  if (segments[0] === "code-plugins" && segments.length === 1) {
+    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url, { family: "code-plugin" }));
+    return dataResponse(filtered, filtered.length);
+  }
+  if (segments[0] === "bundle-plugins" && segments.length === 1) {
+    const filtered = listCatalogRecords(entries, parseMarketplaceFiltersFromUrl(url, { family: "bundle-plugin" }));
+    return dataResponse(filtered, filtered.length);
   }
   if (segments[0] === "packages" && segments.length >= 2) {
     const entry = findProjectedEntry(entries, segments[1]);

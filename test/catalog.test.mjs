@@ -327,6 +327,9 @@ try {
 const searchResults = catalog.search("compatibility lab fixtures");
 assert.equal(searchResults[0].id, "plugin-lab");
 assert.ok(searchResults[0].score > 0);
+assert.equal(catalog.plugins({ category: "dev-tools" }).some((entry) => entry.id === "plugin-lab"), true);
+assert.equal(catalog.search("plugin", { pluginOnly: true, family: "code-plugin" })[0].marketplace.family, "code-plugin");
+assert.equal(catalog.search("plugin", { capabilityTag: "contract-validation" })[0].id, "plugin-lab");
 
 const invalid = validateCatalog([
   {
@@ -1894,6 +1897,23 @@ try {
     const projectedVersionsPayload = await projectedVersionsResponse.json();
     assert.equal(projectedVersionsPayload.data[0].tag, "latest");
 
+    const projectedPluginListResponse = await fetch(`${apiRegistryUrl}/api/v1/plugins?category=dev-tools&executesCode=true`);
+    assert.equal(projectedPluginListResponse.status, 200);
+    const projectedPluginListPayload = await projectedPluginListResponse.json();
+    assert.equal(projectedPluginListPayload.data[0].id, "plugin-lab");
+    assert.equal(projectedPluginListPayload.data[0].marketplace.family, "code-plugin");
+
+    const projectedPluginSearchResponse = await fetch(`${apiRegistryUrl}/api/v1/plugins/search?q=plugin&isOfficial=false`);
+    assert.equal(projectedPluginSearchResponse.status, 200);
+    const projectedPluginSearchPayload = await projectedPluginSearchResponse.json();
+    assert.equal(projectedPluginSearchPayload.data[0].id, "plugin-lab");
+    assert.equal(projectedPluginSearchPayload.data[0].score > 0, true);
+
+    const projectedPackageFilterResponse = await fetch(`${apiRegistryUrl}/api/v1/packages?family=code-plugin&capabilityTag=published`);
+    assert.equal(projectedPackageFilterResponse.status, 200);
+    const projectedPackageFilterPayload = await projectedPackageFilterResponse.json();
+    assert.equal(projectedPackageFilterPayload.data[0].id, "plugin-lab");
+
     const packageDelete = await execFileAsync(
       process.execPath,
       [
@@ -2637,6 +2657,20 @@ const registryServer = createServer((request, response) => {
     return;
   }
 
+  if (url.pathname === "/corehub/api/v1/packages/search") {
+    assert.equal(url.searchParams.get("family"), "code-plugin");
+    assert.equal(url.searchParams.get("capabilityTag"), "contract-validation");
+    assert.equal(url.searchParams.get("isOfficial"), "true");
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        data: [{ ...entries[2], marketplace: { family: "code-plugin", channel: "official" }, score: 12 }],
+        meta: { count: 1, query: url.searchParams.get("q") },
+      }),
+    );
+    return;
+  }
+
   if (url.pathname === "/corehub/api/v1/packages/plugin-lab") {
     response.end(JSON.stringify({ apiVersion: "v1", data: entries[2], meta: { count: 1 } }));
     return;
@@ -2786,6 +2820,21 @@ try {
     registryUrl,
   ]);
   assert.match(remoteSearch.stdout, /plugin-lab\tplugin\tPlugin Lab score=8/);
+
+  const remotePackageSearch = await execFileAsync(process.execPath, [
+    cliPath,
+    "package",
+    "search",
+    "plugin",
+    "--family",
+    "code-plugin",
+    "--capability",
+    "contract-validation",
+    "--official",
+    "--registry",
+    registryUrl,
+  ]);
+  assert.match(remotePackageSearch.stdout, /plugin-lab\tplugin\tPlugin Lab code-plugin\/official score=12/);
 
   const remoteInspect = await execFileAsync(process.execPath, [
     cliPath,

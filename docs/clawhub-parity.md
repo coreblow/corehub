@@ -58,6 +58,8 @@ Implemented v1 read endpoints:
 - `GET /corehub/api/v1/search?q=<query>`
 - `GET /corehub/api/v1/packages`
 - `GET /corehub/api/v1/packages/search?q=<query>`
+- `GET /corehub/api/v1/plugins`
+- `GET /corehub/api/v1/plugins/search?q=<query>`
 - `GET /corehub/api/v1/packages/:id`
 - `GET /corehub/api/v1/packages/:id/versions`
 
@@ -106,6 +108,7 @@ Implemented moderation/trust starters:
 - Admin status and support bundles include package lifecycle, report, and appeal counts with recent samples.
 - `corehub package trusted-publisher set|get|delete <id>` stores package-level GitHub Actions trusted publisher policy.
 - `corehub package publish-token mint|revoke <id>` mints and revokes short-lived publish tokens for matching trusted publisher runs.
+- Package browse/search now supports ClawHub-style discovery filters and deterministic ranking for family, channel, category, capability, official, featured, and executes-code fields.
 
 ### Phase 6: Install and Sync
 
