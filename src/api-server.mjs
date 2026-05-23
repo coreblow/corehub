@@ -1652,6 +1652,58 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  publisherDashboard(actor = defaultActor()) {
+    const identity = this.publisherIdentity(actor);
+    const handles = new Set(identity.memberships.map((membership) => membership.publisherHandle));
+    const packages = this.projectCatalogEntries()
+      .filter((entry) => handles.has(entry.publisher?.handle))
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        kind: entry.kind,
+        version: entry.version,
+        publisher: entry.publisher,
+        marketplace: entry.marketplace,
+        review: entry.review,
+        latestVersion: entry.versions?.[0] ?? null,
+        trustedPublisher: this.trustedPublishers.get(entry.id) ?? null,
+      }));
+    const submissions = [...this.submissions.values()]
+      .filter((record) => handles.has(record.submission.publisherHandle))
+      .map((record) => this.submissionInspection(record))
+      .sort((left, right) => right.submission.submittedAt.localeCompare(left.submission.submittedAt));
+    const transfers = [...this.ownershipTransfers.values()]
+      .filter((transfer) => handles.has(transfer.fromPublisherHandle) || handles.has(transfer.toPublisherHandle))
+      .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
+    const uploadSlots = [...this.slots.values()]
+      .filter((slot) => handles.has(slot.publisherHandle))
+      .map((slot) => ({
+        id: slot.id,
+        packageId: slot.packageId,
+        version: slot.version,
+        publisherHandle: slot.publisherHandle,
+        status: slot.artifactUpload.status,
+        artifactUploadId: slot.artifactUpload.id,
+        createdAt: slot.artifactUpload.createdAt,
+      }))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return {
+      identity,
+      packages,
+      submissions,
+      transfers,
+      uploadSlots,
+      counts: {
+        publishers: handles.size,
+        packages: packages.length,
+        submissions: submissions.length,
+        pendingSubmissions: submissions.filter((item) => item.submission.status === "pending_review").length,
+        transfers: transfers.length,
+        uploadSlots: uploadSlots.length,
+      },
+    };
+  }
+
   requirePublisherPermission(actor, publisherHandle, action) {
     const publisher = this.publisherAccounts.get(publisherHandle);
     if (!publisher || publisher.status !== "verified") {
@@ -2071,6 +2123,14 @@ export function createCoreHubApiHandler({
         return;
       }
 
+      if (request.method === "GET" && ["/corehub/publisher", "/corehub/publisher/"].includes(url.pathname)) {
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "text/html;charset=UTF-8");
+        response.setHeader("Cache-Control", "no-store");
+        response.end(renderCoreHubPublisherHtml());
+        return;
+      }
+
       const v1Segments = trimBasePath(url.pathname, "/corehub/api/v1");
       if (v1Segments) {
         const result = await handleProjectedRegistryV1(storage, request, url, v1Segments, {
@@ -2092,6 +2152,24 @@ export function createCoreHubApiHandler({
           targetType: "publisher",
           targetId: result.defaultPublisher?.handle ?? actor.id,
           metadata: { membershipCount: result.memberships.length },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "publisher" && segments[1] === "dashboard" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const result = storage.publisherDashboard(actor);
+        await storage.auditRead({
+          actor,
+          action: "publisher.dashboard",
+          targetType: "publisher",
+          targetId: result.identity.defaultPublisher?.handle ?? actor.id,
+          metadata: {
+            packageCount: result.packages.length,
+            submissionCount: result.submissions.length,
+            transferCount: result.transfers.length,
+          },
           now: now(),
         });
         return json(response, 200, { apiVersion: "v2", data: result });
@@ -3829,6 +3907,482 @@ function renderCoreHubAdminHtml() {
     function showLoginError(message) {
       nodes.loginError.textContent = message;
       nodes.loginError.classList.remove("hidden");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+    }
+  </script>
+</body>
+</html>`;
+}
+
+function renderCoreHubPublisherHtml() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CoreHub Publisher Portal</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7f8;
+      --panel: #ffffff;
+      --ink: #172026;
+      --muted: #66727f;
+      --line: #dce1e7;
+      --accent: #0f766e;
+      --accent-ink: #ffffff;
+      --warn: #9a3412;
+      --bad: #b91c1c;
+      --good: #15803d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      min-height: 64px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 18px; }
+    h2 { font-size: 15px; margin-bottom: 10px; }
+    h3 { font-size: 13px; color: var(--muted); }
+    main { width: min(1280px, 100%); margin: 0 auto; padding: 20px 24px 40px; }
+    section, .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    section { padding: 16px; margin-bottom: 14px; }
+    .metric { padding: 14px; min-height: 92px; }
+    .metric strong { display: block; font-size: 28px; line-height: 1.1; margin-top: 8px; }
+    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .muted { color: var(--muted); }
+    .hidden { display: none !important; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 12px;
+      background: #f9fafb;
+      white-space: nowrap;
+    }
+    .status.good { color: var(--good); border-color: #bbf7d0; background: #f0fdf4; }
+    .status.warn { color: var(--warn); border-color: #fed7aa; background: #fff7ed; }
+    .status.bad { color: var(--bad); border-color: #fecaca; background: #fef2f2; }
+    button, input, select, textarea {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 0 10px;
+      font: inherit;
+    }
+    input, select { height: 36px; width: 100%; }
+    textarea { min-height: 72px; padding-top: 8px; resize: vertical; width: 100%; }
+    button {
+      height: 36px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      border-color: var(--accent);
+      cursor: pointer;
+      font-weight: 650;
+    }
+    button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+    form { display: grid; gap: 10px; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 12px; }
+    th, td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    th { font-size: 12px; color: var(--muted); }
+    .error, .notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; }
+    .error { border: 1px solid #fecaca; color: var(--bad); background: #fef2f2; }
+    .notice { border: 1px solid #bbf7d0; color: var(--good); background: #f0fdf4; }
+    @media (max-width: 900px) {
+      header, main { padding-left: 14px; padding-right: 14px; }
+      .grid, .two, .form-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>CoreHub Publisher Portal</h1>
+      <p class="muted" id="sessionLabel">Not connected</p>
+    </div>
+    <div class="toolbar">
+      <span class="status" id="rolePill">signed out</span>
+      <button class="secondary" id="refreshButton" type="button">Refresh</button>
+      <button class="secondary" id="signOutButton" type="button">Sign out</button>
+    </div>
+  </header>
+  <main>
+    <section id="loginPanel">
+      <h2>Publisher Session</h2>
+      <p class="muted">Use a CoreHub token and actor id with publisher membership.</p>
+      <form id="sessionForm">
+        <div class="form-grid">
+          <label>Actor
+            <input id="actorInput" autocomplete="username" placeholder="github:coreblow-admin" value="github:coreblow-admin">
+          </label>
+          <label>Token
+            <input id="tokenInput" autocomplete="current-password" placeholder="publisher token" type="password">
+          </label>
+        </div>
+        <button type="submit">Connect</button>
+      </form>
+      <div class="error hidden" id="loginError"></div>
+    </section>
+
+    <div id="portal" class="hidden">
+      <div class="grid">
+        <div class="metric"><h3>Publishers</h3><strong id="metricPublishers">0</strong><p class="muted">memberships</p></div>
+        <div class="metric"><h3>Packages</h3><strong id="metricPackages">0</strong><p class="muted">owned listings</p></div>
+        <div class="metric"><h3>Pending</h3><strong id="metricPending">0</strong><p class="muted">submissions</p></div>
+        <div class="metric"><h3>Transfers</h3><strong id="metricTransfers">0</strong><p class="muted">requests</p></div>
+      </div>
+
+      <div class="two">
+        <section>
+          <h2>Whoami</h2>
+          <div id="whoamiRows"></div>
+        </section>
+        <section>
+          <h2>Claim Publisher</h2>
+          <form id="claimForm">
+            <div class="form-grid">
+              <label>Handle<input id="claimHandle" placeholder="example-org"></label>
+              <label>Display name<input id="claimDisplayName" placeholder="Example Org"></label>
+            </div>
+            <button type="submit">Claim</button>
+          </form>
+          <div class="notice hidden" id="claimNotice"></div>
+        </section>
+      </div>
+
+      <section>
+        <div class="toolbar"><h2>Owned Packages</h2><span class="status" id="packageCount">0</span></div>
+        <table>
+          <thead><tr><th>Package</th><th>Version</th><th>Publisher</th><th>Channel</th><th>Trusted Publisher</th></tr></thead>
+          <tbody id="packagesTable"></tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Upload Artifact and Submit Package</h2>
+        <form id="publishForm">
+          <div class="form-grid">
+            <label>Artifact<input id="artifactFile" type="file" required></label>
+            <label>Publisher<select id="publisherSelect"></select></label>
+            <label>Package id<input id="packageIdInput" placeholder="plugin-lab" required></label>
+            <label>Version<input id="versionInput" placeholder="0.2.0" required></label>
+            <label>Kind
+              <select id="kindInput"><option value="plugin">plugin</option><option value="skill">skill</option><option value="provider">provider</option><option value="channel">channel</option></select>
+            </label>
+            <label>Channel
+              <select id="channelInput"><option value="stable">stable</option><option value="beta">beta</option><option value="official">official</option></select>
+            </label>
+          </div>
+          <label>Source<input id="sourceInput" placeholder="https://github.com/coreblow/plugin-lab"></label>
+          <label>Changelog<textarea id="changelogInput">CoreHub publisher portal submission.</textarea></label>
+          <button type="submit">Upload and submit</button>
+        </form>
+        <div class="notice hidden" id="publishNotice"></div>
+      </section>
+
+      <div class="two">
+        <section>
+          <div class="toolbar"><h2>Submission Status</h2><span class="status" id="submissionCount">0</span></div>
+          <table>
+            <thead><tr><th>Submission</th><th>Package</th><th>Status</th><th>Review</th></tr></thead>
+            <tbody id="submissionsTable"></tbody>
+          </table>
+        </section>
+        <section>
+          <h2>Ownership Transfer</h2>
+          <form id="transferForm">
+            <div class="form-grid">
+              <label>Package id<input id="transferPackage" placeholder="plugin-lab"></label>
+              <label>From publisher<select id="transferFrom"></select></label>
+              <label>To publisher<input id="transferTo" placeholder="example-org"></label>
+              <label>Reason<input id="transferReason" placeholder="Move package ownership"></label>
+            </div>
+            <button type="submit">Request transfer</button>
+          </form>
+          <table>
+            <thead><tr><th>Transfer</th><th>Package</th><th>Route</th><th>Status</th></tr></thead>
+            <tbody id="transfersTable"></tbody>
+          </table>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const sessionKey = "corehub.publisher.session.v1";
+    const state = { session: readSession(), dashboard: null };
+    const nodes = Object.fromEntries([...document.querySelectorAll("[id]")].map((node) => [node.id, node]));
+
+    nodes.sessionForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const actor = nodes.actorInput.value.trim();
+      const token = nodes.tokenInput.value.trim();
+      if (!actor || !token) return showError("Actor and token are required.");
+      state.session = { actor, token };
+      sessionStorage.setItem(sessionKey, JSON.stringify(state.session));
+      await loadPortal();
+    });
+    nodes.refreshButton.addEventListener("click", () => loadPortal());
+    nodes.signOutButton.addEventListener("click", () => {
+      sessionStorage.removeItem(sessionKey);
+      state.session = null;
+      renderSignedOut();
+    });
+    nodes.claimForm.addEventListener("submit", claimPublisher);
+    nodes.publishForm.addEventListener("submit", uploadAndSubmit);
+    nodes.transferForm.addEventListener("submit", requestTransfer);
+
+    if (state.session) {
+      nodes.actorInput.value = state.session.actor;
+      loadPortal();
+    } else {
+      renderSignedOut();
+    }
+
+    function readSession() {
+      try {
+        const parsed = JSON.parse(sessionStorage.getItem(sessionKey) || "null");
+        return parsed?.actor && parsed?.token ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+
+    async function loadPortal() {
+      if (!state.session) return renderSignedOut();
+      try {
+        const payload = await api("/publisher/dashboard");
+        state.dashboard = payload.data;
+        renderPortal(payload.data);
+      } catch (error) {
+        showError(error.message || "Unable to load publisher dashboard.");
+        renderSignedOut(false);
+      }
+    }
+
+    async function claimPublisher(event) {
+      event.preventDefault();
+      const handle = nodes.claimHandle.value.trim();
+      if (!handle) return showNotice(nodes.claimNotice, "Handle is required.");
+      const payload = await api("/publishers/claim", {
+        method: "POST",
+        body: {
+          handle,
+          displayName: nodes.claimDisplayName.value.trim() || handle,
+          kind: "organization",
+        },
+      });
+      showNotice(nodes.claimNotice, "Publisher " + payload.data.publisher.handle + " " + payload.data.status + ".");
+      await loadPortal();
+    }
+
+    async function uploadAndSubmit(event) {
+      event.preventDefault();
+      const file = nodes.artifactFile.files[0];
+      if (!file) return showNotice(nodes.publishNotice, "Choose an artifact first.");
+      const bytes = await file.arrayBuffer();
+      const sha256 = await sha256Hex(bytes);
+      const packageId = nodes.packageIdInput.value.trim();
+      const version = nodes.versionInput.value.trim();
+      const publisherHandle = nodes.publisherSelect.value;
+      const upload = await api("/artifacts/uploads", {
+        method: "POST",
+        body: {
+          packageId,
+          version,
+          publisherHandle,
+          provider: "r2",
+          maxBytes: Math.max(file.size, 104857600),
+          artifact: {
+            name: file.name,
+            mediaType: file.type || "application/octet-stream",
+            size: file.size,
+            sha256,
+          },
+        },
+      });
+      const slot = upload.data.uploadSlot;
+      await apiRaw("/artifacts/uploads/" + encodeURIComponent(slot.id), {
+        method: "PUT",
+        headers: {
+          "content-type": file.type || "application/octet-stream",
+          "x-corehub-artifact-sha256": sha256,
+        },
+        body: bytes,
+      });
+      const verified = await api("/artifacts/uploads/" + encodeURIComponent(slot.id) + "/verify", { method: "POST" });
+      const submission = await api("/submissions", {
+        method: "POST",
+        body: {
+          packageId,
+          version,
+          publisherHandle,
+          kind: nodes.kindInput.value,
+          channel: nodes.channelInput.value,
+          artifactUploadId: verified.data.artifactUpload.id,
+          source: nodes.sourceInput.value.trim() || "https://github.com/" + publisherHandle + "/" + packageId,
+          changelog: nodes.changelogInput.value.trim() || "CoreHub publisher portal submission.",
+        },
+      });
+      showNotice(nodes.publishNotice, "Submitted " + submission.data.submission.id + " for review.");
+      await loadPortal();
+    }
+
+    async function requestTransfer(event) {
+      event.preventDefault();
+      const packageId = nodes.transferPackage.value.trim();
+      const toPublisherHandle = nodes.transferTo.value.trim();
+      if (!packageId || !toPublisherHandle) return;
+      await api("/transfers", {
+        method: "POST",
+        body: {
+          packageId,
+          fromPublisherHandle: nodes.transferFrom.value,
+          toPublisherHandle,
+          reason: nodes.transferReason.value.trim() || undefined,
+        },
+      });
+      await loadPortal();
+    }
+
+    async function api(path, options = {}) {
+      const response = await apiRaw(path, {
+        ...options,
+        headers: {
+          "accept": "application/json",
+          ...(options.body && !(options.body instanceof ArrayBuffer) ? { "content-type": "application/json" } : {}),
+          ...(options.headers || {}),
+        },
+        body: options.body && !(options.body instanceof ArrayBuffer) ? JSON.stringify(options.body) : options.body,
+      });
+      return response.json();
+    }
+
+    async function apiRaw(path, options = {}) {
+      const response = await fetch("/corehub/api/v2" + path, {
+        ...options,
+        headers: {
+          "authorization": "Bearer " + state.session.token,
+          "x-corehub-user": state.session.actor,
+          "x-corehub-token": state.session.token,
+          ...(options.headers || {}),
+        },
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || "CoreHub API request failed.");
+      }
+      return response;
+    }
+
+    function renderSignedOut(clearError = true) {
+      nodes.portal.classList.add("hidden");
+      nodes.loginPanel.classList.remove("hidden");
+      nodes.rolePill.textContent = "signed out";
+      nodes.rolePill.className = "status";
+      nodes.sessionLabel.textContent = "Not connected";
+      if (clearError) nodes.loginError.classList.add("hidden");
+    }
+
+    function renderPortal(dashboard) {
+      nodes.loginPanel.classList.add("hidden");
+      nodes.portal.classList.remove("hidden");
+      const identity = dashboard.identity;
+      nodes.sessionLabel.textContent = identity.actor.id;
+      nodes.rolePill.textContent = identity.permissions.admin ? "admin publisher" : "publisher";
+      nodes.rolePill.className = "status good";
+      nodes.metricPublishers.textContent = String(dashboard.counts.publishers);
+      nodes.metricPackages.textContent = String(dashboard.counts.packages);
+      nodes.metricPending.textContent = String(dashboard.counts.pendingSubmissions);
+      nodes.metricTransfers.textContent = String(dashboard.counts.transfers);
+      nodes.whoamiRows.innerHTML = identity.memberships.map((membership) =>
+        row(membership.publisherHandle, membership.role, membership.publisher?.status || "unknown")
+      ).join("") || '<p class="muted">No publisher memberships.</p>';
+      renderPublisherOptions(identity.memberships);
+      renderTable(nodes.packagesTable, dashboard.packages, (item) => [
+        item.id,
+        item.latestVersion?.version || item.version,
+        item.publisher?.handle,
+        item.marketplace?.channel,
+        item.trustedPublisher?.repository || "not configured",
+      ]);
+      renderTable(nodes.submissionsTable, dashboard.submissions, (item) => [
+        item.submission.id,
+        item.submission.packageId + "@" + item.submission.version,
+        item.submission.status,
+        item.moderationReview?.id || "pending",
+      ]);
+      renderTable(nodes.transfersTable, dashboard.transfers, (item) => [
+        item.id,
+        item.packageId,
+        item.fromPublisherHandle + " -> " + item.toPublisherHandle,
+        item.status,
+      ]);
+      nodes.packageCount.textContent = String(dashboard.packages.length);
+      nodes.submissionCount.textContent = String(dashboard.submissions.length);
+    }
+
+    function renderPublisherOptions(memberships) {
+      const options = memberships.map((membership) => '<option value="' + escapeHtml(membership.publisherHandle) + '">' + escapeHtml(membership.publisherHandle) + '</option>').join("");
+      nodes.publisherSelect.innerHTML = options;
+      nodes.transferFrom.innerHTML = options;
+    }
+
+    function renderTable(target, items, cellsFor) {
+      target.innerHTML = (items || []).map((item) => "<tr>" + cellsFor(item).map((cell) => "<td>" + escapeHtml(cell || "-") + "</td>").join("") + "</tr>").join("") || "<tr><td colspan=\\"5\\" class=\\"muted\\">No records</td></tr>";
+    }
+
+    function row(label, status, detail) {
+      return "<div class=\\"toolbar\\" style=\\"justify-content:space-between;border-bottom:1px solid var(--line);padding:8px 0\\"><span>" + escapeHtml(label) + "</span><span><span class=\\"status " + statusClass(detail || status) + "\\">" + escapeHtml(status) + "</span> <span class=\\"muted\\">" + escapeHtml(detail || "") + "</span></span></div>";
+    }
+
+    function statusClass(value) {
+      if (["active", "owner", "admin", "maintainer", "verified", "approved", "available"].includes(String(value))) return "good";
+      if (["pending", "pending_review", "requested"].includes(String(value))) return "warn";
+      if (["blocked", "rejected", "revoked"].includes(String(value))) return "bad";
+      return "";
+    }
+
+    function showError(message) {
+      nodes.loginError.textContent = message;
+      nodes.loginError.classList.remove("hidden");
+    }
+
+    function showNotice(target, message) {
+      target.textContent = message;
+      target.classList.remove("hidden");
+    }
+
+    async function sha256Hex(buffer) {
+      const digest = await crypto.subtle.digest("SHA-256", buffer);
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     }
 
     function escapeHtml(value) {

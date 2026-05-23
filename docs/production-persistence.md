@@ -211,7 +211,7 @@ The support bundle includes state store, object store, queue counts, transfer co
 
 ## CoreHub Admin Web Foundation
 
-CoreHub serves a read-only admin web surface at `/corehub/admin`.
+CoreHub serves an admin web surface at `/corehub/admin`.
 
 The current foundation intentionally stays narrow:
 
@@ -231,6 +231,28 @@ npm run smoke:admin-ui
 ```
 
 The smoke starts a local CoreHub server, opens `/corehub/admin` with Playwright, connects as `github:coreblow-admin`, verifies the dashboard sections, and checks admin status through the browser context. CI runs the same command after the local publish and Worker-local smokes.
+
+## CoreHub Publisher Portal Foundation
+
+CoreHub serves a publisher self-service web surface at `/corehub/publisher`.
+
+The current foundation covers the ClawHub-style publisher workflow through CoreHub-native API boundaries:
+
+- Browser session gate with publisher actor id and token stored in session storage.
+- Whoami, role status, and publisher memberships from `GET /corehub/api/v2/publisher/dashboard`.
+- Owned package list with latest version, marketplace channel, and trusted publisher status.
+- Publisher claim form through `POST /corehub/api/v2/publishers/claim`.
+- Artifact upload and package submission form through upload slot, artifact verify, and submission APIs.
+- Submission status tracking for packages owned by the signed-in publisher.
+- Ownership transfer request and transfer status table.
+
+Run the authenticated publisher UI smoke locally with:
+
+```sh
+npm run smoke:publisher-ui
+```
+
+The smoke starts a local CoreHub server, opens `/corehub/publisher` with Playwright, connects as `github:coreblow-admin`, verifies the publisher dashboard sections, and checks `GET /corehub/api/v2/publisher/dashboard` through the browser context.
 
 ## Operator Smoke Workflow
 

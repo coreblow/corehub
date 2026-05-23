@@ -668,6 +668,14 @@ try {
   assert.match(adminPageHtml, /corehub\.admin\.session\.v1/);
   assert.match(adminPageHtml, /api\("\/admin\/status"\)/);
   assert.match(adminPageHtml, /api\("\/reviews\?status=open&limit=25"\)/);
+  const publisherPage = await fetch(`${bootstrapInfo.url}/publisher`);
+  assert.equal(publisherPage.status, 200);
+  assert.match(publisherPage.headers.get("content-type"), /text\/html/);
+  const publisherPageHtml = await publisherPage.text();
+  assert.match(publisherPageHtml, /CoreHub Publisher Portal/);
+  assert.match(publisherPageHtml, /corehub\.publisher\.session\.v1/);
+  assert.match(publisherPageHtml, /api\("\/publisher\/dashboard"\)/);
+  assert.match(publisherPageHtml, /Upload Artifact and Submit Package/);
   assert.equal(bootstrapServer.stateStoreKind, "local-json");
   assert.match(bootstrapServer.statePath, /write-side-state\.json$/);
 } finally {
@@ -1019,6 +1027,16 @@ try {
   assert.equal(whoamiPayload.data.memberships[0].publisherHandle, "coreblow");
   assert.deepEqual(whoamiPayload.data.memberships[0].permissions, ["artifact.upload", "submission.create"]);
   assert.equal(whoamiPayload.data.permissions.admin, true);
+
+  const dashboardResponse = await fetch(`${apiBaseUrl}/publisher/dashboard`, {
+    headers: { "x-corehub-user": "github:coreblow-admin" },
+  });
+  assert.equal(dashboardResponse.status, 200);
+  const dashboardPayload = await dashboardResponse.json();
+  assert.equal(dashboardPayload.data.identity.defaultPublisher.handle, "coreblow");
+  assert.equal(dashboardPayload.data.counts.publishers, 1);
+  assert.deepEqual(dashboardPayload.data.packages, []);
+  assert.equal(dashboardPayload.data.uploadSlots.length, 0);
 
   // Publisher Claim Integration Test
   const claimResponse = await fetch(`${apiBaseUrl}/publishers/claim`, {

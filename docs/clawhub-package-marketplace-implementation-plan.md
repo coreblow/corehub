@@ -16,7 +16,7 @@ CoreHub uses ClawHub as the product and behavior specification, while keeping th
 
 Latest CoreHub split commit used for this plan:
 
-- `d56caef CoreHub: enforce release moderation blocks`
+- `14128b5 CoreHub: add marketplace discovery filters`
 
 Already implemented:
 
@@ -27,6 +27,7 @@ Already implemented:
 - Reports, appeals, report triage, appeal resolution.
 - Soft delete/undelete lifecycle.
 - Release moderation enforcement for report final actions `quarantine` and `revoke`.
+- Marketplace filters, deterministic ranking, and plugin-only v1 routes.
 - Audit hash chain, retention, incident reporting, admin status, support bundle.
 - D1/R2 production persistence boundary and Worker deploy checks.
 
@@ -49,11 +50,11 @@ Already implemented:
 | Marketplace filters | done | Family, channel, category, capability, official, featured, and executes-code filters are wired into API v1/CLI. |
 | Marketplace ranking | done | Search uses deterministic exact/id/name/category/capability boosts with download/install tie-breakers. |
 | Plugin-specific list/search | done | `/corehub/api/v1/plugins` and `/corehub/api/v1/plugins/search` provide plugin-only parity. |
-| Publisher portal UI | partial | Admin exists; publisher self-service portal still missing. |
-| Browser login/session for publisher portal | partial | Token/session UX exists in pieces; needs real portal-grade flow. |
-| Artifact upload UI | missing | Add publisher-facing upload/submission form. |
-| Submission/review status UI | partial | API/CLI exists; publisher UI missing. |
-| Transfer UI | partial | API/CLI exists; publisher UI missing. |
+| Publisher portal UI | done | `/corehub/publisher` provides publisher self-service foundation. |
+| Browser login/session for publisher portal | partial | Token/session UX is wired; real OAuth/session hardening remains. |
+| Artifact upload UI | done | Publisher portal uploads, verifies, and submits artifacts through API v2. |
+| Submission/review status UI | done | Publisher portal lists owned submissions and review ids/statuses. |
+| Transfer UI | done | Publisher portal can request ownership transfers and list transfer statuses. |
 | Install pin/unpin/uninstall/list/update/sync | missing | Add local install state and safe update behavior. |
 | Telemetry opt-out | partial | Analytics exists; install/sync opt-out needs final CLI/runtime integration. |
 | Production auth/rate limit/private visibility | partial | Harden browser OAuth, permissions, private package rules, and edge rate limits. |
@@ -127,6 +128,8 @@ Tasks:
 
 ### Phase H: Publisher Portal Full Self-Service
 
+Status: implemented for token-session publisher self-service foundation; real OAuth/session hardening and owned report/appeal visibility remain production hardening.
+
 Goal: Publisher can operate CoreHub without admin-only tools.
 
 Tasks:
@@ -139,9 +142,14 @@ Tasks:
 - Submission form.
 - Artifact upload UI.
 - Submission/review status tracking.
-- Report/appeal visibility for owned packages.
-- Ownership transfer request/accept/reject UI where permitted.
+- Ownership transfer request UI where permitted.
 - Playwright smoke for authenticated publisher flows.
+
+Remaining hardening:
+
+- Report/appeal visibility for owned packages.
+- Transfer accept/reject browser controls for permitted recipient/source actors.
+- Real browser OAuth/session validation when the CoreBlow app auth boundary is ready.
 
 ### Phase I: Install and Sync Lifecycle
 
