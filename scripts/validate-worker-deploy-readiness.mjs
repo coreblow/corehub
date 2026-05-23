@@ -44,6 +44,7 @@ requirePresent("D1 state table", config.vars.COREHUB_D1_STATE_TABLE);
 requirePresent("R2 bucket name", config.vars.COREHUB_R2_BUCKET_NAME);
 requirePresent("admin actors", config.vars.COREHUB_ADMIN_ACTORS);
 requirePresent("analytics salt", config.vars.COREHUB_ANALYTICS_SALT);
+requireEqual("session token hash enforcement", config.vars.COREHUB_REQUIRE_SESSION_TOKEN_HASHES, "1");
 requireSigningKeyId(config.vars.COREHUB_SIGNING_KEY_ID);
 
 const d1 = config.d1Databases.find((item) => item.binding === "COREHUB_D1");
@@ -56,6 +57,8 @@ else fail("R2 binding", "missing [[r2_buckets]] binding COREHUB_R2");
 
 if (/wrangler secret put COREHUB_SIGNING_SECRET/.test(text)) pass("signing secret runbook", "wrangler secret put COREHUB_SIGNING_SECRET");
 else fail("signing secret runbook", "missing wrangler secret command comment");
+if (/wrangler secret put COREHUB_SESSION_TOKEN_SHA256/.test(text)) pass("session token hash runbook", "wrangler secret put COREHUB_SESSION_TOKEN_SHA256");
+else fail("session token hash runbook", "missing session token hash secret command comment");
 
 if (mode === "production") {
   if (!d1?.database_id || d1.database_id.includes("replace-with")) {
@@ -68,6 +71,12 @@ if (mode === "production") {
     pass("COREHUB_SIGNING_SECRET", "present");
   } else {
     fail("COREHUB_SIGNING_SECRET", "set COREHUB_SIGNING_SECRET with at least 12 characters before deploy");
+  }
+  const sessionTokenHash = process.env.COREHUB_SESSION_TOKEN_SHA256;
+  if (typeof sessionTokenHash === "string" && /^[a-f0-9]{64}$/i.test(sessionTokenHash)) {
+    pass("COREHUB_SESSION_TOKEN_SHA256", "present");
+  } else {
+    fail("COREHUB_SESSION_TOKEN_SHA256", "set COREHUB_SESSION_TOKEN_SHA256 to a 64-character SHA-256 hex digest before deploy");
   }
   if (process.env.COREHUB_PUBLIC_BASE_URL && process.env.COREHUB_PUBLIC_BASE_URL !== config.vars.COREHUB_PUBLIC_BASE_URL) {
     fail(

@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { listCatalogRecords, parseMarketplaceFiltersFromUrl, searchCatalogRecords } from "./corehub.mjs";
@@ -2112,9 +2112,11 @@ export function createCoreHubApiHandler({
   basePath = defaultApiBasePath,
   now = () => new Date(),
   rateLimit,
+  sessionTokens,
 } = {}) {
   if (!storage) throw new Error("createCoreHubApiHandler requires storage");
   const limiter = createRateLimiter(rateLimit);
+  const sessionAuth = createSessionAuth(sessionTokens);
   return async function coreHubApiHandler(request, response) {
     try {
       const url = new URL(request.url, "http://127.0.0.1");
@@ -2155,7 +2157,7 @@ export function createCoreHubApiHandler({
       if (!segments) return json(response, 404, { error: "Not found" });
 
       if (request.method === "GET" && segments[0] === "session" && segments[1] === "validate" && segments.length === 2) {
-        const result = validateSessionRequest(storage, request, url.searchParams.get("role") ?? "publisher");
+        const result = validateSessionRequest(storage, request, url.searchParams.get("role") ?? "publisher", sessionAuth);
         await storage.auditRead({
           actor: result.actor,
           action: "session.validate",
@@ -3469,10 +3471,11 @@ function actorFromRequest(request, storage) {
   };
 }
 
-function validateSessionRequest(storage, request, role) {
+function validateSessionRequest(storage, request, role, sessionAuth = createSessionAuth()) {
   const token = authTokenFromRequest(request);
   if (!token) throw httpError(401, "Session token is required");
   const normalizedRole = role === "admin" ? "admin" : "publisher";
+  const tokenValidation = validateSessionToken(storage, token, normalizedRole, sessionAuth);
   const actor = actorFromRequest(request, storage);
   if (normalizedRole === "admin") {
     storage.requireAdminPermission(actor, "session.validate");
@@ -3487,12 +3490,55 @@ function validateSessionRequest(storage, request, role) {
     actor,
     token: {
       present: true,
-      type: jwtPayloadFromToken(storage, token) ? "jwt" : "opaque",
+      type: tokenValidation.type,
+      verified: tokenValidation.verified,
+      verifier: tokenValidation.verifier,
     },
     permissions: identity.permissions,
     memberships: identity.memberships,
     defaultPublisher: identity.defaultPublisher,
   };
+}
+
+function validateSessionToken(storage, token, role, sessionAuth) {
+  if (jwtPayloadFromToken(storage, token)) {
+    return { type: "jwt", verified: true, verifier: "signed-jwt" };
+  }
+  if (!sessionAuth.enforceOpaqueTokens) {
+    return { type: "opaque", verified: false, verifier: "local-dev" };
+  }
+  const acceptedHashes = role === "admin" ? sessionAuth.adminTokenHashes : sessionAuth.publisherTokenHashes;
+  if (acceptedHashes.some((hash) => tokenMatchesSha256(token, hash))) {
+    return { type: "opaque", verified: true, verifier: "configured-sha256" };
+  }
+  throw httpError(401, "Session token is not valid for this role");
+}
+
+function createSessionAuth(config = {}) {
+  const sharedTokenHashes = normalizeTokenHashes(config.sharedTokenHashes ?? config.tokenHashes);
+  return {
+    enforceOpaqueTokens: Boolean(config.enforceOpaqueTokens ?? config.enforce ?? sharedTokenHashes.length > 0),
+    adminTokenHashes: [
+      ...sharedTokenHashes,
+      ...normalizeTokenHashes(config.adminTokenHashes),
+    ],
+    publisherTokenHashes: [
+      ...sharedTokenHashes,
+      ...normalizeTokenHashes(config.publisherTokenHashes),
+    ],
+  };
+}
+
+function normalizeTokenHashes(value) {
+  if (!value) return [];
+  const values = Array.isArray(value) ? value : String(value).split(",");
+  return values.map((hash) => String(hash).trim().toLowerCase()).filter((hash) => /^[a-f0-9]{64}$/.test(hash));
+}
+
+function tokenMatchesSha256(token, expectedHash) {
+  const actual = Buffer.from(createHash("sha256").update(token).digest("hex"), "hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 function authTokenFromRequest(request) {

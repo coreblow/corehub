@@ -66,6 +66,10 @@ const pluginLabRemoteArtifact = {
   },
 };
 
+function sha256Hex(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
 assert.deepEqual(errors, []);
 assert.deepEqual(new CoreHubCatalogSchemaValidator(schema).validate(entries), []);
 assert.deepEqual(new CoreHubCatalogSchemaValidator(writeSideSchema).validate(writeSideState), []);
@@ -1032,6 +1036,11 @@ const apiServer = createServer(
   createCoreHubApiHandler({
     storage: apiStorage,
     now: () => new Date("2026-05-21T00:00:00Z"),
+    sessionTokens: {
+      enforceOpaqueTokens: true,
+      adminTokenHashes: [sha256Hex("local-admin-token")],
+      publisherTokenHashes: [sha256Hex("local-publisher-token")],
+    },
   }),
 );
 await new Promise((resolve) => apiServer.listen(0, "127.0.0.1", resolve));
@@ -1052,6 +1061,14 @@ try {
   });
   assert.equal(missingSessionToken.status, 401);
 
+  const invalidSessionToken = await fetch(`${apiBaseUrl}/session/validate?role=publisher`, {
+    headers: {
+      authorization: "Bearer wrong-token",
+      "x-corehub-user": "github:coreblow-admin",
+    },
+  });
+  assert.equal(invalidSessionToken.status, 401);
+
   const adminSessionResponse = await fetch(`${apiBaseUrl}/session/validate?role=admin`, {
     headers: {
       authorization: "Bearer local-admin-token",
@@ -1064,6 +1081,8 @@ try {
   assert.equal(adminSessionPayload.data.role, "admin");
   assert.equal(adminSessionPayload.data.permissions.admin, true);
   assert.equal(adminSessionPayload.data.token.type, "opaque");
+  assert.equal(adminSessionPayload.data.token.verified, true);
+  assert.equal(adminSessionPayload.data.token.verifier, "configured-sha256");
 
   const publisherSessionResponse = await fetch(`${apiBaseUrl}/session/validate?role=publisher`, {
     headers: {
@@ -1075,6 +1094,7 @@ try {
   const publisherSessionPayload = await publisherSessionResponse.json();
   assert.equal(publisherSessionPayload.data.valid, true);
   assert.equal(publisherSessionPayload.data.role, "publisher");
+  assert.equal(publisherSessionPayload.data.token.verified, true);
   assert.equal(publisherSessionPayload.data.memberships[0].publisherHandle, "coreblow");
 
   const dashboardResponse = await fetch(`${apiBaseUrl}/publisher/dashboard`, {

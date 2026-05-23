@@ -20,6 +20,7 @@ COREHUB_ADMIN_ACTORS = "github:coreblow-admin,moderator:corehub"
 COREHUB_ANALYTICS_SALT = "replace-with-operator-managed-analytics-salt"
 COREHUB_RATE_LIMIT_MAX = "120"
 COREHUB_RATE_LIMIT_WINDOW_MS = "60000"
+COREHUB_REQUIRE_SESSION_TOKEN_HASHES = "1"
 
 [[d1_databases]]
 binding = "COREHUB_D1"
@@ -32,3 +33,4 @@ bucket_name = "corehub-artifacts"
 
 # Required before deploy:
 # wrangler secret put COREHUB_SIGNING_SECRET --config ops/cloudflare/wrangler.corehub-api.persistence.example.toml
+# wrangler secret put COREHUB_SESSION_TOKEN_SHA256 --config ops/cloudflare/wrangler.corehub-api.persistence.example.toml

@@ -313,7 +313,7 @@ npm run validate:production-finalization
 npm run drill:production
 ```
 
-The finalization gate checks the Worker config, deploy workflow, operator smoke workflow, rollback runbook, private package visibility docs, and rate-limit policy. The production drill rehearsal exercises snapshot export, backup validation, restore dry run, restore apply, persistence migration smoke, and Worker-local smoke. These commands do not prove that real D1/R2/secrets are already applied; that remains the protected production deploy step.
+The finalization gate checks the Worker config, deploy workflow, operator smoke workflow, rollback runbook, private package visibility docs, browser session token hash policy, and rate-limit policy. The production drill rehearsal exercises snapshot export, backup validation, restore dry run, restore apply, persistence migration smoke, and Worker-local smoke. These commands do not prove that real D1/R2/secrets are already applied; that remains the protected production deploy step.
 
 ## Production Access Policy
 
@@ -322,6 +322,7 @@ CoreHub production uses the same actor boundary across CLI, admin UI, publisher 
 - Public Registry API v1 hides `private` channel packages from anonymous reads, lists, search, and download metadata.
 - Private package reads require an admin actor or an active member of the package publisher.
 - Browser admin and publisher sessions call `GET /corehub/api/v2/session/validate` with the expected role before rendering privileged status, queue, package, submission, or transfer data.
+- `COREHUB_REQUIRE_SESSION_TOKEN_HASHES=1` makes opaque browser session tokens fail closed unless their SHA-256 hash matches `COREHUB_SESSION_TOKEN_SHA256`, `COREHUB_ADMIN_TOKEN_SHA256`, or `COREHUB_PUBLISHER_TOKEN_SHA256`. Signed JWT sessions remain valid when signed by the active CoreHub signing key.
 - `COREHUB_RATE_LIMIT_MAX` and `COREHUB_RATE_LIMIT_WINDOW_MS` enable a fixed-window request limit at the Worker/API handler boundary.
 - The rate-limit key prefers `x-corehub-client-id`, then Cloudflare/forwarded IP headers, then the socket address.
 
@@ -408,6 +409,10 @@ The production environment template is in `ops/corehub-api.production.env.exampl
 | `COREHUB_SIGNING_SECRET` | none in Worker | Required HMAC secret for signed artifact read URLs. |
 | `COREHUB_SIGNING_KEY_ID` | `primary` in Worker | Current signing key id included in signed read URLs for rotation. |
 | `COREHUB_SIGNING_PREVIOUS_SECRETS` | unset | Optional comma-separated `keyId:secret` rotation placeholder accepted for old read URLs. |
+| `COREHUB_REQUIRE_SESSION_TOKEN_HASHES` | unset locally, `1` in Worker template | Requires opaque browser session tokens to match configured SHA-256 hashes. |
+| `COREHUB_SESSION_TOKEN_SHA256` | unset | Shared SHA-256 hash accepted for admin and publisher browser sessions. |
+| `COREHUB_ADMIN_TOKEN_SHA256` | unset | Admin-only opaque browser session token hash. |
+| `COREHUB_PUBLISHER_TOKEN_SHA256` | unset | Publisher-only opaque browser session token hash. |
 | `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` | Public registry URL used in upload contracts. |
 | `COREHUB_AUDIT_RETENTION_DAYS` | `365` | Audit retention window before prune planning. |
 | `COREHUB_ADMIN_ACTORS` | `github:coreblow-admin,moderator:corehub` | Comma-separated actor ids allowed to inspect queues, decide reviews, read audit evidence, and run retention actions. |

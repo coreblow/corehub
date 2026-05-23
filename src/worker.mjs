@@ -24,6 +24,7 @@ export async function handleCoreHubWorkerRequest(request, env = {}, context = un
     const handler = createCoreHubApiHandler({
       storage: app.storage,
       rateLimit: workerRateLimitConfig(env, options),
+      sessionTokens: workerSessionTokensConfig(env, options),
     });
     const response = createFetchResponseRecorder();
     await handler(await toNodeLikeRequest(request), response);
@@ -34,6 +35,16 @@ export async function handleCoreHubWorkerRequest(request, env = {}, context = un
       { status: error?.statusCode ?? 500 },
     );
   }
+}
+
+function workerSessionTokensConfig(env = {}, options = {}) {
+  if (options.sessionTokens) return options.sessionTokens;
+  return {
+    enforceOpaqueTokens: env.COREHUB_REQUIRE_SESSION_TOKEN_HASHES === "1",
+    tokenHashes: env.COREHUB_SESSION_TOKEN_SHA256,
+    adminTokenHashes: env.COREHUB_ADMIN_TOKEN_SHA256,
+    publisherTokenHashes: env.COREHUB_PUBLISHER_TOKEN_SHA256,
+  };
 }
 
 function workerRateLimitConfig(env = {}, options = {}) {

@@ -57,7 +57,11 @@ export async function createCoreHubServer(options = {}) {
     adminActorIds: env.COREHUB_ADMIN_ACTORS,
     analyticsSalt: env.COREHUB_ANALYTICS_SALT,
   });
-  const apiHandler = createCoreHubApiHandler({ storage, rateLimit });
+  const apiHandler = createCoreHubApiHandler({
+    storage,
+    rateLimit,
+    sessionTokens: sessionTokensFromEnv(env),
+  });
   const server = createServer((request, response) => {
     if (request.url === "/healthz") {
       response.setHeader("Content-Type", "application/json;charset=UTF-8");
@@ -94,6 +98,15 @@ export async function createCoreHubServer(options = {}) {
         server.close((error) => (error ? reject(error) : resolve()));
       });
     },
+  };
+}
+
+function sessionTokensFromEnv(env = {}) {
+  return {
+    enforceOpaqueTokens: env.COREHUB_REQUIRE_SESSION_TOKEN_HASHES === "1",
+    tokenHashes: env.COREHUB_SESSION_TOKEN_SHA256,
+    adminTokenHashes: env.COREHUB_ADMIN_TOKEN_SHA256,
+    publisherTokenHashes: env.COREHUB_PUBLISHER_TOKEN_SHA256,
   };
 }
 
