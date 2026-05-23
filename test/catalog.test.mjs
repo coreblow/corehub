@@ -1995,7 +1995,7 @@ try {
         "--note",
         "Confirmed report fixture.",
         "--action",
-        "none",
+        "quarantine",
         "--registry",
         apiRegistryUrl,
       ],
@@ -2004,6 +2004,22 @@ try {
     const packageReportTriagePayload = JSON.parse(packageReportTriage.stdout);
     assert.equal(packageReportTriagePayload.status, "confirmed");
     assert.equal(packageReportTriagePayload.report.triageNote, "Confirmed report fixture.");
+    assert.equal(packageReportTriagePayload.report.finalAction, "quarantine");
+
+    const quarantinedModerationStatus = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "moderation-status", "plugin-lab", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const quarantinedModerationStatusPayload = JSON.parse(quarantinedModerationStatus.stdout);
+    assert.equal(quarantinedModerationStatusPayload.latestVersion.moderationStatus, "quarantined");
+    assert.equal(quarantinedModerationStatusPayload.latestVersion.blockedFromDownload, true);
+    assert.equal(quarantinedModerationStatusPayload.latestVersion.reasons.includes("manual:quarantined"), true);
+
+    const quarantinedDownloadResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/download?redirect=false`);
+    assert.equal(quarantinedDownloadResponse.status, 403);
+    const quarantinedDownloadPayload = await quarantinedDownloadResponse.json();
+    assert.equal(quarantinedDownloadPayload.data.download.blocked, true);
 
     const packageAppeal = await execFileAsync(
       process.execPath,
@@ -2136,10 +2152,12 @@ try {
     assert.equal(adminStatusPayload.readiness.status, "ready");
     assert.equal(adminStatusPayload.counts.installEvents, 2);
     assert.equal(adminStatusPayload.counts.softDeletedPackages, 0);
+    assert.equal(adminStatusPayload.counts.moderatedPackageVersions, 1);
     assert.equal(adminStatusPayload.counts.packageReports, 1);
     assert.equal(adminStatusPayload.counts.packageAppeals, 1);
     assert.equal(adminStatusPayload.queues.reviews.approved, 1);
     assert.equal(adminStatusPayload.queues.packageLifecycle.active, 1);
+    assert.equal(adminStatusPayload.queues.packageReleaseModeration.quarantined, 1);
     assert.equal(adminStatusPayload.queues.packageReports.confirmed, 1);
     assert.equal(adminStatusPayload.queues.packageAppeals.accepted, 1);
     assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
@@ -2159,8 +2177,10 @@ try {
     assert.equal(supportBundle.bundle.redaction.secretsIncluded, false);
     assert.equal(supportBundle.counts.installEvents, 2);
     assert.equal(supportBundle.counts.softDeletedPackages, 0);
+    assert.equal(supportBundle.counts.moderatedPackageVersions, 1);
     assert.equal(supportBundle.recent.packageLifecycle[0].packageId, "plugin-lab");
     assert.equal(typeof supportBundle.recent.packageLifecycle[0].restoredAt, "string");
+    assert.equal(supportBundle.recent.packageReleaseModeration[0].manualModeration.state, "quarantined");
     assert.equal(supportBundle.recent.packageReports[0].status, "confirmed");
     assert.equal(supportBundle.recent.packageAppeals[0].status, "accepted");
     assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
@@ -2173,6 +2193,7 @@ try {
     assert.equal(persistedState.packageVersions[0].status, "available");
     assert.equal("softDeletedAt" in persistedState.packageVersions[0], false);
     assert.equal(typeof persistedState.packageVersions[0].restoredAt, "string");
+    assert.equal(persistedState.packageVersions[0].manualModeration.state, "quarantined");
     assert.equal(persistedState.installEvents.length, 2);
     assert.equal(persistedState.packageReports[0].status, "confirmed");
     assert.equal(persistedState.packageAppeals[0].status, "accepted");
@@ -2183,6 +2204,7 @@ try {
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.appeal.resolve"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.delete"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.undelete"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.release.moderate"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.event.ingest"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.analytics.summary"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);

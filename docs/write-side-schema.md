@@ -268,7 +268,7 @@ Review decisions are explicit write-side events:
 
 Review approval is the first point where a submitted artifact can become installable. Blocked versions remain non-installable but auditable, preserving package/version history instead of deleting the failed submission.
 
-Package reports are separate from submission reviews. A report does not hide or block a package by itself; it becomes an auditable moderation intake record until a moderator triages it as `confirmed`, `dismissed`, or reopened as `open`.
+Package reports are separate from submission reviews. A report does not hide or block a package by itself; it becomes an auditable moderation intake record until a moderator triages it as `confirmed`, `dismissed`, or reopened as `open`. When a confirmed report carries final action `quarantine` or `revoke`, CoreHub applies release moderation to the affected version, marks it download-blocked in trust metadata, and returns `403` from package download routes.
 
 Package appeals are separate from package reports. A verified publisher can appeal a published version with a message, and a moderator resolves the appeal as `accepted`, `rejected`, or reopened as `open` with optional final action `none` or `approve`.
 

@@ -380,6 +380,14 @@ export class CoreHubLocalStorageAdapter {
 
   async createArtifactDownload(artifact, { actor = defaultActor(), baseUrl = this.publicBaseUrl, now = new Date() } = {}) {
     const key = artifact?.storage?.key;
+    if (artifact?.downloadEnabled === false || artifact?.trust?.blockedFromDownload) {
+      return {
+        available: false,
+        blocked: true,
+        reason: artifact?.trust?.moderationReason ?? "Package release is blocked by moderation.",
+        trust: artifact?.trust ?? null,
+      };
+    }
     if (!key || !artifact?.sha256 || !Number.isSafeInteger(artifact?.size)) {
       return { available: false, reason: "Artifact storage locator or checksum metadata is incomplete." };
     }
@@ -431,6 +439,9 @@ export class CoreHubLocalStorageAdapter {
     const signature = normalizeRequiredString(url.searchParams.get("signature"), "signature");
     const artifact = this.findProjectedArtifactByStorageKey(key);
     if (!artifact) throw httpError(404, "Artifact storage key not found");
+    if (artifact.downloadEnabled === false || artifact.trust?.blockedFromDownload) {
+      throw httpError(403, artifact.trust?.moderationReason ?? "Package release is blocked by moderation");
+    }
     if (new Date(expiresAt).getTime() < now.getTime()) throw httpError(403, "Artifact read signature expired");
     const expected = signArtifactRead({
       key,
@@ -914,6 +925,7 @@ export class CoreHubLocalStorageAdapter {
       reviews: this.reviews.size,
       packageVersions: this.packageVersions.size,
       softDeletedPackages: this.softDeletedPackageCount(),
+      moderatedPackageVersions: this.moderatedPackageVersionCount(),
       packageReports: this.packageReports.length,
       packageAppeals: this.packageAppeals.length,
       ownershipTransfers: this.ownershipTransfers.size,
@@ -953,6 +965,9 @@ export class CoreHubLocalStorageAdapter {
         submissions: countByStatus([...this.submissions.values()].map((record) => record.submission.status)),
         reviews: countByStatus([...this.reviews.values()].map((review) => review.status)),
         packageLifecycle: countByStatus([...this.packageVersions.values()].map((version) => (version.softDeletedAt ? "deleted" : "active"))),
+        packageReleaseModeration: countByStatus(
+          [...this.packageVersions.values()].map((version) => version.manualModeration?.state ?? version.moderationStatus ?? "unknown"),
+        ),
         packageReports: countByStatus(this.packageReports.map((report) => report.status)),
         packageAppeals: countByStatus(this.packageAppeals.map((appeal) => appeal.status)),
         ownershipTransfers: countByStatus([...this.ownershipTransfers.values()].map((transfer) => transfer.status)),
@@ -1000,6 +1015,10 @@ export class CoreHubLocalStorageAdapter {
         reviews: latestItems([...this.reviews.values()], limit),
         packageLifecycle: latestItems(
           [...this.packageVersions.values()].filter((version) => version.softDeletedAt || version.restoredAt),
+          limit,
+        ),
+        packageReleaseModeration: latestItems(
+          [...this.packageVersions.values()].filter((version) => version.manualModeration),
           limit,
         ),
         packageReports: latestItems(this.packageReports, limit),
@@ -1083,6 +1102,10 @@ export class CoreHubLocalStorageAdapter {
     report.triagedAt = triagedAt;
     if (triage.note) report.triageNote = triage.note;
     if (triage.finalAction) report.finalAction = triage.finalAction;
+    const releaseModeration =
+      report.status === "confirmed" && triage.finalAction && triage.finalAction !== "none"
+        ? this.applyReleaseModerationForReport(report, triage, { actor, now: triagedAt })
+        : null;
     this.recordAuditEvent({
       actor,
       action: "package.report.triage",
@@ -1093,11 +1116,45 @@ export class CoreHubLocalStorageAdapter {
         version: report.version,
         status: report.status,
         finalAction: report.finalAction ?? null,
+        releaseModeration,
       },
       createdAt: triagedAt,
     });
     await this.persistState();
     return { status: report.status, report };
+  }
+
+  applyReleaseModerationForReport(report, triage, { actor, now }) {
+    const version = this.packageVersions.get(`version-${report.packageId}-${slugVersion(report.version)}`);
+    if (!version || version.status !== "available" || version.softDeletedAt) {
+      throw httpError(404, "Package version not found for release moderation");
+    }
+    const state = triage.finalAction === "quarantine" ? "quarantined" : "revoked";
+    const reason = triage.note ?? `Report ${report.id} ${state} this release.`;
+    version.manualModeration = {
+      state,
+      reason,
+      reportId: report.id,
+      moderatedBy: actor,
+      moderatedAt: now,
+    };
+    version.moderationStatus = state;
+    version.artifact = version.artifact ? { ...version.artifact, downloadEnabled: false } : version.artifact;
+    this.recordAuditEvent({
+      actor,
+      action: "package.release.moderate",
+      targetType: "packageVersion",
+      targetId: version.id,
+      metadata: {
+        packageId: version.packageId,
+        version: version.version,
+        state,
+        reportId: report.id,
+        finalAction: triage.finalAction,
+      },
+      createdAt: now,
+    });
+    return { packageVersionId: version.id, state, blockedFromDownload: true };
   }
 
   async softDeletePackage(packageId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
@@ -1590,6 +1647,10 @@ export class CoreHubLocalStorageAdapter {
     return packageIds.size;
   }
 
+  moderatedPackageVersionCount() {
+    return [...this.packageVersions.values()].filter((version) => version.manualModeration).length;
+  }
+
   projectedVersionForPackage(packageId, version) {
     const versions = [...this.packageVersions.values()]
       .filter((item) => item.packageId === packageId && item.status === "available")
@@ -1628,6 +1689,7 @@ export class CoreHubLocalStorageAdapter {
       if (!submissionRecord) continue;
       const artifactUpload = this.findArtifactUpload(version.artifactUploadId);
       if (!artifactUpload || artifactUpload.status !== "verified") continue;
+      const trust = packageReleaseTrust(version);
       const submission = submissionRecord.submission;
       const source = submission.source ?? `https://github.com/${version.publisherHandle}/${version.packageId}`;
       entries.push({
@@ -1664,12 +1726,14 @@ export class CoreHubLocalStorageAdapter {
               handle: version.publisherHandle,
             },
             status: "available",
+            moderationState: trust.moderationState,
             artifact: {
               name: artifactUpload.storage.key.split("/").at(-1) ?? `${version.packageId}-${version.version}.artifact`,
               mediaType: artifactUpload.mediaType ?? "application/octet-stream",
               size: artifactUpload.size,
               sha256: artifactUpload.sha256,
-              downloadEnabled: true,
+              downloadEnabled: !trust.blockedFromDownload,
+              trust,
               storage: artifactUpload.storage,
               provenance: {
                 source,
@@ -2348,6 +2412,24 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
 
 async function projectedDownloadResponse(storage, request, url, entry, { actor, baseUrl, now }) {
   const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
+  if (version.artifact?.downloadEnabled === false || version.artifact?.trust?.blockedFromDownload) {
+    return dataResponse(
+      {
+        package: { id: entry.id, kind: entry.kind, name: entry.name },
+        version: version.version,
+        publisher: entry.publisher,
+        artifact: version.artifact,
+        download: {
+          available: false,
+          blocked: true,
+          reason: version.artifact?.trust?.moderationReason ?? "Package release is blocked by moderation.",
+          trust: version.artifact?.trust ?? null,
+        },
+      },
+      1,
+      403,
+    );
+  }
   const download = await storage.createArtifactDownload(version.artifact, { actor, baseUrl, now });
   if (download.available && url.searchParams.get("redirect") !== "false") {
     return redirectResponse(download.url);
@@ -2366,15 +2448,35 @@ function findProjectedEntry(entries, id) {
   return entries.find((entry) => entry.id === decoded) ?? null;
 }
 
+function packageReleaseTrust(version) {
+  const manualState = version.manualModeration?.state ?? null;
+  const moderationState = manualState ?? version.moderationStatus ?? "approved";
+  const blockedFromDownload = manualState === "quarantined" || manualState === "revoked";
+  const reasons = [];
+  if (manualState) reasons.push(`manual:${manualState}`);
+  return {
+    moderationState,
+    blockedFromDownload,
+    reasons,
+    moderationReason: version.manualModeration?.reason ?? null,
+    manualModeration: version.manualModeration ?? null,
+  };
+}
+
 function createPackageModerationStatus(entry) {
   const latest = selectLatestPackageVersion(entry);
   const reviewState = entry.review?.state ?? "unknown";
-  const blocked = latest?.status === "blocked" || reviewState === "blocked" || latest?.artifact?.downloadEnabled === false;
-  const reasons = [];
+  const trust = latest?.artifact?.trust ?? null;
+  const blocked =
+    latest?.status === "blocked" ||
+    reviewState === "blocked" ||
+    latest?.artifact?.downloadEnabled === false ||
+    Boolean(trust?.blockedFromDownload);
+  const reasons = trust?.reasons ? [...trust.reasons] : [];
   if (!latest) reasons.push("latest-version-missing");
   if (latest?.status && latest.status !== "available") reasons.push(`version-${latest.status}`);
   if (reviewState !== "verified") reasons.push(`review-${reviewState}`);
-  if (latest?.artifact?.downloadEnabled === false) reasons.push("download-disabled");
+  if (latest?.artifact?.downloadEnabled === false && !reasons.includes("download-disabled")) reasons.push("download-disabled");
   return {
     status: "ok",
     package: {
@@ -2389,11 +2491,12 @@ function createPackageModerationStatus(entry) {
           version: latest.version,
           tag: latest.tag ?? null,
           status: latest.status ?? "unknown",
-          moderationStatus: reviewState,
+          moderationStatus: trust?.moderationState ?? latest.moderationState ?? reviewState,
           blockedFromDownload: blocked,
           downloadEnabled: Boolean(latest.artifact?.downloadEnabled),
           reasons,
-          moderationReason: entry.review?.notes ?? null,
+          moderationReason: trust?.moderationReason ?? entry.review?.notes ?? null,
+          trust,
         }
       : null,
   };
@@ -2448,10 +2551,14 @@ function createPackageReadiness(entry) {
   add(
     "moderation",
     "Moderation state",
-    entry.review?.state === "verified" && latest?.status === "available" ? "pass" : "fail",
-    entry.review?.state === "verified" && latest?.status === "available"
+    entry.review?.state === "verified" && latest?.status === "available" && latest?.artifact?.trust?.blockedFromDownload !== true
+      ? "pass"
+      : "fail",
+    entry.review?.state === "verified" && latest?.status === "available" && latest?.artifact?.trust?.blockedFromDownload !== true
       ? "Package is verified and latest version is available."
-      : `Review state is ${entry.review?.state ?? "unknown"} and latest status is ${latest?.status ?? "missing"}.`,
+      : latest?.artifact?.trust?.blockedFromDownload
+        ? latest.artifact.trust.moderationReason
+        : `Review state is ${entry.review?.state ?? "unknown"} and latest status is ${latest?.status ?? "missing"}.`,
   );
   const blockers = checks.filter((check) => check.status === "fail").map((check) => check.id);
   return {

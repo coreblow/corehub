@@ -100,7 +100,7 @@ Implemented package CLI parity starters:
 Implemented moderation/trust starters:
 
 - `corehub package report <id>` creates an auditable package report for a published version.
-- `corehub package reports list` and `corehub package reports triage` expose moderator intake without auto-hiding packages.
+- `corehub package reports list` and `corehub package reports triage` expose moderator intake; confirmed reports with `quarantine` or `revoke` final actions now block release downloads.
 - `corehub package appeal <id>` creates a publisher appeal for a published version.
 - `corehub package appeals list` and `corehub package appeals resolve` expose the moderator/admin appeal queue with ClawHub-style `open`, `accepted`, and `rejected` statuses.
 - Admin status and support bundles include package lifecycle, report, and appeal counts with recent samples.
