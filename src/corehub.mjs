@@ -49,6 +49,7 @@ export const TEXT_FILE_EXTENSIONS = new Set([
 
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+const SCOPED_NAME_PATTERN = /^@[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/;
 
 export class CoreHubEntry {
   constructor(raw) {
@@ -210,7 +211,16 @@ export class CoreHubCatalogValidator {
       return ["entry must be an object"];
     }
 
-    requireSlug(errors, entry.id, "id");
+    if (typeof entry.id !== "string" || (!SLUG_PATTERN.test(entry.id) && !SCOPED_NAME_PATTERN.test(entry.id))) {
+      errors.push("id must be kebab-case or @scope/kebab-case");
+    }
+    if (typeof entry.id === "string" && entry.id.startsWith("@")) {
+      const parts = entry.id.slice(1).split("/");
+      const scope = parts[0];
+      if (entry.publisher?.handle && scope !== entry.publisher.handle) {
+        errors.push(`scoped package scope '${scope}' must match publisher handle '${entry.publisher.handle}'`);
+      }
+    }
     if (!ENTRY_KINDS.has(entry.kind)) {
       errors.push(`kind must be one of ${[...ENTRY_KINDS].join(", ")}`);
     }

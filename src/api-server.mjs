@@ -14,6 +14,7 @@ const defaultAdminActorIds = ["github:coreblow-admin", "moderator:corehub"];
 const defaultAnalyticsSalt = "corehub-local-analytics-salt";
 const publisherWriteRoles = new Set(["owner", "admin", "maintainer"]);
 const adminRoles = new Set(["admin", "moderator"]);
+const PUBLISHER_HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
 export class CoreHubLocalJsonStateStore {
   constructor({ statePath } = {}) {
@@ -1222,6 +1223,94 @@ export class CoreHubLocalStorageAdapter {
     return publisher;
   }
 
+  claimPublisher(body, { actor, now }) {
+    const handle = String(body.handle ?? "").trim().toLowerCase();
+    if (!handle) throw httpError(400, "Publisher handle is required");
+    if (!PUBLISHER_HANDLE_RE.test(handle)) {
+      throw httpError(400, "Handle must be lowercase kebab-case, 2-40 characters");
+    }
+
+    const existing = this.publisherAccounts.get(handle);
+    if (existing) {
+      return { status: "already_claimed", publisher: existing };
+    }
+
+    const claimId = `claim-${handle}`;
+    const claim = {
+      id: claimId,
+      handle,
+      displayName: (body.displayName || "").trim() || handle,
+      kind: body.kind || "organization",
+      status: "pending",
+      source: body.source || `https://github.com/${handle}`,
+      contact: body.contact || `https://github.com/${handle}`,
+      requestedBy: actor,
+      requestedAt: now.toISOString(),
+    };
+    this.publisherClaims.push(claim);
+
+    const publisherId = `publisher-${handle}`;
+    const publisher = {
+      id: publisherId,
+      handle,
+      displayName: claim.displayName,
+      kind: claim.kind,
+      status: "pending",
+      source: claim.source,
+      contact: claim.contact,
+      createdAt: now.toISOString(),
+    };
+    this.publisherAccounts.set(handle, publisher);
+
+    const memberId = `member-${handle}-${actor.id.replace(/[^a-zA-Z0-9]/g, "-")}`;
+    const membership = {
+      id: memberId,
+      publisherHandle: handle,
+      userId: actor.id,
+      role: "owner",
+      status: "active",
+      createdAt: now.toISOString(),
+    };
+    this.publisherMembers.push(membership);
+
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.claim",
+      targetType: "publisher",
+      targetId: handle,
+      metadata: { claimId, kind: claim.kind },
+      createdAt: now.toISOString(),
+    });
+
+    return { status: "claimed", claim, publisher, membership };
+  }
+
+  verifyPublisher(handle, { actor, now }) {
+    this.requireAdminPermission(actor, "publisher.verify");
+    const publisher = this.publisherAccounts.get(handle);
+    if (!publisher) throw httpError(404, `Publisher ${handle} not found`);
+    if (publisher.status === "verified") {
+      return { status: "already_verified", publisher };
+    }
+    
+    publisher.status = "verified";
+    publisher.verifiedAt = now.toISOString();
+    
+    const claim = this.publisherClaims.find((c) => c.handle === handle);
+    if (claim) claim.status = "approved";
+    
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.verify",
+      targetType: "publisher",
+      targetId: handle,
+      metadata: {},
+      createdAt: now.toISOString(),
+    });
+    
+    return { status: "verified", publisher };
+  }
+
   requireTransferReadPermission(actor, transfer, action) {
     if (this.hasAdminPermission(actor)) return;
     if (this.hasPublisherMembership(actor, transfer.fromPublisherHandle) || this.hasPublisherMembership(actor, transfer.toPublisherHandle)) {
@@ -1466,7 +1555,7 @@ export function createCoreHubApiHandler({
       const v1Segments = trimBasePath(url.pathname, "/corehub/api/v1");
       if (v1Segments) {
         const result = await handleProjectedRegistryV1(storage, request, url, v1Segments, {
-          actor: actorFromRequest(request),
+          actor: actorFromRequest(request, storage),
           now: now(),
         });
         if (result) return sendApiResult(response, result);
@@ -1476,7 +1565,7 @@ export function createCoreHubApiHandler({
       if (!segments) return json(response, 404, { error: "Not found" });
 
       if (request.method === "GET" && segments[0] === "publishers" && segments[1] === "me" && segments.length === 2) {
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = storage.publisherIdentity(actor);
         await storage.auditRead({
           actor,
@@ -1489,8 +1578,29 @@ export function createCoreHubApiHandler({
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
+      if (request.method === "GET" && segments[0] === "publishers" && segments.length === 1) {
+        const actor = actorFromRequest(request, storage);
+        storage.requireAdminPermission(actor, "publisher.list");
+        const result = Array.from(storage.publisherAccounts.values());
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "publishers" && segments[1] === "claim" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = storage.claimPublisher(body, { actor, now: now() });
+        return json(response, result.status === "already_claimed" ? 200 : 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "publishers" && segments[2] === "verify" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const handle = decodeURIComponent(segments[1]);
+        const result = storage.verifyPublisher(handle, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (request.method === "GET" && segments[0] === "admin" && ["status", "health"].includes(segments[1]) && segments.length === 2) {
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = storage.adminStatus({ actor, now: now() });
         await storage.auditRead({
           actor,
@@ -1508,7 +1618,7 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "admin" && segments[1] === "support-bundle" && segments.length === 2) {
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = storage.adminSupportBundle({
           actor,
           now: now(),
@@ -1531,21 +1641,21 @@ export function createCoreHubApiHandler({
 
       if (request.method === "POST" && segments.join("/") === "artifacts/uploads") {
         const body = await readJsonBody(request);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const uploadSlot = await storage.requestUploadSlot(body, { actor, now: now() });
         return json(response, 201, { apiVersion: "v2", data: { uploadSlot } });
       }
 
       if (request.method === "POST" && segments.join("/") === "submissions") {
         const body = await readJsonBody(request);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = await storage.createSubmission(body, { actor, now: now() });
         return json(response, 201, { apiVersion: "v2", data: result });
       }
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 1) {
         const options = readListOptions(url);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         options.authActor = actor;
         const result = storage.listSubmissions(options);
         await storage.auditRead({
@@ -1561,7 +1671,7 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 2) {
         const submissionId = decodeURIComponent(segments[1]);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = storage.inspectSubmission(submissionId, { authActor: actor });
         await storage.auditRead({
           actor,
@@ -1575,7 +1685,7 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 1) {
         const options = readListOptions(url);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         options.authActor = actor;
         const result = storage.listReviews(options);
         await storage.auditRead({
@@ -1591,7 +1701,7 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "reviews" && segments.length === 2) {
         const reviewId = decodeURIComponent(segments[1]);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = storage.inspectReview(reviewId, { authActor: actor });
         await storage.auditRead({
           actor,
@@ -1605,7 +1715,7 @@ export function createCoreHubApiHandler({
 
       if (request.method === "POST" && segments[0] === "transfers" && segments.length === 1) {
         const body = await readJsonBody(request);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = await storage.requestOwnershipTransfer(body, { actor, now: now() });
         return json(response, 201, { apiVersion: "v2", data: result });
       }
@@ -1613,7 +1723,7 @@ export function createCoreHubApiHandler({
       if (request.method === "GET" && segments[0] === "transfers" && segments.length === 1) {
         const options = readListOptions(url);
         options.packageId = url.searchParams.get("package") ?? undefined;
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         options.authActor = actor;
         const result = storage.listOwnershipTransfers(options);
         await storage.auditRead({
@@ -1629,7 +1739,7 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "transfers" && segments.length === 2) {
         const transferId = decodeURIComponent(segments[1]);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = storage.inspectOwnershipTransfer(transferId, { authActor: actor });
         await storage.auditRead({
           actor,
@@ -1648,7 +1758,7 @@ export function createCoreHubApiHandler({
         segments.length === 3
       ) {
         const body = await readJsonBody(request);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = await storage.decideOwnershipTransfer(decodeURIComponent(segments[1]), segments[2], body, {
           actor,
           now: now(),
@@ -1658,7 +1768,7 @@ export function createCoreHubApiHandler({
 
       if (request.method === "POST" && segments[0] === "install-events" && segments.length === 1) {
         const body = await readJsonBody(request);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = await storage.recordInstallEvent(body, {
           actor,
           now: now(),
@@ -1667,7 +1777,7 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "install-events" && segments[1] === "summary" && segments.length === 2) {
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const options = readInstallAnalyticsOptions(url);
         options.authActor = actor;
         const result = storage.installAnalyticsSummary(options);
@@ -1684,7 +1794,7 @@ export function createCoreHubApiHandler({
 
       if (request.method === "GET" && segments[0] === "audit" && segments[1] === "events" && segments.length === 2) {
         const options = readAuditListOptions(url);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         options.authActor = actor;
         const result = storage.listAuditEvents(options);
         await storage.auditRead({
@@ -1699,7 +1809,7 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "audit" && segments[1] === "verify" && segments.length === 2) {
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         storage.requireAdminPermission(actor, "audit.verify");
         const result = storage.verifyAuditEvents();
         await storage.auditRead({
@@ -1714,7 +1824,7 @@ export function createCoreHubApiHandler({
       }
 
       if (request.method === "GET" && segments[0] === "audit" && segments[1] === "retention" && segments.length === 2) {
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = storage.auditRetentionPlan({ actor, now: now() });
         await storage.auditRead({
           actor,
@@ -1741,7 +1851,7 @@ export function createCoreHubApiHandler({
       ) {
         const body = await readJsonBody(request);
         const result = await storage.pruneAuditEvents({
-          actor: actorFromRequest(request),
+          actor: actorFromRequest(request, storage),
           dryRun: body.dryRun !== false,
           exportHash: body.exportHash,
           exportedAt: body.exportedAt,
@@ -1758,7 +1868,7 @@ export function createCoreHubApiHandler({
         segments.length === 3
       ) {
         const body = await readJsonBody(request);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = await storage.decideReview(decodeURIComponent(segments[1]), segments[2], body, {
           actor,
           now: now(),
@@ -1773,7 +1883,7 @@ export function createCoreHubApiHandler({
         segments.length === 3
       ) {
         const body = await readJsonBody(request);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = await storage.assignReview(decodeURIComponent(segments[1]), body, {
           actor,
           now: now(),
@@ -1788,7 +1898,7 @@ export function createCoreHubApiHandler({
         segments.length === 3
       ) {
         const body = await readJsonBody(request);
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = await storage.addReviewEvidence(decodeURIComponent(segments[1]), body, {
           actor,
           now: now(),
@@ -1804,7 +1914,7 @@ export function createCoreHubApiHandler({
       ) {
         const bytes = await readBytes(request);
         const result = await storage.putObject(decodeURIComponent(segments[2]), bytes, request.headers, {
-          actor: actorFromRequest(request),
+          actor: actorFromRequest(request, storage),
           now: now(),
         });
         return json(response, 200, { apiVersion: "v2", data: result });
@@ -1817,7 +1927,7 @@ export function createCoreHubApiHandler({
         segments[3] === "verify" &&
         segments.length === 4
       ) {
-        const actor = actorFromRequest(request);
+        const actor = actorFromRequest(request, storage);
         const result = await storage.verifyUpload(decodeURIComponent(segments[2]), { actor, now: now() });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
@@ -2412,7 +2522,16 @@ async function readBytes(request) {
   return Buffer.concat(chunks);
 }
 
-function actorFromRequest(request) {
+function actorFromRequest(request, storage) {
+  const authHeader = request.headers["authorization"] ?? request.headers["Authorization"];
+  const signingSecret = storage?.signedReadKeys?.get(storage?.signedReadKeyId) ?? defaultSignedReadSecret;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice("Bearer ".length).trim();
+    const payload = verifyJwt(token, signingSecret);
+    if (payload && payload.actor) {
+      return payload.actor;
+    }
+  }
   const actorId = request.headers["x-corehub-user"] ?? "local-api-user";
   return {
     type: "user",
@@ -2914,4 +3033,45 @@ function httpError(statusCode, message) {
   const error = new Error(message);
   error.statusCode = statusCode;
   return error;
+}
+
+export function signJwt(payload, secret) {
+  const header = { alg: "HS256", typ: "JWT" };
+  const base64UrlHeader = base64UrlEncode(JSON.stringify(header));
+  const base64UrlPayload = base64UrlEncode(JSON.stringify(payload));
+  const signature = createHmac("sha256", secret)
+    .update(`${base64UrlHeader}.${base64UrlPayload}`)
+    .digest();
+  const base64UrlSignature = base64UrlEncodeBytes(signature);
+  return `${base64UrlHeader}.${base64UrlPayload}.${base64UrlSignature}`;
+}
+
+export function verifyJwt(token, secret) {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [headerB64, payloadB64, signatureB64] = parts;
+  try {
+    const expectedSignature = createHmac("sha256", secret)
+      .update(`${headerB64}.${payloadB64}`)
+      .digest();
+    const expectedSignatureB64 = base64UrlEncodeBytes(expectedSignature);
+    if (signatureB64 !== expectedSignatureB64) {
+      return null;
+    }
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+    if (payload.exp && Date.now() > payload.exp * 1000) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function base64UrlEncode(str) {
+  return Buffer.from(str).toString("base64url");
+}
+
+function base64UrlEncodeBytes(bytes) {
+  return Buffer.from(bytes).toString("base64url");
 }

@@ -12,6 +12,8 @@ import {
   CoreHubLocalStorageAdapter,
   CoreHubSnapshotStateStore,
   createCoreHubApiHandler,
+  signJwt,
+  verifyJwt,
 } from "../src/api-server.mjs";
 import { CoreHubCatalog, CoreHubSkillInspector, validateCatalog } from "../src/corehub.mjs";
 import { createCoreHubServer } from "../src/server.mjs";
@@ -1015,6 +1017,102 @@ try {
   assert.deepEqual(whoamiPayload.data.memberships[0].permissions, ["artifact.upload", "submission.create"]);
   assert.equal(whoamiPayload.data.permissions.admin, true);
 
+  // Publisher Claim Integration Test
+  const claimResponse = await fetch(`${apiBaseUrl}/publishers/claim`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:new-publisher",
+    },
+    body: JSON.stringify({
+      handle: "new-org",
+      displayName: "New Org",
+    }),
+  });
+  assert.equal(claimResponse.status, 201);
+  const claimPayload = await claimResponse.json();
+  assert.equal(claimPayload.data.claim.status, "pending");
+  assert.equal(claimPayload.data.publisher.status, "pending");
+  assert.equal(claimPayload.data.membership.role, "owner");
+
+  // Admin can list all publishers (seed + newly claimed)
+  const listPublishersResponse = await fetch(`${apiBaseUrl}/publishers`, {
+    headers: { "x-corehub-user": "github:coreblow-admin" },
+  });
+  assert.equal(listPublishersResponse.status, 200);
+  const listPublishersPayload = await listPublishersResponse.json();
+  assert.ok(listPublishersPayload.data.length >= 2); // "coreblow" (seed) + "new-org" (claimed)
+  assert.ok(listPublishersPayload.data.some((p) => p.handle === "coreblow" && p.status === "verified"));
+  assert.ok(listPublishersPayload.data.some((p) => p.handle === "new-org" && p.status === "pending"));
+
+  const duplicateClaimResponse = await fetch(`${apiBaseUrl}/publishers/claim`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:another-user",
+    },
+    body: JSON.stringify({
+      handle: "new-org",
+    }),
+  });
+  assert.equal(duplicateClaimResponse.status, 200);
+  assert.equal((await duplicateClaimResponse.json()).data.status, "already_claimed");
+
+  // Pending publisher blocked from submitting packages
+  const pendingUploadResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:new-publisher",
+    },
+    body: JSON.stringify({
+      packageId: "new-plugin",
+      version: "0.1.0",
+      publisherHandle: "new-org",
+      provider: "r2",
+      artifact: {
+        name: "new-plugin.tgz",
+        mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+        size: 100,
+        sha256: "a".repeat(64),
+      },
+    }),
+  });
+  assert.equal(pendingUploadResponse.status, 403);
+  assert.match((await pendingUploadResponse.json()).error, /is not verified for artifact\.upload\.request/);
+
+  // Admin verifies publisher
+  const verifyResponse = await fetch(`${apiBaseUrl}/publishers/new-org/verify`, {
+    method: "POST",
+    headers: {
+      "x-corehub-user": "github:coreblow-admin",
+    },
+  });
+  assert.equal(verifyResponse.status, 200);
+  assert.equal((await verifyResponse.json()).data.publisher.status, "verified");
+
+  // Verified publisher can now submit
+  const verifiedUploadResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:new-publisher",
+    },
+    body: JSON.stringify({
+      packageId: "new-plugin",
+      version: "0.1.0",
+      publisherHandle: "new-org",
+      provider: "r2",
+      artifact: {
+        name: "new-plugin.tgz",
+        mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+        size: 100,
+        sha256: "a".repeat(64),
+      },
+    }),
+  });
+  assert.equal(verifiedUploadResponse.status, 201);
+
   const unauthorizedUploadResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
     method: "POST",
     headers: {
@@ -1884,7 +1982,8 @@ try {
 
     const persistedState = JSON.parse(await readFile(apiStatePath, "utf8"));
     assert.equal(persistedState.schemaVersion, "corehub.local-state.v1");
-    assert.equal(persistedState.slots[0].artifactUpload.status, "verified");
+    const pluginLabSlot = persistedState.slots.find((s) => s.packageId === "plugin-lab" && s.version === "0.1.0");
+    assert.equal(pluginLabSlot.artifactUpload.status, "verified");
     assert.equal(persistedState.submissions[0].submission.status, "approved");
     assert.equal(persistedState.packageVersions[0].status, "available");
     assert.equal(persistedState.installEvents.length, 2);
@@ -2564,6 +2663,91 @@ try {
     registryUrl,
   ]);
   assert.equal(JSON.parse(remoteInfo.stdout).name, "CoreHub Registry API");
+
+  // Phase 3 Scoped Name Validation Tests
+  const scopedErrors = validateCatalog([
+    {
+      id: "@coreblow/plugin-lab",
+      kind: "plugin",
+      name: "Plugin Lab",
+      summary: "Compatibility lab fixtures",
+      source: "https://github.com/coreblow/corehub",
+      publisher: {
+        handle: "coreblow",
+        displayName: "CoreBlow",
+        url: "https://coreblow.com",
+        verified: true,
+      },
+    },
+  ]);
+  assert.deepEqual(scopedErrors, []);
+
+  const mismatchedScopedErrors = validateCatalog([
+    {
+      id: "@coreblow/plugin-lab",
+      kind: "plugin",
+      name: "Plugin Lab",
+      summary: "Compatibility lab fixtures",
+      source: "https://github.com/coreblow/corehub",
+      publisher: {
+        handle: "mismatched",
+        displayName: "CoreBlow",
+        url: "https://coreblow.com",
+        verified: true,
+      },
+    },
+  ]);
+  assert.ok(
+    mismatchedScopedErrors.some((err) =>
+      err.includes("scoped package scope 'coreblow' must match publisher handle 'mismatched'")
+    )
+  );
+
+  // JWT signing and verification tests
+  const testPayload = { actor: { id: "github:coreblow-admin", type: "user" } };
+  const signingSecret = "corehub-local-development-signing-secret";
+  const signedToken = signJwt(testPayload, signingSecret);
+  const verifiedPayload = verifyJwt(signedToken, signingSecret);
+  assert.deepEqual(verifiedPayload.actor, testPayload.actor);
+
+  // Remote whoami authenticated test utilizing JWT
+  const whoamiHome = await mkdtemp(join(tmpdir(), "corehub-whoami-auth-"));
+  try {
+    const whoamiEnv = { ...process.env, COREHUB_HOME: whoamiHome };
+    await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "login",
+        "--token",
+        signedToken,
+        "--user",
+        "github:coreblow-admin",
+        "--publisher",
+        "coreblow",
+        "--registry",
+        registryUrl,
+      ],
+      { env: whoamiEnv }
+    );
+    const remoteWhoami = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "whoami",
+        "--registry",
+        registryUrl,
+        "--json",
+      ],
+      { env: whoamiEnv }
+    );
+    const whoamiResult = JSON.parse(remoteWhoami.stdout);
+    assert.equal(whoamiResult.authenticated, true);
+    assert.equal(whoamiResult.actor.id, "github:coreblow-admin");
+    assert.equal(whoamiResult.memberships[0].publisherHandle, "coreblow");
+  } finally {
+    await rm(whoamiHome, { recursive: true, force: true });
+  }
 } finally {
   await new Promise((resolve) => registryServer.close(resolve));
 }

@@ -135,7 +135,8 @@ async function runLoginCommand(values) {
     createdAt: new Date().toISOString(),
   };
   await writeAuthState(auth);
-  const result = await createWhoamiResult(auth);
+  const registry = readOption(values, "--registry") ?? defaultRegistry;
+  const result = await createWhoamiResult(auth, registry);
   if (hasFlag(values, "--json")) {
     console.log(JSON.stringify(result, null, 2));
   } else {
@@ -150,8 +151,9 @@ async function runLogoutCommand() {
 }
 
 async function runWhoamiCommand(values = []) {
+  const registry = readOption(values, "--registry") ?? defaultRegistry;
   const auth = await requireAuthState();
-  const result = await createWhoamiResult(auth);
+  const result = await createWhoamiResult(auth, registry);
   if (hasFlag(values, "--json")) {
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -175,16 +177,27 @@ async function runPublisherClaimCommand(values) {
   const handle = normalizeHandle(positionalArgs(values)[0]);
   if (!handle) throw new Error("publisher claim requires a handle");
   const dryRun = hasFlag(values, "--dry-run");
-  if (!dryRun) {
-    throw new Error("publisher claim is a dry-run contract in this phase. Re-run with --dry-run.");
-  }
   const auth = await requireAuthState();
-  const existing = await findWriteSidePublisher(handle);
   const kind = readOption(values, "--kind") ?? "organization";
   if (!new Set(["user", "organization"]).has(kind)) {
     throw new Error("--kind must be user or organization");
   }
   const displayName = readOption(values, "--display-name") ?? titleizeHandle(handle);
+  const source = readOption(values, "--source") ?? `https://github.com/${handle}`;
+  const contact = readOption(values, "--contact") ?? `https://github.com/${handle}`;
+
+  if (!dryRun) {
+    const registry = readOption(values, "--registry") ?? defaultRegistry;
+    if (!registry) {
+      throw new Error("publisher claim requires --registry or COREHUB_REGISTRY for live claim");
+    }
+    const client = new CoreHubRegistryClient(registry);
+    const result = await client.claimPublisher({ handle, displayName, kind, source, contact }, { auth });
+    console.log(JSON.stringify({ ...result, dryRun: false }, null, 2));
+    return;
+  }
+
+  const existing = await findWriteSidePublisher(handle);
   const result = {
     dryRun: true,
     status: existing ? "already_claimed" : "planned",
@@ -194,12 +207,12 @@ async function runPublisherClaimCommand(values) {
       displayName,
       kind,
       status: "pending",
-      source: readOption(values, "--source") ?? `https://github.com/${handle}`,
-      contact: readOption(values, "--contact") ?? `https://github.com/${handle}`,
+      source,
+      contact,
     },
     nextStep: existing
       ? `Publisher ${handle} already exists in CoreHub write-side state.`
-      : "Submit this claim to the future authenticated publisher API for verification.",
+      : "Submit this claim to the authenticated publisher API for verification.",
   };
   console.log(JSON.stringify(result, null, 2));
 }
@@ -291,7 +304,12 @@ async function runPackageCommand(values) {
     if (!source) throw new Error("package submit requires an artifact file or folder");
     const dryRun = hasFlag(args, "--dry-run");
     if (!dryRun) {
-      throw new Error("package submit is a dry-run contract in this phase. Re-run with --dry-run.");
+      if (!registry) {
+        throw new Error("package submit requires --registry or COREHUB_REGISTRY for live submissions");
+      }
+      const result = await executePackagePublish(source, args, registry);
+      console.log(JSON.stringify(result, null, 2));
+      return;
     }
     const result = registry
       ? await createPackageSubmissionViaRegistry(source, args, registry)
@@ -952,12 +970,22 @@ async function runAuditCommand(values) {
 async function runSkillCommand(values) {
   const subcommand = values[0] ?? "help";
   const args = values.slice(1);
+  const registry = readOption(args, "--registry") ?? defaultRegistry;
 
   if (subcommand === "publish") {
-    const folder = args[0];
+    const folder = positionalArgs(args)[0];
     if (!folder) throw new Error("skill publish requires a folder");
-    const result = await new CoreHubSkillInspector().inspectFolder(folder);
-    console.log(JSON.stringify({ dryRun: true, registryPublish: "planned", ...result }, null, 2));
+
+    const dryRun = hasFlag(args, "--dry-run");
+    if (dryRun || !registry) {
+      const result = await new CoreHubSkillInspector().inspectFolder(folder);
+      console.log(JSON.stringify({ dryRun: true, registryPublish: "planned", ...result }, null, 2));
+      return;
+    }
+
+    const publishArgs = [...args, "--family", "skill"];
+    const result = await executePackagePublish(folder, publishArgs, registry);
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 
@@ -1604,9 +1632,6 @@ async function runPackageUploadCommand(values) {
   if (subcommand === "request") {
     const source = positionalArgs(args)[0];
     if (!source) throw new Error("package upload request requires an artifact file or folder");
-    if (!hasFlag(args, "--dry-run")) {
-      throw new Error("package upload request is a dry-run contract in this phase. Re-run with --dry-run.");
-    }
     const result = registry
       ? await createArtifactUploadRequestViaRegistry(source, args, registry)
       : await createArtifactUploadRequestDryRun(source, args);
@@ -1617,9 +1642,6 @@ async function runPackageUploadCommand(values) {
   if (subcommand === "verify") {
     const source = positionalArgs(args)[0];
     if (!source) throw new Error("package upload verify requires an artifact file or folder");
-    if (!hasFlag(args, "--dry-run")) {
-      throw new Error("package upload verify is a dry-run contract in this phase. Re-run with --dry-run.");
-    }
     const uploadSlotId = readOption(args, "--upload-slot");
     if (!uploadSlotId) throw new Error("package upload verify requires --upload-slot <id>");
     const result = registry
@@ -1635,10 +1657,18 @@ async function runPackageUploadCommand(values) {
 async function runPackagePublishCommand(values, registry) {
   const source = positionalArgs(values)[0];
   if (!source) throw new Error("package publish requires an artifact file or folder");
-  if (!hasFlag(values, "--dry-run")) {
-    throw new Error("package publish writes are not enabled in this phase. Re-run with --dry-run.");
+  
+  if (!registry) {
+    throw new Error("package publish requires --registry or COREHUB_REGISTRY for both dry-run and live publishing");
   }
-  const result = await createPackagePublishDryRun(source, values, registry);
+
+  if (hasFlag(values, "--dry-run")) {
+    const result = await createPackagePublishDryRun(source, values, registry);
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  const result = await executePackagePublish(source, values, registry);
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -2151,6 +2181,131 @@ function createSignedUploadContract({ uploadSlotId, storage, mediaType, sha256, 
   };
 }
 
+async function packFolderToTgz(folder, tgzPath) {
+  await execFileAsync("tar", ["-czf", resolve(tgzPath), "-C", resolve(folder), "."]);
+}
+
+async function executePackagePublish(source, values, registry) {
+  const auth = await requireAuthState();
+  let isTempArchive = false;
+  let archivePath = resolve(source);
+  let tempDir = null;
+
+  const info = await stat(archivePath);
+  if (info.isDirectory()) {
+    tempDir = await mkdtemp(join(tmpdir(), "corehub-publish-pack-"));
+    const manifestPath = join(archivePath, "corehub.artifact.json");
+    let manifest;
+    try {
+      manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    } catch (err) {
+      throw new Error(`Failed to read corehub.artifact.json in folder: ${err.message}`);
+    }
+    const packageId = manifest.package?.id;
+    const version = manifest.package?.version;
+    if (!packageId || !version) {
+      throw new Error("Folder corehub.artifact.json must contain package.id and package.version");
+    }
+    const slug = slugVersion(version);
+    archivePath = join(tempDir, `${packageId}-${slug}.tgz`);
+    await packFolderToTgz(source, archivePath);
+    isTempArchive = true;
+  }
+
+  try {
+    const inspected = await inspectPackageSubmitSource(archivePath);
+    const publisherHandle = resolvePackagePublisherHandle(values, inspected, auth, "package publish");
+    const packageId = inspected.package.id;
+    const version = inspected.package.version;
+    const versionSlug = slugVersion(version);
+    const artifactUploadId = `artifact-${packageId}-${versionSlug}`;
+
+    const provider = readOption(values, "--provider") ?? "r2";
+    if (!["r2", "s3"].includes(provider)) {
+      throw new Error("package publish --provider must be r2 or s3");
+    }
+
+    const maxBytes = Number.parseInt(readOption(values, "--max-bytes") ?? "104857600", 10);
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < inspected.artifact.size) {
+      throw new Error("package publish --max-bytes must be an integer greater than or equal to artifact size");
+    }
+
+    const client = new CoreHubRegistryClient(registry);
+
+    const uploadSlot = await client.requestArtifactUpload(
+      {
+        packageId,
+        version,
+        publisherHandle,
+        provider,
+        region: readOption(values, "--region"),
+        maxBytes,
+        artifact: {
+          name: inspected.artifact.name,
+          mediaType: inspected.artifact.mediaType,
+          size: inspected.artifact.size,
+          sha256: inspected.artifact.sha256,
+        },
+      },
+      { auth }
+    );
+
+    const bytes = await readFile(archivePath);
+    const uploaded = await client.putArtifactUpload(uploadSlot.id, bytes, {
+      auth,
+      mediaType: inspected.artifact.mediaType,
+      sha256: inspected.artifact.sha256,
+    });
+
+    const verified = await client.verifyArtifactUpload(uploadSlot.id, { auth });
+
+    const sourceUrl = readOption(values, "--source") ?? inspected.source ?? `https://github.com/${publisherHandle}/${packageId}`;
+    const changelog = readOption(values, "--changelog") ?? "CoreHub live package publish.";
+    const submissionResult = await client.createPackageSubmission(
+      {
+        packageId,
+        kind: inspected.package.kind,
+        publisherHandle,
+        version,
+        artifactUploadId,
+        source: sourceUrl,
+        changelog,
+      },
+      { auth }
+    );
+
+    return {
+      dryRun: false,
+      status: "remote_pending_review",
+      registry: normalizeRegistry(registry),
+      actor: auth.actor,
+      source: {
+        path: resolve(source),
+        type: inspected.type,
+      },
+      submission: submissionResult.submission,
+      artifactUpload: submissionResult.artifactUpload,
+      packageVersionPreview: submissionResult.packageVersionPreview,
+      moderationReview: submissionResult.moderationReview,
+      validation: {
+        ready: true,
+        checks: [
+          "authenticated actor resolved",
+          "publisher handle resolved",
+          "verified artifact upload resolved",
+          "submission accepted by CoreHub API v2",
+          "submission remains pending review",
+        ],
+      },
+      nextStep: "Wait for moderation review before projecting this version into the public catalog.",
+    };
+  } finally {
+    if (isTempArchive && tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
 async function inspectPackageSubmitSource(source) {
   const path = resolve(source);
   const info = await stat(path);
@@ -2414,7 +2569,20 @@ async function collectFolderFiles(root) {
   return result.sort((a, b) => a.path.localeCompare(b.path));
 }
 
-async function createWhoamiResult(auth) {
+async function createWhoamiResult(auth, registry) {
+  if (registry) {
+    try {
+      const client = new CoreHubRegistryClient(registry);
+      const payload = await client.publisherIdentity({ auth });
+      return {
+        ...payload,
+        tokenPreview: previewToken(auth.token),
+      };
+    } catch {
+      // fallback
+    }
+  }
+
   const writeSideState = await readWriteSideState();
   const memberships = writeSideState.publisherMembers.filter(
     (member) => member.userId === auth.actor.id && member.status === "active",
@@ -2724,6 +2892,20 @@ class CoreHubRegistryClient {
       headers: { "Content-Type": "application/json" },
       expectedVersion: "v2",
     });
+  }
+
+  async claimPublisher(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/publishers/claim"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async publisherIdentity(options = {}) {
+    return this.readV2Data(this.apiV2Url("/publishers/me"), { auth: options.auth });
   }
 
   async transfers(options = {}) {
