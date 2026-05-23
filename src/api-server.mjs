@@ -2154,6 +2154,23 @@ export function createCoreHubApiHandler({
       const segments = trimBasePath(url.pathname, basePath);
       if (!segments) return json(response, 404, { error: "Not found" });
 
+      if (request.method === "GET" && segments[0] === "session" && segments[1] === "validate" && segments.length === 2) {
+        const result = validateSessionRequest(storage, request, url.searchParams.get("role") ?? "publisher");
+        await storage.auditRead({
+          actor: result.actor,
+          action: "session.validate",
+          targetType: "session",
+          targetId: result.role,
+          metadata: {
+            tokenType: result.token.type,
+            admin: result.permissions.admin,
+            membershipCount: result.memberships.length,
+          },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (request.method === "GET" && segments[0] === "publishers" && segments[1] === "me" && segments.length === 2) {
         const actor = actorFromRequest(request, storage);
         const result = storage.publisherIdentity(actor);
@@ -3452,6 +3469,43 @@ function actorFromRequest(request, storage) {
   };
 }
 
+function validateSessionRequest(storage, request, role) {
+  const token = authTokenFromRequest(request);
+  if (!token) throw httpError(401, "Session token is required");
+  const normalizedRole = role === "admin" ? "admin" : "publisher";
+  const actor = actorFromRequest(request, storage);
+  if (normalizedRole === "admin") {
+    storage.requireAdminPermission(actor, "session.validate");
+  }
+  const identity = storage.publisherIdentity(actor);
+  if (normalizedRole === "publisher" && identity.memberships.length === 0) {
+    throw httpError(403, `Actor ${actor.id} has no active publisher membership`);
+  }
+  return {
+    valid: true,
+    role: normalizedRole,
+    actor,
+    token: {
+      present: true,
+      type: jwtPayloadFromToken(storage, token) ? "jwt" : "opaque",
+    },
+    permissions: identity.permissions,
+    memberships: identity.memberships,
+    defaultPublisher: identity.defaultPublisher,
+  };
+}
+
+function authTokenFromRequest(request) {
+  const authHeader = request.headers["authorization"] ?? request.headers["Authorization"];
+  if (authHeader && authHeader.startsWith("Bearer ")) return authHeader.slice("Bearer ".length).trim();
+  return getHeader(request.headers, "x-corehub-token") ?? "";
+}
+
+function jwtPayloadFromToken(storage, token) {
+  const signingSecret = storage?.signedReadKeys?.get(storage?.signedReadKeyId) ?? defaultSignedReadSecret;
+  return verifyJwt(token, signingSecret);
+}
+
 function defaultActor() {
   return { type: "user", id: "github:coreblow-admin" };
 }
@@ -3771,6 +3825,7 @@ function renderCoreHubAdminHtml() {
     </div>
     <div class="toolbar">
       <span class="status" id="readinessPill">signed out</span>
+      <button class="secondary" id="validateSessionButton" type="button">Validate</button>
       <button class="secondary" id="refreshButton" type="button">Refresh</button>
       <button class="secondary" id="signOutButton" type="button">Sign out</button>
     </div>
@@ -3848,6 +3903,7 @@ function renderCoreHubAdminHtml() {
       sessionStorage.setItem(sessionKey, JSON.stringify(state.session));
       await loadDashboard();
     });
+    nodes.validateSessionButton.addEventListener("click", () => validateSession("admin").then((session) => renderSessionValidated(session)).catch((error) => showLoginError(error.message)));
     nodes.refreshButton.addEventListener("click", () => loadDashboard());
     nodes.signOutButton.addEventListener("click", () => {
       sessionStorage.removeItem(sessionKey);
@@ -3875,17 +3931,30 @@ function renderCoreHubAdminHtml() {
       if (!state.session) return renderSignedOut();
       nodes.loginError.classList.add("hidden");
       try {
+        const session = await validateSession("admin");
         const [status, bundle, submissions, reviews] = await Promise.all([
           api("/admin/status"),
           api("/admin/support-bundle?limit=5"),
           api("/submissions?status=pending_review&limit=25"),
           api("/reviews?status=open&limit=25"),
         ]);
-        renderDashboard(status.data, bundle.data, submissions, reviews);
+        renderDashboard(status.data, bundle.data, submissions, reviews, session);
       } catch (error) {
         showLoginError(error.message || "Unable to load CoreHub admin status.");
         renderSignedOut(false);
       }
+    }
+
+    async function validateSession(role) {
+      const payload = await api("/session/validate?role=" + encodeURIComponent(role));
+      if (!payload.data?.valid) throw new Error("CoreHub session validation failed.");
+      return payload.data;
+    }
+
+    function renderSessionValidated(session) {
+      nodes.sessionLabel.textContent = session.actor.id + " validated " + session.role;
+      nodes.readinessPill.textContent = "validated";
+      nodes.readinessPill.className = "status good";
     }
 
     async function api(path) {
@@ -3911,10 +3980,10 @@ function renderCoreHubAdminHtml() {
       if (clearError) nodes.loginError.classList.add("hidden");
     }
 
-    function renderDashboard(status, bundle, submissions, reviews) {
+    function renderDashboard(status, bundle, submissions, reviews, session) {
       nodes.loginPanel.classList.add("hidden");
       nodes.dashboard.classList.remove("hidden");
-      nodes.sessionLabel.textContent = state.session.actor;
+      nodes.sessionLabel.textContent = (session?.actor?.id || state.session.actor) + " validated admin";
       const readinessClass = status.readiness.status === "ready" ? "good" : status.status === "degraded" ? "warn" : "bad";
       nodes.readinessPill.textContent = status.readiness.status;
       nodes.readinessPill.className = "status " + readinessClass;
@@ -4093,6 +4162,7 @@ function renderCoreHubPublisherHtml() {
     </div>
     <div class="toolbar">
       <span class="status" id="rolePill">signed out</span>
+      <button class="secondary" id="validateSessionButton" type="button">Validate</button>
       <button class="secondary" id="refreshButton" type="button">Refresh</button>
       <button class="secondary" id="signOutButton" type="button">Sign out</button>
     </div>
@@ -4213,6 +4283,7 @@ function renderCoreHubPublisherHtml() {
       sessionStorage.setItem(sessionKey, JSON.stringify(state.session));
       await loadPortal();
     });
+    nodes.validateSessionButton.addEventListener("click", () => validateSession("publisher").then((session) => renderSessionValidated(session)).catch((error) => showError(error.message)));
     nodes.refreshButton.addEventListener("click", () => loadPortal());
     nodes.signOutButton.addEventListener("click", () => {
       sessionStorage.removeItem(sessionKey);
@@ -4242,13 +4313,26 @@ function renderCoreHubPublisherHtml() {
     async function loadPortal() {
       if (!state.session) return renderSignedOut();
       try {
+        const session = await validateSession("publisher");
         const payload = await api("/publisher/dashboard");
         state.dashboard = payload.data;
-        renderPortal(payload.data);
+        renderPortal(payload.data, session);
       } catch (error) {
         showError(error.message || "Unable to load publisher dashboard.");
         renderSignedOut(false);
       }
+    }
+
+    async function validateSession(role) {
+      const payload = await api("/session/validate?role=" + encodeURIComponent(role));
+      if (!payload.data?.valid) throw new Error("CoreHub session validation failed.");
+      return payload.data;
+    }
+
+    function renderSessionValidated(session) {
+      nodes.sessionLabel.textContent = session.actor.id + " validated " + session.role;
+      nodes.rolePill.textContent = session.permissions.admin ? "admin publisher" : "publisher";
+      nodes.rolePill.className = "status good";
     }
 
     async function claimPublisher(event) {
@@ -4375,11 +4459,11 @@ function renderCoreHubPublisherHtml() {
       if (clearError) nodes.loginError.classList.add("hidden");
     }
 
-    function renderPortal(dashboard) {
+    function renderPortal(dashboard, session) {
       nodes.loginPanel.classList.add("hidden");
       nodes.portal.classList.remove("hidden");
       const identity = dashboard.identity;
-      nodes.sessionLabel.textContent = identity.actor.id;
+      nodes.sessionLabel.textContent = (session?.actor?.id || identity.actor.id) + " validated publisher";
       nodes.rolePill.textContent = identity.permissions.admin ? "admin publisher" : "publisher";
       nodes.rolePill.className = "status good";
       nodes.metricPublishers.textContent = String(dashboard.counts.publishers);

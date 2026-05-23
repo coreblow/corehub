@@ -53,13 +53,13 @@ Already implemented:
 | Marketplace ranking | done | Search uses deterministic exact/id/name/category/capability boosts with download/install tie-breakers. |
 | Plugin-specific list/search | done | `/corehub/api/v1/plugins` and `/corehub/api/v1/plugins/search` provide plugin-only parity. |
 | Publisher portal UI | done | `/corehub/publisher` provides publisher self-service foundation. |
-| Browser login/session for publisher portal | partial | Token/session UX is wired; real OAuth/session hardening remains. |
+| Browser login/session for publisher portal | partial | Token/session UX and explicit session validation are wired; real OAuth remains. |
 | Artifact upload UI | done | Publisher portal uploads, verifies, and submits artifacts through API v2. |
 | Submission/review status UI | done | Publisher portal lists owned submissions and review ids/statuses. |
 | Transfer UI | done | Publisher portal can request ownership transfers and list transfer statuses. |
 | Install pin/unpin/uninstall/list/update/sync | done | CLI stores CoreHub-local install state and skips pinned updates/syncs. |
 | Telemetry opt-out | done | `COREHUB_DISABLE_TELEMETRY=1` skips CLI analytics record writes. |
-| Production auth/rate limit/private visibility | partial | Private v1 visibility and API rate-limit boundary are wired; real OAuth remains. |
+| Production auth/rate limit/private visibility | partial | Private v1 visibility, explicit session validation, and API rate-limit boundary are wired; real OAuth remains. |
 | Production deploy/rollback drill | partial | Persistence runbooks exist; final applied production drill remains. |
 
 ## Implementation Phases From Here
@@ -184,7 +184,7 @@ Implemented:
 
 ### Phase J: Production Finalization
 
-Status: in progress. Private package visibility and rate-limit boundary are implemented; real OAuth, production D1/R2/secrets application, and live rollback drills remain operator-applied.
+Status: in progress. Private package visibility, browser session validation, and rate-limit boundary are implemented; real OAuth, production D1/R2/secrets application, and live rollback drills remain operator-applied.
 
 Goal: CoreHub v1 package marketplace can be called final for ClawHub-inspired parity.
 
@@ -205,6 +205,7 @@ Implemented in this phase:
 - Registry API v1 hides `private` channel packages from anonymous catalog/list/search/detail/download metadata.
 - Admin actors and active publisher members can read private package metadata.
 - API handler supports a fixed-window rate limit via `COREHUB_RATE_LIMIT_MAX` and `COREHUB_RATE_LIMIT_WINDOW_MS`.
+- API v2 exposes `GET /corehub/api/v2/session/validate?role=admin|publisher` so browser admin and publisher surfaces validate token-backed sessions before loading privileged data.
 - `npm run validate:production-finalization` checks repository-side production readiness before operator approval.
 - `npm run drill:production` rehearses backup validation, restore dry run/apply, persistence migration, and Worker-local smoke.
 

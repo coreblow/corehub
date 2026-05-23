@@ -677,6 +677,7 @@ try {
   const adminPageHtml = await adminPage.text();
   assert.match(adminPageHtml, /CoreHub Admin/);
   assert.match(adminPageHtml, /corehub\.admin\.session\.v1/);
+  assert.match(adminPageHtml, /api\("\/session\/validate\?role=" \+ encodeURIComponent\(role\)\)/);
   assert.match(adminPageHtml, /api\("\/admin\/status"\)/);
   assert.match(adminPageHtml, /api\("\/reviews\?status=open&limit=25"\)/);
   const publisherPage = await fetch(`${bootstrapInfo.url}/publisher`);
@@ -685,6 +686,7 @@ try {
   const publisherPageHtml = await publisherPage.text();
   assert.match(publisherPageHtml, /CoreHub Publisher Portal/);
   assert.match(publisherPageHtml, /corehub\.publisher\.session\.v1/);
+  assert.match(publisherPageHtml, /api\("\/session\/validate\?role=" \+ encodeURIComponent\(role\)\)/);
   assert.match(publisherPageHtml, /api\("\/publisher\/dashboard"\)/);
   assert.match(publisherPageHtml, /Upload Artifact and Submit Package/);
   assert.equal(bootstrapServer.stateStoreKind, "local-json");
@@ -1044,6 +1046,36 @@ try {
   assert.equal(whoamiPayload.data.memberships[0].publisherHandle, "coreblow");
   assert.deepEqual(whoamiPayload.data.memberships[0].permissions, ["artifact.upload", "submission.create"]);
   assert.equal(whoamiPayload.data.permissions.admin, true);
+
+  const missingSessionToken = await fetch(`${apiBaseUrl}/session/validate?role=publisher`, {
+    headers: { "x-corehub-user": "github:coreblow-admin" },
+  });
+  assert.equal(missingSessionToken.status, 401);
+
+  const adminSessionResponse = await fetch(`${apiBaseUrl}/session/validate?role=admin`, {
+    headers: {
+      authorization: "Bearer local-admin-token",
+      "x-corehub-user": "github:coreblow-admin",
+    },
+  });
+  assert.equal(adminSessionResponse.status, 200);
+  const adminSessionPayload = await adminSessionResponse.json();
+  assert.equal(adminSessionPayload.data.valid, true);
+  assert.equal(adminSessionPayload.data.role, "admin");
+  assert.equal(adminSessionPayload.data.permissions.admin, true);
+  assert.equal(adminSessionPayload.data.token.type, "opaque");
+
+  const publisherSessionResponse = await fetch(`${apiBaseUrl}/session/validate?role=publisher`, {
+    headers: {
+      authorization: "Bearer local-publisher-token",
+      "x-corehub-user": "github:coreblow-admin",
+    },
+  });
+  assert.equal(publisherSessionResponse.status, 200);
+  const publisherSessionPayload = await publisherSessionResponse.json();
+  assert.equal(publisherSessionPayload.data.valid, true);
+  assert.equal(publisherSessionPayload.data.role, "publisher");
+  assert.equal(publisherSessionPayload.data.memberships[0].publisherHandle, "coreblow");
 
   const dashboardResponse = await fetch(`${apiBaseUrl}/publisher/dashboard`, {
     headers: { "x-corehub-user": "github:coreblow-admin" },

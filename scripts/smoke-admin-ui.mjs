@@ -100,6 +100,7 @@ try {
   await page.getByPlaceholder("operator token").fill("local-admin-token");
   await page.getByRole("button", { name: "Connect" }).click();
 
+  await assertVisibleText(page, "validated admin");
   await assertVisibleText(page, "Deploy Readiness");
   await assertVisibleText(page, "Support Bundle Summary");
   await assertVisibleText(page, "Pending Submissions");
@@ -125,6 +126,22 @@ try {
   assert.equal(apiStatus.payload.data.readiness.status, "ready");
   assert.equal(apiStatus.payload.data.audit.valid, true);
   logStep("admin API status is ready through browser context");
+
+  const sessionStatus = await page.evaluate(async () => {
+    const response = await fetch("/corehub/api/v2/session/validate?role=admin", {
+      headers: {
+        accept: "application/json",
+        authorization: "Bearer local-admin-token",
+        "x-corehub-user": "github:coreblow-admin",
+        "x-corehub-token": "local-admin-token",
+      },
+    });
+    return { status: response.status, payload: await response.json() };
+  });
+  assert.equal(sessionStatus.status, 200);
+  assert.equal(sessionStatus.payload.data.valid, true);
+  assert.equal(sessionStatus.payload.data.role, "admin");
+  logStep("admin session validation is explicit");
 } finally {
   if (browser) await browser.close();
   await app.close();

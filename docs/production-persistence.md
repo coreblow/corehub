@@ -216,6 +216,7 @@ CoreHub serves an admin web surface at `/corehub/admin`.
 The current foundation intentionally stays narrow:
 
 - Browser session gate with an operator actor id and token stored in session storage.
+- Explicit session validation through `GET /corehub/api/v2/session/validate?role=admin` before loading privileged admin data.
 - Admin status and health summary from `GET /corehub/api/v2/admin/status`.
 - Redacted support bundle summary from `GET /corehub/api/v2/admin/support-bundle`.
 - Queue counters for submissions, reviews, ownership transfers, install analytics, audit events, and readiness checks.
@@ -230,7 +231,7 @@ Run the authenticated admin UI smoke locally with:
 npm run smoke:admin-ui
 ```
 
-The smoke starts a local CoreHub server, opens `/corehub/admin` with Playwright, connects as `github:coreblow-admin`, verifies the dashboard sections, and checks admin status through the browser context. CI runs the same command after the local publish and Worker-local smokes.
+The smoke starts a local CoreHub server, opens `/corehub/admin` with Playwright, connects as `github:coreblow-admin`, verifies the dashboard sections, validates the admin browser session, and checks admin status through the browser context. CI runs the same command after the local publish and Worker-local smokes.
 
 ## CoreHub Publisher Portal Foundation
 
@@ -239,6 +240,7 @@ CoreHub serves a publisher self-service web surface at `/corehub/publisher`.
 The current foundation covers the ClawHub-style publisher workflow through CoreHub-native API boundaries:
 
 - Browser session gate with publisher actor id and token stored in session storage.
+- Explicit session validation through `GET /corehub/api/v2/session/validate?role=publisher` before loading publisher-owned data.
 - Whoami, role status, and publisher memberships from `GET /corehub/api/v2/publisher/dashboard`.
 - Owned package list with latest version, marketplace channel, and trusted publisher status.
 - Publisher claim form through `POST /corehub/api/v2/publishers/claim`.
@@ -252,7 +254,7 @@ Run the authenticated publisher UI smoke locally with:
 npm run smoke:publisher-ui
 ```
 
-The smoke starts a local CoreHub server, opens `/corehub/publisher` with Playwright, connects as `github:coreblow-admin`, verifies the publisher dashboard sections, and checks `GET /corehub/api/v2/publisher/dashboard` through the browser context.
+The smoke starts a local CoreHub server, opens `/corehub/publisher` with Playwright, connects as `github:coreblow-admin`, verifies the publisher dashboard sections, validates the publisher browser session, and checks `GET /corehub/api/v2/publisher/dashboard` through the browser context.
 
 ## Operator Smoke Workflow
 
@@ -319,6 +321,7 @@ CoreHub production uses the same actor boundary across CLI, admin UI, publisher 
 
 - Public Registry API v1 hides `private` channel packages from anonymous reads, lists, search, and download metadata.
 - Private package reads require an admin actor or an active member of the package publisher.
+- Browser admin and publisher sessions call `GET /corehub/api/v2/session/validate` with the expected role before rendering privileged status, queue, package, submission, or transfer data.
 - `COREHUB_RATE_LIMIT_MAX` and `COREHUB_RATE_LIMIT_WINDOW_MS` enable a fixed-window request limit at the Worker/API handler boundary.
 - The rate-limit key prefers `x-corehub-client-id`, then Cloudflare/forwarded IP headers, then the socket address.
 

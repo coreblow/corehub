@@ -100,6 +100,7 @@ try {
   await page.getByPlaceholder("publisher token").fill("local-publisher-token");
   await page.getByRole("button", { name: "Connect" }).click();
 
+  await assertVisibleText(page, "validated publisher");
   await assertVisibleText(page, "Whoami");
   await assertVisibleText(page, "Owned Packages");
   await assertVisibleText(page, "Upload Artifact and Submit Package");
@@ -127,6 +128,22 @@ try {
   assert.equal(dashboard.payload.data.counts.publishers, 1);
   assert.equal(Array.isArray(dashboard.payload.data.packages), true);
   logStep("publisher dashboard API is available through browser context");
+
+  const sessionStatus = await page.evaluate(async () => {
+    const response = await fetch("/corehub/api/v2/session/validate?role=publisher", {
+      headers: {
+        accept: "application/json",
+        authorization: "Bearer local-publisher-token",
+        "x-corehub-user": "github:coreblow-admin",
+        "x-corehub-token": "local-publisher-token",
+      },
+    });
+    return { status: response.status, payload: await response.json() };
+  });
+  assert.equal(sessionStatus.status, 200);
+  assert.equal(sessionStatus.payload.data.valid, true);
+  assert.equal(sessionStatus.payload.data.role, "publisher");
+  logStep("publisher session validation is explicit");
 } finally {
   if (browser) await browser.close();
   await app.close();
