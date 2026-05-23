@@ -308,9 +308,10 @@ Run the final repository-side production readiness gate before requesting produc
 
 ```sh
 npm run validate:production-finalization
+npm run drill:production
 ```
 
-This gate checks the Worker config, deploy workflow, operator smoke workflow, rollback runbook, private package visibility docs, and rate-limit policy. It does not prove that real D1/R2/secrets are already applied; that remains the protected production deploy step.
+The finalization gate checks the Worker config, deploy workflow, operator smoke workflow, rollback runbook, private package visibility docs, and rate-limit policy. The production drill rehearsal exercises snapshot export, backup validation, restore dry run, restore apply, persistence migration smoke, and Worker-local smoke. These commands do not prove that real D1/R2/secrets are already applied; that remains the protected production deploy step.
 
 ## Production Access Policy
 

@@ -27,6 +27,14 @@ npm run smoke:post-deploy -- \
 
 Export or capture the current state before replacing it. If the audit chain is invalid, keep the current snapshot for incident review and do not prune.
 
+Before a planned production change, rehearse the rollback path locally:
+
+```sh
+npm run drill:production
+```
+
+The rehearsal exports a snapshot, validates the backup, performs restore dry run and apply checks, then runs the persistence migration and Worker-local smokes.
+
 ## Code Rollback
 
 Redeploy the last known good Worker revision from the protected deploy workflow. Run the workflow in `check` mode first, then `deploy` after production approval.

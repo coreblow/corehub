@@ -206,6 +206,7 @@ Implemented in this phase:
 - Admin actors and active publisher members can read private package metadata.
 - API handler supports a fixed-window rate limit via `COREHUB_RATE_LIMIT_MAX` and `COREHUB_RATE_LIMIT_WINDOW_MS`.
 - `npm run validate:production-finalization` checks repository-side production readiness before operator approval.
+- `npm run drill:production` rehearses backup validation, restore dry run/apply, persistence migration, and Worker-local smoke.
 
 ## Done Criteria For Final
 

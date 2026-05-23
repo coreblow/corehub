@@ -393,6 +393,7 @@ const auditIncidentCheckPath = new URL("../scripts/audit-incident-check.mjs", im
 const d1MigrationPath = new URL("../scripts/corehub-d1-migration.mjs", import.meta.url).pathname;
 const persistenceSnapshotPath = new URL("../scripts/persistence-snapshot.mjs", import.meta.url).pathname;
 const persistenceMigrationSmokePath = new URL("../scripts/smoke-persistence-migration.mjs", import.meta.url).pathname;
+const productionDrillPath = new URL("../scripts/production-drill-rehearsal.mjs", import.meta.url).pathname;
 const productionFinalizationPath = new URL("../scripts/validate-production-finalization.mjs", import.meta.url).pathname;
 const explore = await execFileAsync(process.execPath, [cliPath, "explore"]);
 assert.match(explore.stdout, /corehub-directory\tskill\tCoreHub Directory Metadata/);
@@ -1015,6 +1016,9 @@ try {
 
   const productionFinalization = await execFileAsync(process.execPath, [productionFinalizationPath]);
   assert.equal(JSON.parse(productionFinalization.stdout).status, "ready");
+
+  const productionDrill = await execFileAsync(process.execPath, [productionDrillPath]);
+  assert.equal(JSON.parse(productionDrill.stdout).status, "ready");
 } finally {
   await rm(snapshotStoreDir, { recursive: true, force: true });
 }
