@@ -187,6 +187,9 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package versions <entry-id>`
 - `corehub package moderation-status <entry-id>`
 - `corehub package readiness <entry-id>`
+- `corehub package report <entry-id> --reason <text>`
+- `corehub package reports list`
+- `corehub package reports triage <report-id>`
 - `corehub package install <entry-id>`
 - `corehub package upload request <artifact|folder> --dry-run`
 - `corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run`

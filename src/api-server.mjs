@@ -191,6 +191,7 @@ export class CoreHubLocalStorageAdapter {
     this.submissions = new Map();
     this.reviews = new Map();
     this.packageVersions = new Map();
+    this.packageReports = [];
     this.ownershipTransfers = new Map();
     this.installEvents = [];
     this.auditEvents = [];
@@ -911,6 +912,7 @@ export class CoreHubLocalStorageAdapter {
       submissions: this.submissions.size,
       reviews: this.reviews.size,
       packageVersions: this.packageVersions.size,
+      packageReports: this.packageReports.length,
       ownershipTransfers: this.ownershipTransfers.size,
       installEvents: this.installEvents.length,
       auditEvents: this.auditEvents.length,
@@ -947,6 +949,7 @@ export class CoreHubLocalStorageAdapter {
       queues: {
         submissions: countByStatus([...this.submissions.values()].map((record) => record.submission.status)),
         reviews: countByStatus([...this.reviews.values()].map((review) => review.status)),
+        packageReports: countByStatus(this.packageReports.map((report) => report.status)),
         ownershipTransfers: countByStatus([...this.ownershipTransfers.values()].map((transfer) => transfer.status)),
       },
       analytics,
@@ -990,6 +993,7 @@ export class CoreHubLocalStorageAdapter {
       recent: {
         submissions: latestItems([...this.submissions.values()].map((record) => record.submission), limit),
         reviews: latestItems([...this.reviews.values()], limit),
+        packageReports: latestItems(this.packageReports, limit),
         ownershipTransfers: latestItems([...this.ownershipTransfers.values()], limit),
         auditEvents: recentAudit.items,
       },
@@ -1013,6 +1017,77 @@ export class CoreHubLocalStorageAdapter {
       packageVersion,
       moderationReview: this.reviews.get(record.submission.reviewId) ?? null,
     };
+  }
+
+  async createPackageReport(input, { actor = defaultActor(), now = new Date() } = {}) {
+    const request = normalizePackageReportRequest(input);
+    const version = this.projectedVersionForPackage(request.packageId, request.version ?? "latest");
+    if (!version) throw httpError(404, "Package version not found for report");
+    const reportedAt = now.toISOString();
+    const packageVersion = request.version ?? version.version;
+    const report = {
+      id: `package-report-${slugId(request.packageId)}-${slugVersion(packageVersion)}-${String(this.packageReports.length + 1).padStart(6, "0")}`,
+      packageId: request.packageId,
+      version: packageVersion,
+      publisherHandle: version.publisherHandle,
+      reason: request.reason,
+      status: "open",
+      reportedBy: actor,
+      reportedAt,
+    };
+    this.packageReports.push(report);
+    this.recordAuditEvent({
+      actor,
+      action: "package.report.create",
+      targetType: "packageReport",
+      targetId: report.id,
+      metadata: {
+        packageId: report.packageId,
+        version: report.version,
+        publisherHandle: report.publisherHandle,
+      },
+      createdAt: reportedAt,
+    });
+    await this.persistState();
+    return { status: "reported", report };
+  }
+
+  listPackageReports(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "package.report.list");
+    const status = options.status ?? "open";
+    const reports = this.packageReports
+      .filter((report) => status === "all" || report.status === status)
+      .filter((report) => !options.packageId || report.packageId === options.packageId)
+      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt));
+    return paginate(reports, options);
+  }
+
+  async triagePackageReport(reportId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "package.report.triage");
+    const report = this.packageReports.find((item) => item.id === reportId);
+    if (!report) throw httpError(404, "Package report not found");
+    const triage = normalizePackageReportTriageRequest(input);
+    const triagedAt = now.toISOString();
+    report.status = triage.status;
+    report.triagedBy = actor;
+    report.triagedAt = triagedAt;
+    if (triage.note) report.triageNote = triage.note;
+    if (triage.finalAction) report.finalAction = triage.finalAction;
+    this.recordAuditEvent({
+      actor,
+      action: "package.report.triage",
+      targetType: "packageReport",
+      targetId: report.id,
+      metadata: {
+        packageId: report.packageId,
+        version: report.version,
+        status: report.status,
+        finalAction: report.finalAction ?? null,
+      },
+      createdAt: triagedAt,
+    });
+    await this.persistState();
+    return { status: report.status, report };
   }
 
   listAuditEvents(options = {}) {
@@ -1452,6 +1527,7 @@ export class CoreHubLocalStorageAdapter {
       submissions: [...this.submissions.values()],
       reviews: [...this.reviews.values()],
       packageVersions: [...this.packageVersions.values()],
+      packageReports: this.packageReports,
       ownershipTransfers: [...this.ownershipTransfers.values()],
       installEvents: this.installEvents,
       auditEvents: this.auditEvents,
@@ -1474,6 +1550,7 @@ export class CoreHubLocalStorageAdapter {
     this.submissions = new Map((state.submissions ?? []).map((record) => [record.submission.id, record]));
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
+    this.packageReports = state.packageReports ?? [];
     this.ownershipTransfers = new Map((state.ownershipTransfers ?? []).map((transfer) => [transfer.id, transfer]));
     this.installEvents = state.installEvents ?? [];
     this.auditEvents = state.auditEvents ?? [];
@@ -1651,6 +1728,43 @@ export function createCoreHubApiHandler({
         const actor = actorFromRequest(request, storage);
         const result = await storage.createSubmission(body, { actor, now: now() });
         return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "package-reports" && segments.length === 1) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.createPackageReport(body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "package-reports" && segments.length === 1) {
+        const options = readListOptions(url);
+        const actor = actorFromRequest(request, storage);
+        options.authActor = actor;
+        options.status = url.searchParams.get("status") ?? "open";
+        options.packageId = url.searchParams.get("package") ?? undefined;
+        const result = storage.listPackageReports(options);
+        await storage.auditRead({
+          actor,
+          action: "package.report.list",
+          targetType: "packageReport",
+          targetId: options.status === "all" ? "all" : `status:${options.status}`,
+          metadata: { total: result.meta.total },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "package-reports" &&
+        segments[2] === "triage" &&
+        segments.length === 3
+      ) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.triagePackageReport(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
       }
 
       if (request.method === "GET" && segments[0] === "submissions" && segments.length === 1) {
@@ -2261,6 +2375,27 @@ function normalizeSubmissionRequest(input) {
     source,
     changelog,
   };
+}
+
+function normalizePackageReportRequest(input) {
+  const packageId = normalizeRequiredString(input?.packageId, "packageId");
+  const version = typeof input?.version === "string" && input.version.trim().length > 0 ? input.version.trim() : undefined;
+  const reason = normalizeRequiredString(input?.reason, "reason");
+  return { packageId, version, reason };
+}
+
+function normalizePackageReportTriageRequest(input) {
+  const status = normalizeRequiredString(input?.status, "status");
+  if (!["open", "confirmed", "dismissed"].includes(status)) {
+    throw httpError(400, "package report status must be open, confirmed, or dismissed");
+  }
+  const note = typeof input?.note === "string" && input.note.trim().length > 0 ? input.note.trim() : undefined;
+  const finalAction =
+    typeof input?.finalAction === "string" && input.finalAction.trim().length > 0 ? input.finalAction.trim() : undefined;
+  if (finalAction && !["none", "block", "deprecate", "hide"].includes(finalAction)) {
+    throw httpError(400, "package report finalAction must be none, block, deprecate, or hide");
+  }
+  return { status, note, finalAction };
 }
 
 function normalizeOwnershipTransferRequest(input) {

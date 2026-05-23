@@ -1894,6 +1894,69 @@ try {
     const projectedVersionsPayload = await projectedVersionsResponse.json();
     assert.equal(projectedVersionsPayload.data[0].tag, "latest");
 
+    const packageReport = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "report",
+        "plugin-lab",
+        "--version",
+        "0.1.0",
+        "--reason",
+        "Suspicious package report fixture.",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageReportPayload = JSON.parse(packageReport.stdout);
+    assert.equal(packageReportPayload.status, "reported");
+    assert.equal(packageReportPayload.report.packageId, "plugin-lab");
+    assert.equal(packageReportPayload.report.status, "open");
+
+    const packageReportsList = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "reports",
+        "list",
+        "--status",
+        "open",
+        "--package",
+        "plugin-lab",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageReportsListPayload = JSON.parse(packageReportsList.stdout);
+    assert.equal(packageReportsListPayload.reports[0].id, packageReportPayload.report.id);
+
+    const packageReportTriage = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "reports",
+        "triage",
+        packageReportPayload.report.id,
+        "--status",
+        "confirmed",
+        "--note",
+        "Confirmed report fixture.",
+        "--action",
+        "none",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageReportTriagePayload = JSON.parse(packageReportTriage.stdout);
+    assert.equal(packageReportTriagePayload.status, "confirmed");
+    assert.equal(packageReportTriagePayload.report.triageNote, "Confirmed report fixture.");
+
     const analyticsRecord = await execFileAsync(
       process.execPath,
       [
@@ -1961,7 +2024,9 @@ try {
     assert.equal(adminStatusPayload.status, "ok");
     assert.equal(adminStatusPayload.readiness.status, "ready");
     assert.equal(adminStatusPayload.counts.installEvents, 2);
+    assert.equal(adminStatusPayload.counts.packageReports, 1);
     assert.equal(adminStatusPayload.queues.reviews.approved, 1);
+    assert.equal(adminStatusPayload.queues.packageReports.confirmed, 1);
     assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
     assert.equal(adminStatusPayload.analytics.uniqueClients, 1);
     assert.equal(adminStatusPayload.audit.valid, true);
@@ -1978,6 +2043,7 @@ try {
     const supportBundle = JSON.parse(await readFile(supportBundlePath, "utf8"));
     assert.equal(supportBundle.bundle.redaction.secretsIncluded, false);
     assert.equal(supportBundle.counts.installEvents, 2);
+    assert.equal(supportBundle.recent.packageReports[0].status, "confirmed");
     assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
 
     const persistedState = JSON.parse(await readFile(apiStatePath, "utf8"));
@@ -1987,7 +2053,10 @@ try {
     assert.equal(persistedState.submissions[0].submission.status, "approved");
     assert.equal(persistedState.packageVersions[0].status, "available");
     assert.equal(persistedState.installEvents.length, 2);
+    assert.equal(persistedState.packageReports[0].status, "confirmed");
     assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.report.create"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.report.triage"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.event.ingest"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.analytics.summary"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);

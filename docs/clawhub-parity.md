@@ -96,6 +96,12 @@ Implemented package CLI parity starters:
 - Add security metadata checks for environment variables, binaries, package manifests, and source links.
 - Keep moderation states visible in web and CLI inspect output.
 
+Implemented moderation/trust starters:
+
+- `corehub package report <id>` creates an auditable package report for a published version.
+- `corehub package reports list` and `corehub package reports triage` expose moderator intake without auto-hiding packages.
+- Admin status and support bundles include package report counts and recent report samples.
+
 ### Phase 6: Install and Sync
 
 - Add install, pin, unpin, uninstall, list, update, and sync flows.

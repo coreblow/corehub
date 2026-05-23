@@ -231,6 +231,9 @@ Phase 18 adds the server-side shape before wiring production R2 or S3 credential
 | `PUT /corehub/api/v2/artifacts/uploads/:id` | Accepts artifact bytes for the reserved slot and writes them through the configured storage adapter. |
 | `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Reads the stored object, recomputes size and SHA-256, and returns a verified or rejected artifact upload record. |
 | `POST /corehub/api/v2/submissions` | Accepts a verified artifact upload id and creates a pending-review package submission. |
+| `POST /corehub/api/v2/package-reports` | Accepts a package report tied to a published package version and records it for moderation intake. |
+| `GET /corehub/api/v2/package-reports` | Lists package reports for moderators and admins with status, package, and pagination filters. |
+| `POST /corehub/api/v2/package-reports/:id/triage` | Records a moderator/admin triage decision, note, and optional final action. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approves a pending submission review and creates an `available` package version. |
 | `POST /corehub/api/v2/reviews/:id/block` | Blocks a pending submission review and creates a blocked package version record for audit visibility. |
 | `GET /corehub/api/v1/packages/:id/download` | Returns signed read metadata, or redirects to a signed read URL by default. |
@@ -257,6 +260,8 @@ Review decisions are explicit write-side events:
 | `block` | `rejected` | `blocked` with `moderationStatus: blocked` |
 
 Review approval is the first point where a submitted artifact can become installable. Blocked versions remain non-installable but auditable, preserving package/version history instead of deleting the failed submission.
+
+Package reports are separate from submission reviews. A report does not hide or block a package by itself; it becomes an auditable moderation intake record until a moderator triages it as `confirmed`, `dismissed`, or reopened as `open`.
 
 The admin CLI can now call these API v2 review decisions:
 

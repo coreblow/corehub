@@ -290,6 +290,26 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "report") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package report requires an entry id");
+    if (!registry) throw new Error("package report requires --registry or COREHUB_REGISTRY");
+    const reason = readOption(args, "--reason");
+    if (!reason) throw new Error("package report requires --reason <text>");
+    const auth = await requireAuthState();
+    const result = await new CoreHubRegistryClient(registry).createPackageReport(
+      { packageId: id, version: readOption(args, "--version"), reason },
+      { auth },
+    );
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (subcommand === "reports") {
+    await runPackageReportsCommand(args, registry);
+    return;
+  }
+
   if (subcommand === "install") {
     const id = positionalArgs(args)[0];
     if (!id) throw new Error("package install requires an entry id");
@@ -1672,6 +1692,58 @@ async function runPackagePublishCommand(values, registry) {
   console.log(JSON.stringify(result, null, 2));
 }
 
+async function runPackageReportsCommand(values, registry) {
+  const subcommand = values[0] ?? "list";
+  const args = values.slice(1);
+  if (!registry) throw new Error("package reports requires --registry or COREHUB_REGISTRY");
+  const auth = await requireAuthState();
+  const client = new CoreHubRegistryClient(registry);
+
+  if (subcommand === "list") {
+    const result = await client.packageReports(
+      {
+        status: readOption(args, "--status") ?? "open",
+        packageId: readOption(args, "--package"),
+        ...readQueueListOptions(args),
+      },
+      { auth },
+    );
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          registry: normalizeRegistry(registry),
+          ...result.meta,
+          reports: result.data,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (subcommand === "triage") {
+    const reportId = positionalArgs(args)[0];
+    if (!reportId) throw new Error("package reports triage requires a report id");
+    const status = readOption(args, "--status");
+    if (!status) throw new Error("package reports triage requires --status open|confirmed|dismissed");
+    const result = await client.triagePackageReport(
+      reportId,
+      {
+        status,
+        note: readOption(args, "--note") ?? readOption(args, "--notes"),
+        finalAction: readOption(args, "--action") ?? readOption(args, "--final-action"),
+      },
+      { auth },
+    );
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  printPackageHelp();
+}
+
 async function createPackagePublishDryRun(source, values, registry) {
   const auth = await requireAuthState();
   const inspected = await inspectPackageSubmitSource(source);
@@ -2864,6 +2936,35 @@ class CoreHubRegistryClient {
     });
   }
 
+  async createPackageReport(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/package-reports"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async packageReports(options = {}, requestOptions = {}) {
+    const url = this.apiV2Url("/package-reports");
+    if (options.status) url.searchParams.set("status", options.status);
+    if (options.packageId) url.searchParams.set("package", options.packageId);
+    if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+    if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
+    return this.readV2Envelope(url, { auth: requestOptions.auth });
+  }
+
+  async triagePackageReport(reportId, payload, options = {}) {
+    return this.writeData(this.apiV2Url(`/package-reports/${encodeURIComponent(reportId)}/triage`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
   async decideReview(reviewId, decision, payload = {}, options = {}) {
     return this.writeData(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}/${decision}`), {
       auth: options.auth,
@@ -3090,6 +3191,9 @@ Usage:
   corehub package verify <artifact> [--sha256 hex | --package entry-id --registry https://coreblow.com/corehub]
   corehub package moderation-status <entry-id> [--registry https://coreblow.com/corehub]
   corehub package readiness <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package report <entry-id> --reason text [--version version] --registry https://coreblow.com/corehub
+  corehub package reports list [--status open|confirmed|dismissed|all] [--package entry-id] --registry https://coreblow.com/corehub
+  corehub package reports triage <report-id> --status confirmed|dismissed|open [--note text] [--action none|block|deprecate|hide] --registry https://coreblow.com/corehub
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
@@ -3114,6 +3218,9 @@ Usage:
   corehub package verify <artifact> [--sha256 hex | --package entry-id --registry https://coreblow.com/corehub]
   corehub package moderation-status <entry-id> [--registry https://coreblow.com/corehub]
   corehub package readiness <entry-id> [--registry https://coreblow.com/corehub]
+  corehub package report <entry-id> --reason text [--version version] --registry https://coreblow.com/corehub
+  corehub package reports list [--status open|confirmed|dismissed|all] [--package entry-id] --registry https://coreblow.com/corehub
+  corehub package reports triage <report-id> --status confirmed|dismissed|open [--note text] [--action none|block|deprecate|hide] --registry https://coreblow.com/corehub
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
