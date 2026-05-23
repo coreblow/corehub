@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
@@ -193,6 +193,8 @@ export class CoreHubLocalStorageAdapter {
     this.packageVersions = new Map();
     this.packageReports = [];
     this.packageAppeals = [];
+    this.trustedPublishers = new Map();
+    this.publishTokens = new Map();
     this.ownershipTransfers = new Map();
     this.installEvents = [];
     this.auditEvents = [];
@@ -485,6 +487,7 @@ export class CoreHubLocalStorageAdapter {
   async createSubmission(input, { actor = defaultActor(), now = new Date() } = {}) {
     const request = normalizeSubmissionRequest(input);
     this.requirePublisherPermission(actor, request.publisherHandle, "submission.create");
+    const publishToken = request.publishTokenId ? this.requirePublishToken(request.publishTokenId, request, now) : null;
     const currentOwner = this.packageOwnerHandle(request.packageId);
     if (currentOwner && currentOwner !== request.publisherHandle) {
       throw httpError(409, `Package ${request.packageId} is owned by ${currentOwner}, not ${request.publisherHandle}`);
@@ -501,6 +504,10 @@ export class CoreHubLocalStorageAdapter {
     ) {
       throw httpError(400, "Submission package, version, or publisher does not match artifact upload");
     }
+    const trustedPublisher = this.trustedPublishers.get(request.packageId);
+    if (trustedPublisher && !publishToken && !request.manualOverrideReason && !this.hasAdminPermission(actor)) {
+      throw httpError(403, "Manual publishes for packages with trusted publisher config require manualOverrideReason");
+    }
     const versionSlug = slugVersion(request.version);
     const submittedAt = now.toISOString();
     const id = `submission-${request.packageId}-${versionSlug}`;
@@ -511,6 +518,7 @@ export class CoreHubLocalStorageAdapter {
       kind: request.kind,
       publisherHandle: request.publisherHandle,
       version: request.version,
+      channel: request.channel,
       status: "pending_review",
       artifactUploadId: request.artifactUploadId,
       ...(request.source ? { source: request.source } : {}),
@@ -518,12 +526,15 @@ export class CoreHubLocalStorageAdapter {
       submittedBy: actor,
       submittedAt,
       reviewId,
+      ...(request.publishTokenId ? { publishTokenId: request.publishTokenId } : {}),
+      ...(request.manualOverrideReason ? { manualOverrideReason: request.manualOverrideReason } : {}),
     };
     const packageVersionPreview = {
       id: `version-${request.packageId}-${versionSlug}`,
       packageId: request.packageId,
       version: request.version,
       tag: "latest",
+      channel: request.channel,
       publisherHandle: request.publisherHandle,
       status: "pending_review",
       artifactUploadId: request.artifactUploadId,
@@ -531,6 +542,25 @@ export class CoreHubLocalStorageAdapter {
       createdAt: submittedAt,
       moderationStatus: "pending",
     };
+    if (request.channel === "official" && !this.hasAdminPermission(actor) && !publishToken) {
+      throw httpError(403, "Official channel submissions require admin or trusted publisher token");
+    }
+    if (publishToken) {
+      publishToken.usedAt = submittedAt;
+      publishToken.usedBy = actor;
+      this.recordAuditEvent({
+        actor,
+        action: "package.publish_token.use",
+        targetType: "publishToken",
+        targetId: publishToken.id,
+        metadata: {
+          packageId: request.packageId,
+          version: request.version,
+          channel: request.channel,
+        },
+        createdAt: submittedAt,
+      });
+    }
     const moderationReview = {
       id: reviewId,
       targetType: "submission",
@@ -928,6 +958,8 @@ export class CoreHubLocalStorageAdapter {
       moderatedPackageVersions: this.moderatedPackageVersionCount(),
       packageReports: this.packageReports.length,
       packageAppeals: this.packageAppeals.length,
+      trustedPublishers: this.trustedPublishers.size,
+      activePublishTokens: [...this.publishTokens.values()].filter((token) => !token.revokedAt && new Date(token.expiresAt).getTime() > now.getTime()).length,
       ownershipTransfers: this.ownershipTransfers.size,
       installEvents: this.installEvents.length,
       auditEvents: this.auditEvents.length,
@@ -968,6 +1000,7 @@ export class CoreHubLocalStorageAdapter {
         packageReleaseModeration: countByStatus(
           [...this.packageVersions.values()].map((version) => version.manualModeration?.state ?? version.moderationStatus ?? "unknown"),
         ),
+        publishTokens: countByStatus([...this.publishTokens.values()].map((token) => token.revokedAt ? "revoked" : "active")),
         packageReports: countByStatus(this.packageReports.map((report) => report.status)),
         packageAppeals: countByStatus(this.packageAppeals.map((appeal) => appeal.status)),
         ownershipTransfers: countByStatus([...this.ownershipTransfers.values()].map((transfer) => transfer.status)),
@@ -1021,6 +1054,8 @@ export class CoreHubLocalStorageAdapter {
           [...this.packageVersions.values()].filter((version) => version.manualModeration),
           limit,
         ),
+        trustedPublishers: latestItems([...this.trustedPublishers.values()], limit),
+        publishTokens: latestItems([...this.publishTokens.values()], limit),
         packageReports: latestItems(this.packageReports, limit),
         packageAppeals: latestItems(this.packageAppeals, limit),
         ownershipTransfers: latestItems([...this.ownershipTransfers.values()], limit),
@@ -1035,6 +1070,157 @@ export class CoreHubLocalStorageAdapter {
       moderationReview,
       ...(record ? this.submissionInspection(record) : {}),
     };
+  }
+
+  async setTrustedPublisher(packageId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const ownerHandle = this.packageOwnerHandle(packageId);
+    if (!ownerHandle) throw httpError(404, "Package not found");
+    this.requirePackageLifecyclePermission(actor, ownerHandle, "package.trusted_publisher.set");
+    const request = normalizeTrustedPublisherRequest(input);
+    const configuredAt = now.toISOString();
+    const trustedPublisher = {
+      id: `trusted-publisher-${slugId(packageId)}`,
+      packageId,
+      provider: "github-actions",
+      repository: request.repository,
+      repositoryId: request.repositoryId,
+      repositoryOwner: request.repositoryOwner,
+      repositoryOwnerId: request.repositoryOwnerId,
+      workflowFilename: request.workflowFilename,
+      ...(request.environment ? { environment: request.environment } : {}),
+      configuredBy: actor,
+      configuredAt,
+    };
+    this.trustedPublishers.set(packageId, trustedPublisher);
+    this.recordAuditEvent({
+      actor,
+      action: "package.trusted_publisher.set",
+      targetType: "package",
+      targetId: packageId,
+      metadata: {
+        packageId,
+        repository: trustedPublisher.repository,
+        workflowFilename: trustedPublisher.workflowFilename,
+        environment: trustedPublisher.environment ?? null,
+      },
+      createdAt: configuredAt,
+    });
+    await this.persistState();
+    return { status: "configured", trustedPublisher };
+  }
+
+  getTrustedPublisher(packageId, { actor = defaultActor() } = {}) {
+    const trustedPublisher = this.trustedPublishers.get(packageId) ?? null;
+    if (!trustedPublisher) return { status: "missing", trustedPublisher: null };
+    const ownerHandle = this.packageOwnerHandle(packageId);
+    if (ownerHandle && !this.hasAdminPermission(actor) && !this.hasPublisherMembership(actor, ownerHandle)) {
+      throw httpError(403, `Actor ${actor.id} cannot package.trusted_publisher.get for package ${packageId}`);
+    }
+    return { status: "configured", trustedPublisher };
+  }
+
+  async deleteTrustedPublisher(packageId, { actor = defaultActor(), now = new Date() } = {}) {
+    const ownerHandle = this.packageOwnerHandle(packageId);
+    if (!ownerHandle) throw httpError(404, "Package not found");
+    this.requirePackageLifecyclePermission(actor, ownerHandle, "package.trusted_publisher.delete");
+    const deleted = this.trustedPublishers.delete(packageId);
+    const deletedAt = now.toISOString();
+    this.recordAuditEvent({
+      actor,
+      action: "package.trusted_publisher.delete",
+      targetType: "package",
+      targetId: packageId,
+      metadata: { packageId, deleted },
+      createdAt: deletedAt,
+    });
+    await this.persistState();
+    return { ok: true, status: deleted ? "deleted" : "missing", packageId };
+  }
+
+  async mintPublishToken(packageId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const trustedPublisher = this.trustedPublishers.get(packageId);
+    if (!trustedPublisher) throw httpError(403, "Trusted publisher config is not set for this package");
+    const ownerHandle = this.packageOwnerHandle(packageId);
+    if (ownerHandle) this.requirePackageLifecyclePermission(actor, ownerHandle, "package.publish_token.mint");
+    const request = normalizePublishTokenMintRequest(input, trustedPublisher);
+    const mintedAt = now.toISOString();
+    const expiresAt = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+    const token = `corehub_pub_${randomBytes(24).toString("base64url")}`;
+    const id = `publish-token-${slugId(packageId)}-${slugVersion(request.version)}-${String(this.publishTokens.size + 1).padStart(6, "0")}`;
+    const publishToken = {
+      id,
+      packageId,
+      version: request.version,
+      tokenPrefix: token.slice(0, 18),
+      tokenHash: createHash("sha256").update(token).digest("hex"),
+      provider: "github-actions",
+      repository: request.repository,
+      repositoryId: trustedPublisher.repositoryId,
+      repositoryOwner: trustedPublisher.repositoryOwner,
+      repositoryOwnerId: trustedPublisher.repositoryOwnerId,
+      workflowFilename: request.workflowFilename,
+      ...(trustedPublisher.environment ? { environment: trustedPublisher.environment } : {}),
+      runId: request.runId,
+      runAttempt: request.runAttempt,
+      sha: request.sha,
+      ref: request.ref,
+      mintedBy: actor,
+      mintedAt,
+      expiresAt,
+    };
+    this.publishTokens.set(id, publishToken);
+    this.recordAuditEvent({
+      actor,
+      action: "package.publish_token.mint",
+      targetType: "publishToken",
+      targetId: id,
+      metadata: {
+        packageId,
+        version: request.version,
+        repository: request.repository,
+        workflowFilename: request.workflowFilename,
+        runId: request.runId,
+        sha: request.sha,
+        ref: request.ref,
+      },
+      createdAt: mintedAt,
+    });
+    await this.persistState();
+    return { status: "minted", token, expiresAt, publishToken };
+  }
+
+  async revokePublishToken(packageId, tokenId, { actor = defaultActor(), now = new Date() } = {}) {
+    const publishToken = this.publishTokens.get(tokenId);
+    if (!publishToken || publishToken.packageId !== packageId) throw httpError(404, "Publish token not found");
+    const ownerHandle = this.packageOwnerHandle(packageId);
+    if (ownerHandle) this.requirePackageLifecyclePermission(actor, ownerHandle, "package.publish_token.revoke");
+    publishToken.revokedAt = now.toISOString();
+    publishToken.revokedBy = actor;
+    this.recordAuditEvent({
+      actor,
+      action: "package.publish_token.revoke",
+      targetType: "publishToken",
+      targetId: publishToken.id,
+      metadata: { packageId, version: publishToken.version },
+      createdAt: publishToken.revokedAt,
+    });
+    await this.persistState();
+    return { ok: true, status: "revoked", publishToken };
+  }
+
+  requirePublishToken(tokenId, request, now) {
+    const publishToken = this.publishTokens.get(tokenId);
+    if (!publishToken) throw httpError(403, "Publish token is not active");
+    if (publishToken.revokedAt) throw httpError(403, "Publish token is revoked");
+    if (new Date(publishToken.expiresAt).getTime() <= now.getTime()) throw httpError(403, "Publish token is expired");
+    if (publishToken.packageId !== request.packageId || publishToken.version !== request.version) {
+      throw httpError(403, "Publish token package or version does not match submission");
+    }
+    const trustedPublisher = this.trustedPublishers.get(request.packageId);
+    if (!trustedPublisher || trustedPublisher.repository !== publishToken.repository || trustedPublisher.workflowFilename !== publishToken.workflowFilename) {
+      throw httpError(403, "Publish token no longer matches trusted publisher config");
+    }
+    return publishToken;
   }
 
   submissionInspection(record) {
@@ -1708,6 +1894,7 @@ export class CoreHubLocalStorageAdapter {
           url: `https://github.com/${version.publisherHandle}`,
           verified: true,
         },
+        trustedPublisher: this.trustedPublishers.get(version.packageId) ?? null,
         review: {
           state: "verified",
           checkedAt: version.publishedAt ?? version.createdAt,
@@ -1763,6 +1950,8 @@ export class CoreHubLocalStorageAdapter {
       packageVersions: [...this.packageVersions.values()],
       packageReports: this.packageReports,
       packageAppeals: this.packageAppeals,
+      trustedPublishers: [...this.trustedPublishers.values()],
+      publishTokens: [...this.publishTokens.values()],
       ownershipTransfers: [...this.ownershipTransfers.values()],
       installEvents: this.installEvents,
       auditEvents: this.auditEvents,
@@ -1787,6 +1976,8 @@ export class CoreHubLocalStorageAdapter {
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
     this.packageReports = state.packageReports ?? [];
     this.packageAppeals = state.packageAppeals ?? [];
+    this.trustedPublishers = new Map((state.trustedPublishers ?? []).map((trustedPublisher) => [trustedPublisher.packageId, trustedPublisher]));
+    this.publishTokens = new Map((state.publishTokens ?? []).map((token) => [token.id, token]));
     this.ownershipTransfers = new Map((state.ownershipTransfers ?? []).map((transfer) => [transfer.id, transfer]));
     this.installEvents = state.installEvents ?? [];
     this.auditEvents = state.auditEvents ?? [];
@@ -2050,6 +2241,46 @@ export function createCoreHubApiHandler({
       if (request.method === "POST" && segments[0] === "packages" && segments[2] === "undelete" && segments.length === 3) {
         const actor = actorFromRequest(request, storage);
         const result = await storage.undeletePackage(decodeURIComponent(segments[1]), { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (segments[0] === "packages" && segments[2] === "trusted-publisher" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const packageId = decodeURIComponent(segments[1]);
+        if (request.method === "GET") {
+          const result = storage.getTrustedPublisher(packageId, { actor });
+          return json(response, 200, { apiVersion: "v2", data: result });
+        }
+        if (request.method === "PUT") {
+          const body = await readJsonBody(request);
+          const result = await storage.setTrustedPublisher(packageId, body, { actor, now: now() });
+          return json(response, 200, { apiVersion: "v2", data: result });
+        }
+        if (request.method === "DELETE") {
+          const result = await storage.deleteTrustedPublisher(packageId, { actor, now: now() });
+          return json(response, 200, { apiVersion: "v2", data: result });
+        }
+      }
+
+      if (request.method === "POST" && segments[0] === "packages" && segments[2] === "publish-tokens" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.mintPublishToken(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "packages" &&
+        segments[2] === "publish-tokens" &&
+        segments[4] === "revoke" &&
+        segments.length === 5
+      ) {
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.revokePublishToken(decodeURIComponent(segments[1]), decodeURIComponent(segments[3]), {
+          actor,
+          now: now(),
+        });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -2695,6 +2926,14 @@ function normalizeSubmissionRequest(input) {
   const artifactUploadId = normalizeRequiredString(input?.artifactUploadId, "artifactUploadId");
   const changelog = normalizeRequiredString(input?.changelog ?? "CoreHub package submission.", "changelog");
   const source = typeof input?.source === "string" && input.source.trim().length > 0 ? input.source.trim() : undefined;
+  const channel = typeof input?.channel === "string" && input.channel.trim().length > 0 ? input.channel.trim() : "stable";
+  if (!["stable", "beta", "official"].includes(channel)) throw httpError(400, "channel must be stable, beta, or official");
+  const publishTokenId =
+    typeof input?.publishTokenId === "string" && input.publishTokenId.trim().length > 0 ? input.publishTokenId.trim() : undefined;
+  const manualOverrideReason =
+    typeof input?.manualOverrideReason === "string" && input.manualOverrideReason.trim().length > 0
+      ? input.manualOverrideReason.trim()
+      : undefined;
   return {
     packageId,
     version,
@@ -2703,6 +2942,55 @@ function normalizeSubmissionRequest(input) {
     artifactUploadId,
     source,
     changelog,
+    channel,
+    publishTokenId,
+    manualOverrideReason,
+  };
+}
+
+function normalizeTrustedPublisherRequest(input) {
+  const repository = normalizeRequiredString(input?.repository, "repository").toLowerCase();
+  if (!/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(repository)) throw httpError(400, "repository must be owner/name");
+  const [repositoryOwner] = repository.split("/");
+  const workflowFilename = normalizeRequiredString(input?.workflowFilename, "workflowFilename");
+  if (!/^[A-Za-z0-9_.-]+\.ya?ml$/.test(workflowFilename)) {
+    throw httpError(400, "workflowFilename must be a GitHub Actions YAML filename");
+  }
+  const environment = typeof input?.environment === "string" && input.environment.trim().length > 0 ? input.environment.trim() : undefined;
+  return {
+    repository,
+    repositoryId:
+      typeof input?.repositoryId === "string" && input.repositoryId.trim().length > 0
+        ? input.repositoryId.trim()
+        : createHash("sha256").update(repository).digest("hex").slice(0, 12),
+    repositoryOwner,
+    repositoryOwnerId:
+      typeof input?.repositoryOwnerId === "string" && input.repositoryOwnerId.trim().length > 0
+        ? input.repositoryOwnerId.trim()
+        : createHash("sha256").update(repositoryOwner).digest("hex").slice(0, 12),
+    workflowFilename,
+    environment,
+  };
+}
+
+function normalizePublishTokenMintRequest(input, trustedPublisher) {
+  const version = normalizeRequiredString(input?.version, "version");
+  const repository = normalizeRequiredString(input?.repository ?? trustedPublisher.repository, "repository").toLowerCase();
+  const workflowFilename = normalizeRequiredString(input?.workflowFilename ?? trustedPublisher.workflowFilename, "workflowFilename");
+  const environment = typeof input?.environment === "string" && input.environment.trim().length > 0 ? input.environment.trim() : undefined;
+  if (repository !== trustedPublisher.repository) throw httpError(403, "Repository does not match trusted publisher config");
+  if (workflowFilename !== trustedPublisher.workflowFilename) throw httpError(403, "Workflow does not match trusted publisher config");
+  if ((environment ?? undefined) !== (trustedPublisher.environment ?? undefined)) {
+    throw httpError(403, "Environment does not match trusted publisher config");
+  }
+  return {
+    version,
+    repository,
+    workflowFilename,
+    runId: normalizeRequiredString(input?.runId, "runId"),
+    runAttempt: normalizeRequiredString(input?.runAttempt ?? "1", "runAttempt"),
+    sha: normalizeRequiredString(input?.sha, "sha"),
+    ref: normalizeRequiredString(input?.ref, "ref"),
   };
 }
 

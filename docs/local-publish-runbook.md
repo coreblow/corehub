@@ -50,6 +50,10 @@ npm run corehub -- package moderation-status plugin-lab --registry http://127.0.
 npm run corehub -- package readiness plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package delete plugin-lab --yes --reason "Soft delete fixture." --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package undelete plugin-lab --yes --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package trusted-publisher set plugin-lab --repository coreblow/plugin-lab --workflow publish.yml --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package trusted-publisher get plugin-lab --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package publish-token mint plugin-lab --version 0.2.0 --repository coreblow/plugin-lab --workflow publish.yml --run-id 12345 --sha abc123 --ref refs/heads/main --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package publish-token revoke plugin-lab --token-id publish-token-plugin-lab-0-2-0-000001 --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package report plugin-lab --version 0.1.0 --reason "Suspicious package report fixture." --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package reports list --status open --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package reports triage package-report-plugin-lab-0-1-0-000001 --status confirmed --note "Confirmed report fixture." --action quarantine --registry http://127.0.0.1:8787/corehub
@@ -62,9 +66,9 @@ npm run corehub -- admin status --registry http://127.0.0.1:8787/corehub
 npm run corehub -- admin support-bundle --limit 20 --output ./corehub-support-bundle.json --registry http://127.0.0.1:8787/corehub
 ```
 
-Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, delete hides it from Registry API v1 without removing history, undelete restores it, the transfer reaches `completed` when accepted by the target publisher, the package report reaches `confirmed` after triage, the release becomes `quarantined` and download-blocked, the package appeal reaches `accepted` after resolution, analytics summary reports aggregate install counts without raw client identifiers, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report and automation check return `status: ok`, the retention dry run reports the export-before-prune policy, and `corehub admin status` reports `ok` with readiness `ready`.
+Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, delete hides it from Registry API v1 without removing history, undelete restores it, trusted publisher policy records the `coreblow/plugin-lab` workflow, the publish token mints and revokes with audit history, the transfer reaches `completed` when accepted by the target publisher, the package report reaches `confirmed` after triage, the release becomes `quarantined` and download-blocked, the package appeal reaches `accepted` after resolution, analytics summary reports aggregate install counts without raw client identifiers, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report and automation check return `status: ok`, the retention dry run reports the export-before-prune policy, and `corehub admin status` reports `ok` with readiness `ready`.
 
-The support bundle is a redacted JSON artifact for operator escalation. It includes state store and object store kind, queue counts, transfer counts, lifecycle counts, release moderation counts, report counts, appeal counts, install analytics totals, audit integrity, deploy readiness, and recent queue/audit samples. It does not include signing secrets, raw client identifiers, raw IP addresses, or raw user agents.
+The support bundle is a redacted JSON artifact for operator escalation. It includes state store and object store kind, queue counts, transfer counts, lifecycle counts, release moderation counts, report counts, appeal counts, trusted publisher counts, active publish-token counts, install analytics totals, audit integrity, deploy readiness, and recent queue/audit samples. It does not include signing secrets, raw client identifiers, raw IP addresses, or raw user agents.
 
 ## Local State
 

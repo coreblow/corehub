@@ -332,6 +332,16 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "trusted-publisher") {
+    await runPackageTrustedPublisherCommand(args, registry);
+    return;
+  }
+
+  if (subcommand === "publish-token") {
+    await runPackagePublishTokenCommand(args, registry);
+    return;
+  }
+
   if (subcommand === "delete") {
     const id = positionalArgs(args)[0];
     if (!id) throw new Error("package delete requires an entry id");
@@ -1725,7 +1735,7 @@ async function runPackageUploadCommand(values) {
 async function runPackagePublishCommand(values, registry) {
   const source = positionalArgs(values)[0];
   if (!source) throw new Error("package publish requires an artifact file or folder");
-  
+
   if (!registry) {
     throw new Error("package publish requires --registry or COREHUB_REGISTRY for both dry-run and live publishing");
   }
@@ -1844,6 +1854,90 @@ async function runPackageAppealsCommand(values, registry) {
   printPackageHelp();
 }
 
+async function runPackageTrustedPublisherCommand(values, registry) {
+  const subcommand = values[0] ?? "get";
+  const args = values.slice(1);
+  if (!registry) throw new Error("package trusted-publisher requires --registry or COREHUB_REGISTRY");
+  const packageId = positionalArgs(args)[0];
+  if (!packageId) throw new Error(`package trusted-publisher ${subcommand} requires an entry id`);
+  const auth = await requireAuthState();
+  const client = new CoreHubRegistryClient(registry);
+
+  if (subcommand === "get") {
+    const result = await client.getTrustedPublisher(packageId, { auth });
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  if (subcommand === "set") {
+    const repository = readOption(args, "--repository");
+    const workflowFilename = readOption(args, "--workflow") ?? readOption(args, "--workflow-filename");
+    if (!repository) throw new Error("package trusted-publisher set requires --repository owner/repo");
+    if (!workflowFilename) throw new Error("package trusted-publisher set requires --workflow filename.yml");
+    const result = await client.setTrustedPublisher(
+      packageId,
+      {
+        repository,
+        workflowFilename,
+        environment: readOption(args, "--environment"),
+      },
+      { auth },
+    );
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  if (subcommand === "delete") {
+    if (!hasFlag(args, "--yes")) throw new Error("package trusted-publisher delete requires --yes");
+    const result = await client.deleteTrustedPublisher(packageId, { auth });
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  printPackageHelp();
+}
+
+async function runPackagePublishTokenCommand(values, registry) {
+  const subcommand = values[0] ?? "mint";
+  const args = values.slice(1);
+  if (!registry) throw new Error("package publish-token requires --registry or COREHUB_REGISTRY");
+  const packageId = positionalArgs(args)[0];
+  if (!packageId) throw new Error(`package publish-token ${subcommand} requires an entry id`);
+  const auth = await requireAuthState();
+  const client = new CoreHubRegistryClient(registry);
+
+  if (subcommand === "mint") {
+    const version = readOption(args, "--version");
+    if (!version) throw new Error("package publish-token mint requires --version <version>");
+    const result = await client.mintPublishToken(
+      packageId,
+      {
+        version,
+        repository: readOption(args, "--repository"),
+        workflowFilename: readOption(args, "--workflow") ?? readOption(args, "--workflow-filename"),
+        environment: readOption(args, "--environment"),
+        runId: readOption(args, "--run-id") ?? "local-run",
+        runAttempt: readOption(args, "--run-attempt") ?? "1",
+        sha: readOption(args, "--sha") ?? "local-dev-sha",
+        ref: readOption(args, "--ref") ?? "refs/heads/main",
+      },
+      { auth },
+    );
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  if (subcommand === "revoke") {
+    const tokenId = readOption(args, "--token-id") ?? positionalArgs(args)[1];
+    if (!tokenId) throw new Error("package publish-token revoke requires --token-id <id>");
+    const result = await client.revokePublishToken(packageId, tokenId, { auth });
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  printPackageHelp();
+}
+
 async function createPackagePublishDryRun(source, values, registry) {
   const auth = await requireAuthState();
   const inspected = await inspectPackageSubmitSource(source);
@@ -1902,6 +1996,8 @@ async function createPackagePublishDryRun(source, values, registry) {
       submissionId: `submission-${packageId}-${versionSlug}`,
       artifactUploadId,
       changelog,
+      channel: readOption(values, "--channel") ?? "stable",
+      publishTokenId: readOption(values, "--publish-token-id") ?? null,
       reviewStatus: "pending_review",
     },
     validation: {
@@ -2442,6 +2538,9 @@ async function executePackagePublish(source, values, registry) {
         artifactUploadId,
         source: sourceUrl,
         changelog,
+        channel: readOption(values, "--channel") ?? "stable",
+        publishTokenId: readOption(values, "--publish-token-id"),
+        manualOverrideReason: readOption(values, "--manual-override-reason"),
       },
       { auth }
     );
@@ -3112,6 +3211,46 @@ class CoreHubRegistryClient {
     });
   }
 
+  async getTrustedPublisher(packageId, options = {}) {
+    return this.readV2Data(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}/trusted-publisher`), { auth: options.auth });
+  }
+
+  async setTrustedPublisher(packageId, payload, options = {}) {
+    return this.writeData(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}/trusted-publisher`), {
+      auth: options.auth,
+      method: "PUT",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async deleteTrustedPublisher(packageId, options = {}) {
+    return this.writeData(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}/trusted-publisher`), {
+      auth: options.auth,
+      method: "DELETE",
+      expectedVersion: "v2",
+    });
+  }
+
+  async mintPublishToken(packageId, payload, options = {}) {
+    return this.writeData(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}/publish-tokens`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async revokePublishToken(packageId, tokenId, options = {}) {
+    return this.writeData(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}/publish-tokens/${encodeURIComponent(tokenId)}/revoke`), {
+      auth: options.auth,
+      method: "POST",
+      expectedVersion: "v2",
+    });
+  }
+
   async decideReview(reviewId, decision, payload = {}, options = {}) {
     return this.writeData(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}/${decision}`), {
       auth: options.auth,
@@ -3344,6 +3483,9 @@ Usage:
   corehub package appeal <entry-id> --version version --message text --registry https://coreblow.com/corehub
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package appeals resolve <appeal-id> --status accepted|rejected|open [--note text] [--action none|approve] --registry https://coreblow.com/corehub
+  corehub package trusted-publisher get|set|delete <entry-id> [--repository owner/repo] [--workflow file.yml] [--environment name] --registry https://coreblow.com/corehub
+  corehub package publish-token mint <entry-id> --version version [--repository owner/repo] [--workflow file.yml] --registry https://coreblow.com/corehub
+  corehub package publish-token revoke <entry-id> --token-id id --registry https://coreblow.com/corehub
   corehub package delete <entry-id> --yes [--reason text] --registry https://coreblow.com/corehub
   corehub package undelete <entry-id> --yes --registry https://coreblow.com/corehub
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
@@ -3376,6 +3518,9 @@ Usage:
   corehub package appeal <entry-id> --version version --message text --registry https://coreblow.com/corehub
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package appeals resolve <appeal-id> --status accepted|rejected|open [--note text] [--action none|approve] --registry https://coreblow.com/corehub
+  corehub package trusted-publisher get|set|delete <entry-id> [--repository owner/repo] [--workflow file.yml] [--environment name] --registry https://coreblow.com/corehub
+  corehub package publish-token mint <entry-id> --version version [--repository owner/repo] [--workflow file.yml] --registry https://coreblow.com/corehub
+  corehub package publish-token revoke <entry-id> --token-id id --registry https://coreblow.com/corehub
   corehub package delete <entry-id> --yes [--reason text] --registry https://coreblow.com/corehub
   corehub package undelete <entry-id> --yes --registry https://coreblow.com/corehub
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]

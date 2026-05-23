@@ -104,6 +104,8 @@ Implemented moderation/trust starters:
 - `corehub package appeal <id>` creates a publisher appeal for a published version.
 - `corehub package appeals list` and `corehub package appeals resolve` expose the moderator/admin appeal queue with ClawHub-style `open`, `accepted`, and `rejected` statuses.
 - Admin status and support bundles include package lifecycle, report, and appeal counts with recent samples.
+- `corehub package trusted-publisher set|get|delete <id>` stores package-level GitHub Actions trusted publisher policy.
+- `corehub package publish-token mint|revoke <id>` mints and revokes short-lived publish tokens for matching trusted publisher runs.
 
 ### Phase 6: Install and Sync
 

@@ -27,6 +27,8 @@ The schema follows the ClawHub pattern where publishing is owner-scoped:
 | `artifactUploads` | Managed upload metadata, storage locator, size, and checksum. |
 | `moderationReviews` | Human or automated review decisions. |
 | `ownershipTransfers` | Explicit publisher ownership moves with audit history. |
+| `trustedPublishers` | GitHub Actions trusted publisher policy per package. |
+| `publishTokens` | Short-lived CI publish tokens minted from trusted publisher policy. |
 | `installEvents` | Privacy-preserving aggregate install and verification events. |
 | `auditEvents` | Operator audit trail for write-side actions and admin reads. |
 | `auditRetentionCheckpoints` | Export-before-prune checkpoints for archived audit prefixes. |
@@ -241,6 +243,11 @@ Phase 18 adds the server-side shape before wiring production R2 or S3 credential
 | `POST /corehub/api/v2/package-appeals/:id/resolve` | Records a moderator/admin appeal resolution, note, and optional final action. |
 | `DELETE /corehub/api/v2/packages/:id` | Soft-deletes all published versions for the package and removes it from Registry API v1 projections. |
 | `POST /corehub/api/v2/packages/:id/undelete` | Restores soft-deleted package versions and makes the package visible to Registry API v1 projections again. |
+| `GET /corehub/api/v2/packages/:id/trusted-publisher` | Reads the package trusted publisher policy for owners, members, admins, and moderators. |
+| `PUT /corehub/api/v2/packages/:id/trusted-publisher` | Sets GitHub Actions trusted publisher policy for a package owner or admin. |
+| `DELETE /corehub/api/v2/packages/:id/trusted-publisher` | Removes trusted publisher policy without deleting package history. |
+| `POST /corehub/api/v2/packages/:id/publish-tokens` | Mints a short-lived publish token for a matching trusted publisher workflow run. |
+| `POST /corehub/api/v2/packages/:id/publish-tokens/:tokenId/revoke` | Revokes a short-lived publish token and records the revocation audit event. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approves a pending submission review and creates an `available` package version. |
 | `POST /corehub/api/v2/reviews/:id/block` | Blocks a pending submission review and creates a blocked package version record for audit visibility. |
 | `GET /corehub/api/v1/packages/:id/download` | Returns signed read metadata, or redirects to a signed read URL by default. |
@@ -273,6 +280,17 @@ Package reports are separate from submission reviews. A report does not hide or 
 Package appeals are separate from package reports. A verified publisher can appeal a published version with a message, and a moderator resolves the appeal as `accepted`, `rejected`, or reopened as `open` with optional final action `none` or `approve`.
 
 Package delete and undelete are soft lifecycle operations. Delete marks package versions with `softDeletedAt`, records the actor and optional reason, disables artifact download in state, and hides the package from Registry API v1. Undelete clears the soft-delete marker, records restore metadata, and makes the package visible again without rewriting submission, review, or audit history.
+
+Trusted publisher policy lets a package owner bind a package to one GitHub Actions repository, workflow filename, and optional environment. Short-lived publish tokens can only be minted when the requested repository, workflow, and environment match that policy. Official-channel submissions fail closed unless the actor is an admin or supplies a matching trusted publisher token, and manual submissions against a trusted-publisher package require a manual override reason.
+
+The trusted publisher CLI shape is:
+
+```sh
+corehub package trusted-publisher set plugin-lab --repository coreblow/plugin-lab --workflow publish.yml --registry http://127.0.0.1:8787/corehub
+corehub package trusted-publisher get plugin-lab --registry http://127.0.0.1:8787/corehub
+corehub package publish-token mint plugin-lab --version 0.2.0 --repository coreblow/plugin-lab --workflow publish.yml --run-id 12345 --sha abc123 --ref refs/heads/main --registry http://127.0.0.1:8787/corehub
+corehub package publish-token revoke plugin-lab --token-id publish-token-plugin-lab-0-2-0-000001 --registry http://127.0.0.1:8787/corehub
+```
 
 The admin CLI can now call these API v2 review decisions:
 
@@ -320,6 +338,8 @@ Phase 23 keeps production persistence out of scope, but the local storage adapte
 | `submissions` | Package submission records plus pending or decided package version previews. |
 | `reviews` | Moderation review decisions and reviewer audit metadata. |
 | `packageVersions` | Approved, blocked, soft-deleted, or restored version records used by projection. |
+| `trustedPublishers` | Package-level trusted publisher policies. |
+| `publishTokens` | Short-lived CI publish tokens with mint, use, and revoke metadata. |
 | `auditEvents` | Append-only audit events for upload, verification, submission, review decision, and admin read actions. |
 | `auditCheckpoints` | Local checkpoint records created after export-before-prune retention actions. |
 
@@ -348,6 +368,8 @@ The local API currently records:
 | `audit.verify` | Audit chain verification read. |
 | `audit.retention.inspect` | Retention policy and prune plan read. |
 | `audit.retention.prune` | Export-backed retention prune checkpoint. |
+| `package.trusted_publisher.set` / `package.trusted_publisher.delete` | Package id. |
+| `package.publish_token.mint` / `package.publish_token.use` / `package.publish_token.revoke` | Publish token id. |
 
 Operators can inspect the trail through the read-only CLI surface:
 

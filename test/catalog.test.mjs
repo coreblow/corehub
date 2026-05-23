@@ -1942,6 +1942,83 @@ try {
     const restoredPackageResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab`);
     assert.equal(restoredPackageResponse.status, 200);
 
+    const trustedPublisherSet = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "trusted-publisher",
+        "set",
+        "plugin-lab",
+        "--repository",
+        "coreblow/plugin-lab",
+        "--workflow",
+        "publish.yml",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const trustedPublisherSetPayload = JSON.parse(trustedPublisherSet.stdout);
+    assert.equal(trustedPublisherSetPayload.status, "configured");
+    assert.equal(trustedPublisherSetPayload.trustedPublisher.repository, "coreblow/plugin-lab");
+
+    const trustedPublisherGet = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "trusted-publisher", "get", "plugin-lab", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const trustedPublisherGetPayload = JSON.parse(trustedPublisherGet.stdout);
+    assert.equal(trustedPublisherGetPayload.trustedPublisher.workflowFilename, "publish.yml");
+
+    const publishTokenMint = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "publish-token",
+        "mint",
+        "plugin-lab",
+        "--version",
+        "0.2.0",
+        "--repository",
+        "coreblow/plugin-lab",
+        "--workflow",
+        "publish.yml",
+        "--run-id",
+        "12345",
+        "--sha",
+        "abc123",
+        "--ref",
+        "refs/heads/main",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const publishTokenMintPayload = JSON.parse(publishTokenMint.stdout);
+    assert.equal(publishTokenMintPayload.status, "minted");
+    assert.equal(publishTokenMintPayload.publishToken.packageId, "plugin-lab");
+    assert.match(publishTokenMintPayload.token, /^corehub_pub_/);
+
+    const publishTokenRevoke = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "publish-token",
+        "revoke",
+        "plugin-lab",
+        "--token-id",
+        publishTokenMintPayload.publishToken.id,
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const publishTokenRevokePayload = JSON.parse(publishTokenRevoke.stdout);
+    assert.equal(publishTokenRevokePayload.status, "revoked");
+
     const packageReport = await execFileAsync(
       process.execPath,
       [
@@ -2153,11 +2230,14 @@ try {
     assert.equal(adminStatusPayload.counts.installEvents, 2);
     assert.equal(adminStatusPayload.counts.softDeletedPackages, 0);
     assert.equal(adminStatusPayload.counts.moderatedPackageVersions, 1);
+    assert.equal(adminStatusPayload.counts.trustedPublishers, 1);
+    assert.equal(adminStatusPayload.counts.activePublishTokens, 0);
     assert.equal(adminStatusPayload.counts.packageReports, 1);
     assert.equal(adminStatusPayload.counts.packageAppeals, 1);
     assert.equal(adminStatusPayload.queues.reviews.approved, 1);
     assert.equal(adminStatusPayload.queues.packageLifecycle.active, 1);
     assert.equal(adminStatusPayload.queues.packageReleaseModeration.quarantined, 1);
+    assert.equal(adminStatusPayload.queues.publishTokens.revoked, 1);
     assert.equal(adminStatusPayload.queues.packageReports.confirmed, 1);
     assert.equal(adminStatusPayload.queues.packageAppeals.accepted, 1);
     assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
@@ -2178,9 +2258,12 @@ try {
     assert.equal(supportBundle.counts.installEvents, 2);
     assert.equal(supportBundle.counts.softDeletedPackages, 0);
     assert.equal(supportBundle.counts.moderatedPackageVersions, 1);
+    assert.equal(supportBundle.counts.trustedPublishers, 1);
     assert.equal(supportBundle.recent.packageLifecycle[0].packageId, "plugin-lab");
     assert.equal(typeof supportBundle.recent.packageLifecycle[0].restoredAt, "string");
     assert.equal(supportBundle.recent.packageReleaseModeration[0].manualModeration.state, "quarantined");
+    assert.equal(supportBundle.recent.trustedPublishers[0].repository, "coreblow/plugin-lab");
+    assert.equal(supportBundle.recent.publishTokens[0].revokedBy.id, "github:coreblow-admin");
     assert.equal(supportBundle.recent.packageReports[0].status, "confirmed");
     assert.equal(supportBundle.recent.packageAppeals[0].status, "accepted");
     assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
@@ -2194,6 +2277,8 @@ try {
     assert.equal("softDeletedAt" in persistedState.packageVersions[0], false);
     assert.equal(typeof persistedState.packageVersions[0].restoredAt, "string");
     assert.equal(persistedState.packageVersions[0].manualModeration.state, "quarantined");
+    assert.equal(persistedState.trustedPublishers[0].repository, "coreblow/plugin-lab");
+    assert.equal(persistedState.publishTokens[0].revokedAt.length > 0, true);
     assert.equal(persistedState.installEvents.length, 2);
     assert.equal(persistedState.packageReports[0].status, "confirmed");
     assert.equal(persistedState.packageAppeals[0].status, "accepted");
@@ -2205,6 +2290,9 @@ try {
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.delete"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.undelete"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.release.moderate"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.trusted_publisher.set"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.publish_token.mint"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.publish_token.revoke"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.event.ingest"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.analytics.summary"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);
