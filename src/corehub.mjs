@@ -589,8 +589,8 @@ export class CoreHubCatalogValidator {
       errors.push(`${prefix}.artifact.storage must be an object`);
       return;
     }
-    if (!["github-raw", "r2", "s3", "external-url"].includes(storage.provider)) {
-      errors.push(`${prefix}.artifact.storage.provider must be one of github-raw, r2, s3, external-url`);
+    if (!["github-raw", "managed", "external-url"].includes(storage.provider)) {
+      errors.push(`${prefix}.artifact.storage.provider must be one of github-raw, managed, external-url`);
     }
     requireText(errors, storage.key, `${prefix}.artifact.storage.key`);
     optionalText(errors, storage.region, `${prefix}.artifact.storage.region`);

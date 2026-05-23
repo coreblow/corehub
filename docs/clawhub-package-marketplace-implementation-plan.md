@@ -31,7 +31,7 @@ Already implemented:
 - Publisher Portal self-service foundation.
 - Local install lifecycle state and telemetry opt-out.
 - Audit hash chain, retention, incident reporting, admin status, support bundle.
-- D1 production persistence boundary, production-lite external artifact URL mode, optional R2 managed upload mode, and Worker deploy checks.
+- D1 production persistence boundary, external artifact URL mode, and Worker deploy checks.
 
 ## Parity Matrix
 
@@ -184,7 +184,7 @@ Implemented:
 
 ### Phase J: Production Finalization
 
-Status: in progress. Private package visibility, browser session validation with production token-hash verification, external artifact URL production-lite mode, and rate-limit boundary are implemented; real OAuth, production D1/secrets application, optional R2 managed uploads, and live rollback drills remain operator-applied.
+Status: in progress. Private package visibility, browser session validation with production token-hash verification, external artifact URL mode, and rate-limit boundary are implemented; real OAuth, production D1/secrets application, and live rollback drills remain operator-applied.
 
 Goal: CoreHub v1 package marketplace can be called final for ClawHub-inspired parity.
 
@@ -194,7 +194,6 @@ Tasks:
 - Private package visibility rules.
 - Edge rate limiting policy.
 - Production D1/secrets applied.
-- Optional R2 managed uploads enabled only when billing is approved.
 - Backup/restore drill.
 - Rollback drill.
 - Post-deploy smoke against real deployment.
@@ -208,7 +207,7 @@ Implemented in this phase:
 - API handler supports a fixed-window rate limit via `COREHUB_RATE_LIMIT_MAX` and `COREHUB_RATE_LIMIT_WINDOW_MS`.
 - API v2 exposes `GET /corehub/api/v2/session/validate?role=admin|publisher` so browser admin and publisher surfaces validate token-backed sessions before loading privileged data.
 - Production config can enforce opaque browser session token SHA-256 hashes with `COREHUB_REQUIRE_SESSION_TOKEN_HASHES=1`; signed JWT sessions remain accepted through the CoreHub signing key.
-- Worker production-lite uses `COREHUB_OBJECT_STORE=external-url`, allowing moderated package artifacts to reference GitHub release/raw URLs without requiring R2.
+- Worker production uses `COREHUB_OBJECT_STORE=external-url`, allowing moderated package artifacts to reference GitHub release/raw URLs without requiring paid object storage.
 - `npm run validate:production-finalization` checks repository-side production readiness before operator approval.
 - `npm run drill:production` rehearses backup validation, restore dry run/apply, persistence migration, and Worker-local smoke.
 
@@ -218,7 +217,7 @@ CoreHub is final for v1 ClawHub-inspired package marketplace parity when:
 
 - Phase F through J are complete.
 - All gates pass locally and in CI.
-- Production deployment is exercised with real D1/secrets and either external artifact URL mode or optional R2 managed uploads.
+- Production deployment is exercised with real D1/secrets and external artifact URL mode.
 - Rollback and restore are tested, not only documented.
 - CLI, admin, publisher portal, and public API behavior are consistent.
 - ClawHub-to-CoreHub matrix has no `missing` rows for package marketplace v1.

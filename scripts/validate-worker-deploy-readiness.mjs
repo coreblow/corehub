@@ -41,13 +41,12 @@ if (config.vars.COREHUB_PUBLIC_BASE_URL?.startsWith("https://")) pass("public ba
 else fail("public base URL scheme", "COREHUB_PUBLIC_BASE_URL must use https");
 requirePresent("D1 state key", config.vars.COREHUB_D1_STATE_KEY);
 requirePresent("D1 state table", config.vars.COREHUB_D1_STATE_TABLE);
-const objectStoreMode = config.vars.COREHUB_OBJECT_STORE ?? "r2";
-if (objectStoreMode === "external-url" || objectStoreMode === "r2") {
+const objectStoreMode = config.vars.COREHUB_OBJECT_STORE ?? "external-url";
+if (objectStoreMode === "external-url") {
   pass("object store mode", objectStoreMode);
 } else {
-  fail("object store mode", "COREHUB_OBJECT_STORE must be external-url or r2");
+  fail("object store mode", "COREHUB_OBJECT_STORE must be external-url for production");
 }
-if (objectStoreMode === "r2") requirePresent("R2 bucket name", config.vars.COREHUB_R2_BUCKET_NAME);
 requirePresent("admin actors", config.vars.COREHUB_ADMIN_ACTORS);
 requirePresent("analytics salt", config.vars.COREHUB_ANALYTICS_SALT);
 requireEqual("session token hash enforcement", config.vars.COREHUB_REQUIRE_SESSION_TOKEN_HASHES, "1");
@@ -57,13 +56,7 @@ const d1 = config.d1Databases.find((item) => item.binding === "COREHUB_D1");
 if (d1) pass("D1 binding", d1.binding);
 else fail("D1 binding", "missing [[d1_databases]] binding COREHUB_D1");
 
-const r2 = config.r2Buckets.find((item) => item.binding === "COREHUB_R2");
-if (objectStoreMode === "r2") {
-  if (r2) pass("R2 binding", r2.binding);
-  else fail("R2 binding", "missing [[r2_buckets]] binding COREHUB_R2");
-} else {
-  pass("R2 binding", "not required for external-url object store");
-}
+pass("managed object storage binding", "not used in production");
 
 if (/wrangler secret put COREHUB_SIGNING_SECRET/.test(text)) pass("signing secret runbook", "wrangler secret put COREHUB_SIGNING_SECRET");
 else fail("signing secret runbook", "missing wrangler secret command comment");
@@ -121,7 +114,6 @@ function parseWranglerToml(source) {
   const root = {};
   const vars = {};
   const d1Databases = [];
-  const r2Buckets = [];
   let current = root;
 
   for (const rawLine of source.split(/\r?\n/)) {
@@ -137,18 +129,12 @@ function parseWranglerToml(source) {
       current = item;
       continue;
     }
-    if (line === "[[r2_buckets]]") {
-      const item = {};
-      r2Buckets.push(item);
-      current = item;
-      continue;
-    }
     const match = /^([A-Za-z0-9_]+)\s*=\s*(.+)$/.exec(line);
     if (!match) continue;
     current[match[1]] = parseTomlScalar(match[2]);
   }
 
-  return { root, vars, d1Databases, r2Buckets };
+  return { root, vars, d1Databases };
 }
 
 function parseTomlScalar(value) {

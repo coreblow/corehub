@@ -127,14 +127,14 @@ export class CoreHubLocalObjectStore {
   }
 }
 
-export class CoreHubR2ObjectStore {
-  constructor({ bucket, bucketName = "COREHUB_R2" } = {}) {
+export class CoreHubManagedObjectStore {
+  constructor({ bucket, bucketName = "COREHUB_MANAGED_OBJECT_STORE" } = {}) {
     if (!bucket || typeof bucket.put !== "function" || typeof bucket.get !== "function") {
-      throw new Error("CoreHubR2ObjectStore requires an R2 bucket binding");
+      throw new Error("CoreHubManagedObjectStore requires a managed object storage bucket binding");
     }
     this.bucket = bucket;
     this.bucketName = bucketName;
-    this.kind = "r2";
+    this.kind = "managed";
   }
 
   async put(key, bytes, metadata = {}) {
@@ -156,7 +156,7 @@ export class CoreHubR2ObjectStore {
       return Buffer.from(await object.body.arrayBuffer());
     }
     if (object.body instanceof Uint8Array) return Buffer.from(object.body);
-    throw new Error("R2 object body is not readable");
+    throw new Error("managed object body is not readable");
   }
 }
 
@@ -166,7 +166,7 @@ export class CoreHubExternalUrlObjectStore {
   }
 
   async put() {
-    throw httpError(409, "Managed artifact uploads require an object store; use external artifact URL publishing or enable R2");
+    throw httpError(409, "Managed artifact uploads are local-test only; use external artifact URL publishing");
   }
 
   async get() {
@@ -3070,9 +3070,9 @@ function normalizeUploadRequest(input) {
   if (!/^[a-f0-9]{64}$/i.test(sha256)) throw httpError(400, "artifact.sha256 must be a SHA-256 hex digest");
   const size = artifact.size;
   if (!Number.isSafeInteger(size) || size < 0) throw httpError(400, "artifact.size must be a non-negative integer");
-  const provider = input.provider ?? "r2";
-  if (!["r2", "s3", "github-raw", "external-url"].includes(provider)) {
-    throw httpError(400, "provider must be r2, s3, github-raw, or external-url");
+  const provider = input.provider ?? "managed";
+  if (!["managed", "github-raw", "external-url"].includes(provider)) {
+    throw httpError(400, "provider must be managed, github-raw, or external-url");
   }
   const url = typeof artifact.url === "string" && artifact.url.trim().length > 0 ? artifact.url.trim() : undefined;
   if (isExternalArtifactProvider(provider) && !url) {
@@ -4469,7 +4469,7 @@ function renderCoreHubPublisherHtml() {
           packageId,
           version,
           publisherHandle,
-          provider: artifactUrl ? "external-url" : "r2",
+          provider: artifactUrl ? "external-url" : "managed",
           maxBytes: Math.max(file.size, 104857600),
           artifact: {
             name: file.name,

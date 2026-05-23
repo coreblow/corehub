@@ -1,6 +1,6 @@
 # CoreHub Local Publish Runbook
 
-This runbook exercises the local write-side API without production R2, S3, or database persistence.
+This runbook exercises the local write-side API without production managed object storage, or database persistence.
 
 ## One Command Smoke
 

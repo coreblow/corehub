@@ -22,7 +22,7 @@ try {
     packageId: "plugin-lab",
     version: "0.9.0-drill",
     publisherHandle: "coreblow",
-    provider: "r2",
+    provider: "managed",
     artifact: {
       name: "plugin-lab-0.9.0-drill.coreblow-plugin.tgz",
       mediaType: "application/vnd.coreblow.plugin-archive+gzip",

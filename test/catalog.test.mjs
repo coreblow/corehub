@@ -714,7 +714,7 @@ try {
     packageId: "plugin-lab",
     version: "0.3.0",
     publisherHandle: "coreblow",
-    provider: "r2",
+    provider: "managed",
     artifact: {
       name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
       mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -745,8 +745,8 @@ const workerObjects = new Map();
 const workerEnv = {
   COREHUB_STATE_STORE: "d1",
   COREHUB_D1: createMockD1Database(workerRows),
-  COREHUB_R2: createMockR2Bucket(workerObjects),
-  COREHUB_R2_BUCKET_NAME: "corehub-artifacts-test",
+  COREHUB_MANAGED_OBJECT_STORE: createMockManagedBucket(workerObjects),
+  COREHUB_MANAGED_OBJECT_STORE_BUCKET_NAME: "corehub-managed-artifacts-test",
   COREHUB_PUBLIC_BASE_URL: "https://coreblow.com/corehub",
   COREHUB_SIGNING_SECRET: "corehub-worker-test-signing-secret",
   COREHUB_SIGNING_KEY_ID: "test-primary",
@@ -755,7 +755,7 @@ const workerHealth = await coreHubWorker.fetch(new Request("https://coreblow.com
 assert.equal(workerHealth.status, 200);
 const workerHealthPayload = await workerHealth.json();
 assert.equal(workerHealthPayload.stateStore, "d1");
-assert.equal(workerHealthPayload.objectStore, "r2");
+assert.equal(workerHealthPayload.objectStore, "managed");
 assert.equal(workerHealthPayload.signedReadKeyId, "test-primary");
 const workerUploadResponse = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/corehub/api/v2/artifacts/uploads", {
@@ -768,7 +768,7 @@ const workerUploadResponse = await handleCoreHubWorkerRequest(
       packageId: "plugin-lab",
       version: "0.4.0",
       publisherHandle: "coreblow",
-      provider: "r2",
+      provider: "managed",
       artifact: {
         name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
         mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -813,7 +813,7 @@ assert.match(workerAdminPage.headers.get("content-type"), /text\/html/);
 assert.match(await workerAdminPage.text(), /CoreHub Admin/);
 const workerMissingD1 = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/healthz"),
-  { COREHUB_STATE_STORE: "d1", COREHUB_R2: createMockR2Bucket(new Map()) },
+  { COREHUB_STATE_STORE: "d1", COREHUB_MANAGED_OBJECT_STORE: createMockManagedBucket(new Map()) },
 );
 assert.equal(workerMissingD1.status, 500);
 assert.match((await workerMissingD1.json()).error, /requires a D1 database binding/);
@@ -862,23 +862,23 @@ const externalUploadPayload = await externalUploadResponse.json();
 assert.equal(externalUploadPayload.data.uploadSlot.artifactUpload.status, "verified");
 assert.equal(externalUploadPayload.data.uploadSlot.storage.provider, "github-raw");
 assert.match(externalUploadPayload.data.uploadSlot.storage.url, /^https:\/\/raw\.githubusercontent\.com/);
-const workerMissingR2 = await handleCoreHubWorkerRequest(
+const workerMissingManagedStore = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/healthz"),
   {
     COREHUB_STATE_STORE: "d1",
     COREHUB_D1: createMockD1Database(new Map()),
-    COREHUB_OBJECT_STORE: "r2",
+    COREHUB_OBJECT_STORE: "managed",
     COREHUB_SIGNING_SECRET: "corehub-worker-test-signing-secret",
   },
 );
-assert.equal(workerMissingR2.status, 500);
-assert.match((await workerMissingR2.json()).error, /requires COREHUB_R2 binding when COREHUB_OBJECT_STORE=r2/);
+assert.equal(workerMissingManagedStore.status, 500);
+assert.match((await workerMissingManagedStore.json()).error, /requires COREHUB_MANAGED_OBJECT_STORE binding when COREHUB_OBJECT_STORE=managed/);
 const workerMissingSigningSecret = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/healthz"),
   {
     COREHUB_STATE_STORE: "d1",
     COREHUB_D1: createMockD1Database(new Map()),
-    COREHUB_R2: createMockR2Bucket(new Map()),
+    COREHUB_MANAGED_OBJECT_STORE: createMockManagedBucket(new Map()),
   },
 );
 assert.equal(workerMissingSigningSecret.status, 500);
@@ -896,7 +896,7 @@ try {
     packageId: "plugin-lab",
     version: "0.1.0",
     publisherHandle: "coreblow",
-    provider: "r2",
+    provider: "managed",
     artifact: {
       name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
       mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -1018,7 +1018,7 @@ try {
     packageId: "plugin-lab",
     version: "0.1.0",
     publisherHandle: "coreblow",
-    provider: "r2",
+    provider: "managed",
     artifact: {
       name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
       mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -1039,7 +1039,7 @@ try {
     packageId: "plugin-lab",
     version: "0.2.0",
     publisherHandle: "coreblow",
-    provider: "s3",
+    provider: "managed",
     artifact: {
       name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
       mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -1205,7 +1205,7 @@ try {
       packageId: "new-plugin",
       version: "0.1.0",
       publisherHandle: "new-org",
-      provider: "r2",
+      provider: "managed",
       artifact: {
         name: "new-plugin.tgz",
         mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -1238,7 +1238,7 @@ try {
       packageId: "new-plugin",
       version: "0.1.0",
       publisherHandle: "new-org",
-      provider: "r2",
+      provider: "managed",
       artifact: {
         name: "new-plugin.tgz",
         mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -1259,7 +1259,7 @@ try {
       packageId: "plugin-lab",
       version: "0.1.0",
       publisherHandle: "coreblow",
-      provider: "r2",
+      provider: "managed",
       artifact: {
         name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
         mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -1281,7 +1281,7 @@ try {
       packageId: "plugin-lab",
       version: "0.1.0",
       publisherHandle: "coreblow",
-      provider: "r2",
+      provider: "managed",
       artifact: {
         name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
         mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -1296,7 +1296,7 @@ try {
   assert.equal(uploadSlot.id, "upload-plugin-lab-0-1-0");
   assert.equal(uploadSlot.artifactUpload.status, "requested");
   assert.equal(uploadSlot.upload.method, "PUT");
-  assert.equal(uploadSlot.storage.provider, "r2");
+  assert.equal(uploadSlot.storage.provider, "managed");
 
   const uploadPutResponse = await fetch(`${apiBaseUrl}/artifacts/uploads/${uploadSlot.id}`, {
     method: "PUT",
@@ -2023,7 +2023,7 @@ try {
     assert.equal(projectedPackageResponse.status, 200);
     const projectedPackagePayload = await projectedPackageResponse.json();
     assert.equal(projectedPackagePayload.data.publisher.handle, "coreblow");
-    assert.equal(projectedPackagePayload.data.versions[0].artifact.storage.provider, "r2");
+    assert.equal(projectedPackagePayload.data.versions[0].artifact.storage.provider, "managed");
 
     const projectedVersionsResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/versions`);
     assert.equal(projectedVersionsResponse.status, 200);
@@ -2511,7 +2511,7 @@ try {
       packageId: "private-lab",
       version: "0.1.0",
       publisherHandle: "coreblow",
-      provider: "r2",
+      provider: "managed",
       artifact: {
         name: "private-lab-0.1.0.coreblow-plugin.tgz",
         mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -2614,7 +2614,7 @@ try {
       packageId: "plugin-lab",
       version: "0.1.0",
       publisherHandle: "coreblow",
-      provider: "r2",
+      provider: "managed",
       artifact: {
         name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
         mediaType: "application/vnd.coreblow.plugin-archive+gzip",
@@ -3466,7 +3466,7 @@ function createMockD1Database(rows) {
   };
 }
 
-function createMockR2Bucket(objects) {
+function createMockManagedBucket(objects) {
   return {
     async put(key, bytes, options = {}) {
       objects.set(key, {

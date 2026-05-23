@@ -128,7 +128,7 @@ COREHUB_D1_STATE_KEY=write-side-state \
 COREHUB_D1_STATE_TABLE=corehub_state
 ```
 
-For Cloudflare Worker deployments, bind the database as `COREHUB_D1` and set `COREHUB_SIGNING_SECRET`. Production-lite deployments can run with `COREHUB_OBJECT_STORE=external-url`, which stores artifact URL references and redirects downloads to those URLs after CoreHub moderation checks. R2 is optional and only required when `COREHUB_OBJECT_STORE=r2` enables managed artifact byte uploads.
+For Cloudflare Worker deployments, bind the database as `COREHUB_D1` and set `COREHUB_SIGNING_SECRET`. Production deployments use `COREHUB_OBJECT_STORE=external-url`, which stores artifact URL references and redirects downloads to those URLs after CoreHub moderation checks. CoreHub production does not require a paid object-storage bucket.
 
 Deploy from the placeholder config:
 
@@ -143,7 +143,7 @@ npm run smoke:persistence-migration
 npm run smoke:worker-local
 ```
 
-`smoke:persistence-migration` applies the D1 schema to a mock D1 binding and verifies a save/load round trip for the `write-side-state` snapshot. `smoke:worker-local` invokes `src/worker.mjs` through the Fetch API with mock D1 and R2 bindings, uploads and verifies an artifact, approves the review, checks the projected v1 registry response, and reads the artifact back through a signed download URL. The committed Worker template uses `external-url` mode for production-lite deployment without R2 billing.
+`smoke:persistence-migration` applies the D1 schema to a mock D1 binding and verifies a save/load round trip for the `write-side-state` snapshot. `smoke:worker-local` invokes `src/worker.mjs` through the Fetch API with mock D1 and a local managed object-store test double, uploads and verifies an artifact, approves the review, checks the projected v1 registry response, and reads the artifact back through a signed download URL. The committed Worker template uses `external-url` mode for production deployment.
 
 Then run the deploy readiness gate before `wrangler deploy`:
 
@@ -152,7 +152,7 @@ npm run validate:deploy-template
 COREHUB_SIGNING_SECRET=replace-with-operator-managed-secret npm run validate:deploy
 ```
 
-`validate:deploy-template` keeps the committed Wrangler template from drifting. `validate:deploy` is the operator preflight: it fails when the D1 binding is missing, the object-store mode is invalid, `COREHUB_SIGNING_SECRET` is absent, `COREHUB_SIGNING_KEY_ID` is invalid, `COREHUB_PUBLIC_BASE_URL` is not HTTPS, or the D1 database id is still a placeholder. R2 bindings are required only when the object-store mode is `r2`.
+`validate:deploy-template` keeps the committed Wrangler template from drifting. `validate:deploy` is the operator preflight: it fails when the D1 binding is missing, the object-store mode is not `external-url`, `COREHUB_SIGNING_SECRET` is absent, `COREHUB_SIGNING_KEY_ID` is invalid, `COREHUB_PUBLIC_BASE_URL` is not HTTPS, or the D1 database id is still a placeholder.
 
 For the full deploy dry-run wrapper, run:
 
@@ -313,7 +313,7 @@ npm run validate:production-finalization
 npm run drill:production
 ```
 
-The finalization gate checks the Worker config, deploy workflow, operator smoke workflow, rollback runbook, private package visibility docs, browser session token hash policy, and rate-limit policy. The production drill rehearsal exercises snapshot export, backup validation, restore dry run, restore apply, persistence migration smoke, and Worker-local smoke. These commands do not prove that real D1/R2/secrets are already applied; that remains the protected production deploy step.
+The finalization gate checks the Worker config, deploy workflow, operator smoke workflow, rollback runbook, private package visibility docs, browser session token hash policy, and rate-limit policy. The production drill rehearsal exercises snapshot export, backup validation, restore dry run, restore apply, persistence migration smoke, and Worker-local smoke. These commands do not prove that real D1/secrets are already applied; that remains the protected production deploy step.
 
 ## Production Access Policy
 
@@ -405,8 +405,7 @@ The production environment template is in `ops/corehub-api.production.env.exampl
 | `COREHUB_STATE_PATH` | `.corehub-local/write-side-state.json` | Local JSON snapshot path. |
 | `COREHUB_D1_STATE_KEY` | `write-side-state` | D1 row key for the full snapshot. |
 | `COREHUB_D1_STATE_TABLE` | `corehub_state` | D1 table used by `CoreHubD1StateStore`. |
-| `COREHUB_OBJECT_STORE` | `external-url` in Worker template | Selects production-lite external artifact URL references or `r2` managed object storage. |
-| `COREHUB_R2_BUCKET_NAME` | `COREHUB_R2` | Human-readable bucket label reported in uploaded artifact metadata when `COREHUB_OBJECT_STORE=r2`. |
+| `COREHUB_OBJECT_STORE` | `external-url` in Worker template | Uses external artifact URL references for production. |
 | `COREHUB_SIGNING_SECRET` | none in Worker | Required HMAC secret for signed artifact read URLs. |
 | `COREHUB_SIGNING_KEY_ID` | `primary` in Worker | Current signing key id included in signed read URLs for rotation. |
 | `COREHUB_SIGNING_PREVIOUS_SECRETS` | unset | Optional comma-separated `keyId:secret` rotation placeholder accepted for old read URLs. |

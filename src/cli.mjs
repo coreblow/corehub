@@ -2715,9 +2715,9 @@ function artifactStorageKey(publisherHandle, packageId, version, artifactName) {
 }
 
 function readPackageStorageProvider(values, command) {
-  const provider = readOption(values, "--provider") ?? "r2";
-  if (!["r2", "s3", "github-raw", "external-url"].includes(provider)) {
-    throw new Error(`${command} --provider must be r2, s3, github-raw, or external-url`);
+  const provider = readOption(values, "--provider") ?? "managed";
+  if (!["managed", "github-raw", "external-url"].includes(provider)) {
+    throw new Error(`${command} --provider must be managed, github-raw, or external-url`);
   }
   if (isExternalPackageStorageProvider(provider) && !readOption(values, "--artifact-url")) {
     throw new Error(`${command} --provider ${provider} requires --artifact-url`);
@@ -3799,7 +3799,7 @@ Usage:
   corehub package update <entry-id> [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package sync [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
-  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3|github-raw|external-url] [--artifact-url url]
+  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider managed|github-raw|external-url] [--artifact-url url]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package transfer request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
   corehub package publish <source> --dry-run [--family plugin|code-plugin|bundle-plugin] [--publisher handle] [--registry https://coreblow.com/corehub]
@@ -3838,7 +3838,7 @@ Usage:
   corehub package update <entry-id> [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package sync [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
-  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3|github-raw|external-url] [--artifact-url url]
+  corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider managed|github-raw|external-url] [--artifact-url url]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
   corehub package transfer request <package-id> --to <publisher> [--from publisher] --registry https://coreblow.com/corehub
   corehub package publish <source> --dry-run [--family plugin|code-plugin|bundle-plugin] [--publisher handle] [--registry https://coreblow.com/corehub]

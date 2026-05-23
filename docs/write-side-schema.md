@@ -228,7 +228,7 @@ The support bundle intentionally omits signing secrets, raw client identifiers, 
 
 ## API and Storage Boundary
 
-Phase 18 adds the server-side shape before wiring production managed object storage. The API handler accepts the same write-side payload that the CLI dry run emits. In managed storage mode, it stores uploaded bytes through a storage adapter and verifies the stored object before a submission can reference it. In production-lite `external-url` mode, it records a verified artifact URL reference with size and SHA-256 metadata so CoreHub can moderate and publish without R2.
+Phase 18 adds the server-side shape for artifact references. The API handler accepts the same write-side payload that the CLI dry run emits. In production `external-url` mode, it records a verified artifact URL reference with size and SHA-256 metadata so CoreHub can moderate and publish without paid object storage. Managed byte storage remains a local test path only.
 
 | Route | Behavior |
 | --- | --- |
@@ -308,7 +308,7 @@ The current adapter is local and mocked for tests. Its storage key shape is alre
 uploads/<publisher>/<package>/<version>/<artifact>
 ```
 
-Production Worker binding now routes artifact bytes through an object-store boundary. The default production-lite mode uses `COREHUB_OBJECT_STORE=external-url`, so no R2 binding is required and package artifacts are referenced by URL plus checksum metadata. Setting `COREHUB_OBJECT_STORE=r2` enables managed uploads through `COREHUB_R2`. Local server bootstrap still uses filesystem storage for deterministic development and CI. The route contract, signed upload fields, checksum verification result, and artifact upload status graph remain stable.
+Production Worker binding uses `COREHUB_OBJECT_STORE=external-url`, so no paid object-storage binding is required and package artifacts are referenced by URL plus checksum metadata. Local server bootstrap still uses filesystem storage for deterministic development and CI. The route contract, signed upload fields, checksum verification result, and artifact upload status graph remain stable.
 
 ## Projection Boundary
 
@@ -344,7 +344,7 @@ Phase 23 keeps production persistence out of scope, but the local storage adapte
 | `auditEvents` | Append-only audit events for upload, verification, submission, review decision, and admin read actions. |
 | `auditCheckpoints` | Local checkpoint records created after export-before-prune retention actions. |
 
-The local state file uses `schemaVersion: corehub.local-state.v1`. Future production persistence should preserve this logical state model even if storage moves to SQL, KV, Durable Objects, or R2/S3 metadata.
+The local state file uses `schemaVersion: corehub.local-state.v1`. Future production persistence should preserve this logical state model even if storage moves to SQL, KV, or Durable Objects metadata.
 
 ## Audit Trail Boundary
 
@@ -407,7 +407,7 @@ Defaults:
 | `COREHUB_PUBLIC_BASE_URL` | `https://coreblow.com/corehub` |
 | `COREHUB_AUDIT_RETENTION_DAYS` | `365` |
 
-This lets the upload, submit, review, and projected Registry API v1 flow run over HTTP without a test harness while still keeping production R2/S3 and database persistence out of scope.
+This lets the upload, submit, review, and projected Registry API v1 flow run over HTTP without a test harness while still keeping production database persistence out of scope.
 
 ## Local Publish Smoke
 

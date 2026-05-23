@@ -9,12 +9,12 @@ const artifact = pluginLab.versions[0].artifact;
 const artifactPath = new URL("../artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz", import.meta.url);
 const artifactBytes = await readFile(artifactPath);
 const d1Rows = new Map();
-const r2Objects = new Map();
+const managedObjects = new Map();
 const env = {
   COREHUB_STATE_STORE: "d1",
   COREHUB_D1: createMockD1Database(d1Rows),
-  COREHUB_R2: createMockR2Bucket(r2Objects),
-  COREHUB_R2_BUCKET_NAME: "corehub-artifacts-smoke",
+  COREHUB_MANAGED_OBJECT_STORE: createMockManagedBucket(managedObjects),
+  COREHUB_MANAGED_OBJECT_STORE_BUCKET_NAME: "corehub-managed-artifacts-smoke",
   COREHUB_PUBLIC_BASE_URL: "https://coreblow.com/corehub",
   COREHUB_SIGNING_SECRET: "corehub-worker-smoke-signing-secret",
   COREHUB_SIGNING_KEY_ID: "smoke-primary",
@@ -35,9 +35,9 @@ const health = await workerJson("/healthz");
 assert.equal(health.response.status, 200);
 assert.equal(health.payload.runtime, "cloudflare-worker");
 assert.equal(health.payload.stateStore, "d1");
-assert.equal(health.payload.objectStore, "r2");
+assert.equal(health.payload.objectStore, "managed");
 assert.equal(health.payload.signedReadKeyId, "smoke-primary");
-logStep("worker health reports D1 state store and R2 object store");
+logStep("worker health reports D1 state store and managed object store");
 
 const uploadRequest = await workerJson("/corehub/api/v2/artifacts/uploads", {
   method: "POST",
@@ -49,7 +49,7 @@ const uploadRequest = await workerJson("/corehub/api/v2/artifacts/uploads", {
     packageId: "plugin-lab",
     version: "0.1.0",
     publisherHandle: "coreblow",
-    provider: "r2",
+    provider: "managed",
     artifact: {
       name: "plugin-lab-0.1.0.coreblow-plugin.tgz",
       mediaType: artifact.mediaType,
@@ -76,8 +76,8 @@ const putResponse = await coreHubWorker.fetch(
   env,
 );
 assert.equal(putResponse.status, 200);
-assert.equal(r2Objects.has(uploadSlot.storage.key), true);
-logStep("artifact bytes uploaded through Worker fetch to mock R2");
+assert.equal(managedObjects.has(uploadSlot.storage.key), true);
+logStep("artifact bytes uploaded through Worker fetch to mock managed object storage");
 
 const verify = await workerJson(`/corehub/api/v2/artifacts/uploads/${uploadSlot.id}/verify`, {
   method: "POST",
@@ -145,7 +145,7 @@ const signedReadResponse = await coreHubWorker.fetch(new Request(downloadMeta.pa
 assert.equal(signedReadResponse.status, 200);
 assert.equal(signedReadResponse.headers.get("x-corehub-artifact-sha256"), artifact.sha256);
 assert.deepEqual(Buffer.from(await signedReadResponse.arrayBuffer()), artifactBytes);
-logStep("signed artifact read returned verified bytes from mock R2");
+logStep("signed artifact read returned verified bytes from mock managed object storage");
 
 const snapshot = JSON.parse(d1Rows.get("write-side-state").value);
 assert.equal(snapshot.packageVersions.length, 1);
@@ -186,7 +186,7 @@ function createMockD1Database(rows) {
   };
 }
 
-function createMockR2Bucket(objects) {
+function createMockManagedBucket(objects) {
   return {
     async put(key, bytes, options = {}) {
       objects.set(key, {

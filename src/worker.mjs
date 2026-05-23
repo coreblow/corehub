@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { CoreHubExternalUrlObjectStore, CoreHubLocalStorageAdapter, CoreHubR2ObjectStore, createCoreHubApiHandler } from "./api-server.mjs";
+import { CoreHubExternalUrlObjectStore, CoreHubLocalStorageAdapter, CoreHubManagedObjectStore, createCoreHubApiHandler } from "./api-server.mjs";
 import {
   createCoreHubStateStore,
   defaultD1StateKey,
@@ -93,20 +93,20 @@ function requireWorkerSigningSecret(env = {}, options = {}) {
 }
 
 export function createCoreHubWorkerObjectStore(env = {}, options = {}) {
-  const mode = options.objectStoreKind ?? env.COREHUB_OBJECT_STORE ?? (env.COREHUB_R2 ? "r2" : "external-url");
+  const mode = options.objectStoreKind ?? env.COREHUB_OBJECT_STORE ?? (env.COREHUB_MANAGED_OBJECT_STORE ? "managed" : "external-url");
   if (mode === "external-url") {
     return new CoreHubExternalUrlObjectStore();
   }
-  if (mode !== "r2") {
-    throw new Error("CoreHub Worker COREHUB_OBJECT_STORE must be external-url or r2");
+  if (mode !== "managed") {
+    throw new Error("CoreHub Worker COREHUB_OBJECT_STORE must be external-url or managed");
   }
-  const bucket = options.r2Bucket ?? env.COREHUB_R2;
+  const bucket = options.r2Bucket ?? env.COREHUB_MANAGED_OBJECT_STORE;
   if (!bucket) {
-    throw new Error("CoreHub Worker requires COREHUB_R2 binding when COREHUB_OBJECT_STORE=r2");
+    throw new Error("CoreHub Worker requires COREHUB_MANAGED_OBJECT_STORE binding when COREHUB_OBJECT_STORE=managed");
   }
-  return new CoreHubR2ObjectStore({
+  return new CoreHubManagedObjectStore({
     bucket,
-    bucketName: options.r2BucketName ?? env.COREHUB_R2_BUCKET_NAME ?? "COREHUB_R2",
+    bucketName: options.r2BucketName ?? env.COREHUB_MANAGED_OBJECT_STORE_BUCKET_NAME ?? "COREHUB_MANAGED_OBJECT_STORE",
   });
 }
 

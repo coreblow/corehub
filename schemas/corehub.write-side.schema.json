@@ -498,7 +498,7 @@
       "properties": {
         "provider": {
           "type": "string",
-          "enum": ["r2", "s3", "github-raw", "external-url"]
+          "enum": ["managed", "github-raw", "external-url"]
         },
         "key": {
           "type": "string",
