@@ -1957,6 +1957,69 @@ try {
     assert.equal(packageReportTriagePayload.status, "confirmed");
     assert.equal(packageReportTriagePayload.report.triageNote, "Confirmed report fixture.");
 
+    const packageAppeal = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "appeal",
+        "plugin-lab",
+        "--version",
+        "0.1.0",
+        "--message",
+        "Appeal report fixture.",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageAppealPayload = JSON.parse(packageAppeal.stdout);
+    assert.equal(packageAppealPayload.status, "open");
+    assert.equal(packageAppealPayload.appeal.packageId, "plugin-lab");
+    assert.equal(packageAppealPayload.appeal.status, "open");
+
+    const packageAppealsList = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "appeals",
+        "list",
+        "--status",
+        "open",
+        "--package",
+        "plugin-lab",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageAppealsListPayload = JSON.parse(packageAppealsList.stdout);
+    assert.equal(packageAppealsListPayload.appeals[0].id, packageAppealPayload.appeal.id);
+
+    const packageAppealResolve = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "appeals",
+        "resolve",
+        packageAppealPayload.appeal.id,
+        "--status",
+        "accepted",
+        "--note",
+        "Accepted appeal fixture.",
+        "--action",
+        "approve",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageAppealResolvePayload = JSON.parse(packageAppealResolve.stdout);
+    assert.equal(packageAppealResolvePayload.status, "accepted");
+    assert.equal(packageAppealResolvePayload.appeal.resolutionNote, "Accepted appeal fixture.");
+
     const analyticsRecord = await execFileAsync(
       process.execPath,
       [
@@ -2025,8 +2088,10 @@ try {
     assert.equal(adminStatusPayload.readiness.status, "ready");
     assert.equal(adminStatusPayload.counts.installEvents, 2);
     assert.equal(adminStatusPayload.counts.packageReports, 1);
+    assert.equal(adminStatusPayload.counts.packageAppeals, 1);
     assert.equal(adminStatusPayload.queues.reviews.approved, 1);
     assert.equal(adminStatusPayload.queues.packageReports.confirmed, 1);
+    assert.equal(adminStatusPayload.queues.packageAppeals.accepted, 1);
     assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
     assert.equal(adminStatusPayload.analytics.uniqueClients, 1);
     assert.equal(adminStatusPayload.audit.valid, true);
@@ -2044,6 +2109,7 @@ try {
     assert.equal(supportBundle.bundle.redaction.secretsIncluded, false);
     assert.equal(supportBundle.counts.installEvents, 2);
     assert.equal(supportBundle.recent.packageReports[0].status, "confirmed");
+    assert.equal(supportBundle.recent.packageAppeals[0].status, "accepted");
     assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
 
     const persistedState = JSON.parse(await readFile(apiStatePath, "utf8"));
@@ -2054,9 +2120,12 @@ try {
     assert.equal(persistedState.packageVersions[0].status, "available");
     assert.equal(persistedState.installEvents.length, 2);
     assert.equal(persistedState.packageReports[0].status, "confirmed");
+    assert.equal(persistedState.packageAppeals[0].status, "accepted");
     assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.report.create"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.report.triage"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.appeal.create"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.appeal.resolve"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.event.ingest"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.analytics.summary"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);

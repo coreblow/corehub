@@ -100,7 +100,9 @@ Implemented moderation/trust starters:
 
 - `corehub package report <id>` creates an auditable package report for a published version.
 - `corehub package reports list` and `corehub package reports triage` expose moderator intake without auto-hiding packages.
-- Admin status and support bundles include package report counts and recent report samples.
+- `corehub package appeal <id>` creates a publisher appeal for a published version.
+- `corehub package appeals list` and `corehub package appeals resolve` expose the moderator/admin appeal queue with ClawHub-style `open`, `accepted`, and `rejected` statuses.
+- Admin status and support bundles include package report and appeal counts with recent samples.
 
 ### Phase 6: Install and Sync
 

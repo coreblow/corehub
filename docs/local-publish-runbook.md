@@ -51,15 +51,18 @@ npm run corehub -- package readiness plugin-lab --registry http://127.0.0.1:8787
 npm run corehub -- package report plugin-lab --version 0.1.0 --reason "Suspicious package report fixture." --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package reports list --status open --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package reports triage package-report-plugin-lab-0-1-0-000001 --status confirmed --note "Confirmed report fixture." --action none --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package appeal plugin-lab --version 0.1.0 --message "Appeal report fixture." --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package appeals list --status open --package plugin-lab --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package appeals resolve package-appeal-plugin-lab-0-1-0-000001 --status accepted --note "Accepted appeal fixture." --action approve --registry http://127.0.0.1:8787/corehub
 npm run corehub -- analytics record plugin-lab --version 0.1.0 --event installed --source cli --client-id local-client --registry http://127.0.0.1:8787/corehub
 npm run corehub -- analytics summary --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- admin status --registry http://127.0.0.1:8787/corehub
 npm run corehub -- admin support-bundle --limit 20 --output ./corehub-support-bundle.json --registry http://127.0.0.1:8787/corehub
 ```
 
-Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, the transfer reaches `completed` when accepted by the target publisher, the package report reaches `confirmed` after triage, analytics summary reports aggregate install counts without raw client identifiers, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report and automation check return `status: ok`, the retention dry run reports the export-before-prune policy, and `corehub admin status` reports `ok` with readiness `ready`.
+Expected result: `plugin-lab` appears through Registry API v1 with an `available` version after review approval, the transfer reaches `completed` when accepted by the target publisher, the package report reaches `confirmed` after triage, the package appeal reaches `accepted` after resolution, analytics summary reports aggregate install counts without raw client identifiers, `corehub audit verify` returns `valid: true` with the current audit head hash, the incident report and automation check return `status: ok`, the retention dry run reports the export-before-prune policy, and `corehub admin status` reports `ok` with readiness `ready`.
 
-The support bundle is a redacted JSON artifact for operator escalation. It includes state store and object store kind, queue counts, transfer counts, report counts, install analytics totals, audit integrity, deploy readiness, and recent queue/audit samples. It does not include signing secrets, raw client identifiers, raw IP addresses, or raw user agents.
+The support bundle is a redacted JSON artifact for operator escalation. It includes state store and object store kind, queue counts, transfer counts, report counts, appeal counts, install analytics totals, audit integrity, deploy readiness, and recent queue/audit samples. It does not include signing secrets, raw client identifiers, raw IP addresses, or raw user agents.
 
 ## Local State
 

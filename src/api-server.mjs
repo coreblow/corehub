@@ -192,6 +192,7 @@ export class CoreHubLocalStorageAdapter {
     this.reviews = new Map();
     this.packageVersions = new Map();
     this.packageReports = [];
+    this.packageAppeals = [];
     this.ownershipTransfers = new Map();
     this.installEvents = [];
     this.auditEvents = [];
@@ -913,6 +914,7 @@ export class CoreHubLocalStorageAdapter {
       reviews: this.reviews.size,
       packageVersions: this.packageVersions.size,
       packageReports: this.packageReports.length,
+      packageAppeals: this.packageAppeals.length,
       ownershipTransfers: this.ownershipTransfers.size,
       installEvents: this.installEvents.length,
       auditEvents: this.auditEvents.length,
@@ -950,6 +952,7 @@ export class CoreHubLocalStorageAdapter {
         submissions: countByStatus([...this.submissions.values()].map((record) => record.submission.status)),
         reviews: countByStatus([...this.reviews.values()].map((review) => review.status)),
         packageReports: countByStatus(this.packageReports.map((report) => report.status)),
+        packageAppeals: countByStatus(this.packageAppeals.map((appeal) => appeal.status)),
         ownershipTransfers: countByStatus([...this.ownershipTransfers.values()].map((transfer) => transfer.status)),
       },
       analytics,
@@ -994,6 +997,7 @@ export class CoreHubLocalStorageAdapter {
         submissions: latestItems([...this.submissions.values()].map((record) => record.submission), limit),
         reviews: latestItems([...this.reviews.values()], limit),
         packageReports: latestItems(this.packageReports, limit),
+        packageAppeals: latestItems(this.packageAppeals, limit),
         ownershipTransfers: latestItems([...this.ownershipTransfers.values()], limit),
         auditEvents: recentAudit.items,
       },
@@ -1088,6 +1092,77 @@ export class CoreHubLocalStorageAdapter {
     });
     await this.persistState();
     return { status: report.status, report };
+  }
+
+  async createPackageAppeal(input, { actor = defaultActor(), now = new Date() } = {}) {
+    const request = normalizePackageAppealRequest(input);
+    const version = this.projectedVersionForPackage(request.packageId, request.version);
+    if (!version) throw httpError(404, "Package version not found for appeal");
+    this.requirePublisherPermission(actor, version.publisherHandle, "package.appeal.create");
+    const appealedAt = now.toISOString();
+    const appeal = {
+      id: `package-appeal-${slugId(request.packageId)}-${slugVersion(request.version)}-${String(this.packageAppeals.length + 1).padStart(6, "0")}`,
+      packageId: request.packageId,
+      version: request.version,
+      publisherHandle: version.publisherHandle,
+      message: request.message,
+      status: "open",
+      appealedBy: actor,
+      appealedAt,
+    };
+    this.packageAppeals.push(appeal);
+    this.recordAuditEvent({
+      actor,
+      action: "package.appeal.create",
+      targetType: "packageAppeal",
+      targetId: appeal.id,
+      metadata: {
+        packageId: appeal.packageId,
+        version: appeal.version,
+        publisherHandle: appeal.publisherHandle,
+      },
+      createdAt: appealedAt,
+    });
+    await this.persistState();
+    return { status: "open", appeal };
+  }
+
+  listPackageAppeals(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "package.appeal.list");
+    const status = options.status ?? "open";
+    const appeals = this.packageAppeals
+      .filter((appeal) => status === "all" || appeal.status === status)
+      .filter((appeal) => !options.packageId || appeal.packageId === options.packageId)
+      .sort((left, right) => right.appealedAt.localeCompare(left.appealedAt));
+    return paginate(appeals, options);
+  }
+
+  async resolvePackageAppeal(appealId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "package.appeal.resolve");
+    const appeal = this.packageAppeals.find((item) => item.id === appealId);
+    if (!appeal) throw httpError(404, "Package appeal not found");
+    const resolution = normalizePackageAppealResolveRequest(input);
+    const resolvedAt = now.toISOString();
+    appeal.status = resolution.status;
+    appeal.resolvedBy = actor;
+    appeal.resolvedAt = resolvedAt;
+    if (resolution.note) appeal.resolutionNote = resolution.note;
+    if (resolution.finalAction) appeal.finalAction = resolution.finalAction;
+    this.recordAuditEvent({
+      actor,
+      action: "package.appeal.resolve",
+      targetType: "packageAppeal",
+      targetId: appeal.id,
+      metadata: {
+        packageId: appeal.packageId,
+        version: appeal.version,
+        status: appeal.status,
+        finalAction: appeal.finalAction ?? null,
+      },
+      createdAt: resolvedAt,
+    });
+    await this.persistState();
+    return { status: appeal.status, appeal };
   }
 
   listAuditEvents(options = {}) {
@@ -1528,6 +1603,7 @@ export class CoreHubLocalStorageAdapter {
       reviews: [...this.reviews.values()],
       packageVersions: [...this.packageVersions.values()],
       packageReports: this.packageReports,
+      packageAppeals: this.packageAppeals,
       ownershipTransfers: [...this.ownershipTransfers.values()],
       installEvents: this.installEvents,
       auditEvents: this.auditEvents,
@@ -1551,6 +1627,7 @@ export class CoreHubLocalStorageAdapter {
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
     this.packageReports = state.packageReports ?? [];
+    this.packageAppeals = state.packageAppeals ?? [];
     this.ownershipTransfers = new Map((state.ownershipTransfers ?? []).map((transfer) => [transfer.id, transfer]));
     this.installEvents = state.installEvents ?? [];
     this.auditEvents = state.auditEvents ?? [];
@@ -1764,6 +1841,43 @@ export function createCoreHubApiHandler({
         const body = await readJsonBody(request);
         const actor = actorFromRequest(request, storage);
         const result = await storage.triagePackageReport(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "package-appeals" && segments.length === 1) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.createPackageAppeal(body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "package-appeals" && segments.length === 1) {
+        const options = readListOptions(url);
+        const actor = actorFromRequest(request, storage);
+        options.authActor = actor;
+        options.status = url.searchParams.get("status") ?? "open";
+        options.packageId = url.searchParams.get("package") ?? undefined;
+        const result = storage.listPackageAppeals(options);
+        await storage.auditRead({
+          actor,
+          action: "package.appeal.list",
+          targetType: "packageAppeal",
+          targetId: options.status === "all" ? "all" : `status:${options.status}`,
+          metadata: { total: result.meta.total },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "package-appeals" &&
+        segments[2] === "resolve" &&
+        segments.length === 3
+      ) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.resolvePackageAppeal(decodeURIComponent(segments[1]), body, { actor, now: now() });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -2392,8 +2506,29 @@ function normalizePackageReportTriageRequest(input) {
   const note = typeof input?.note === "string" && input.note.trim().length > 0 ? input.note.trim() : undefined;
   const finalAction =
     typeof input?.finalAction === "string" && input.finalAction.trim().length > 0 ? input.finalAction.trim() : undefined;
-  if (finalAction && !["none", "block", "deprecate", "hide"].includes(finalAction)) {
-    throw httpError(400, "package report finalAction must be none, block, deprecate, or hide");
+  if (finalAction && !["none", "quarantine", "revoke"].includes(finalAction)) {
+    throw httpError(400, "package report finalAction must be none, quarantine, or revoke");
+  }
+  return { status, note, finalAction };
+}
+
+function normalizePackageAppealRequest(input) {
+  const packageId = normalizeRequiredString(input?.packageId, "packageId");
+  const version = normalizeRequiredString(input?.version, "version");
+  const message = normalizeRequiredString(input?.message, "message");
+  return { packageId, version, message };
+}
+
+function normalizePackageAppealResolveRequest(input) {
+  const status = normalizeRequiredString(input?.status, "status");
+  if (!["open", "accepted", "rejected"].includes(status)) {
+    throw httpError(400, "package appeal status must be open, accepted, or rejected");
+  }
+  const note = typeof input?.note === "string" && input.note.trim().length > 0 ? input.note.trim() : undefined;
+  const finalAction =
+    typeof input?.finalAction === "string" && input.finalAction.trim().length > 0 ? input.finalAction.trim() : undefined;
+  if (finalAction && !["none", "approve"].includes(finalAction)) {
+    throw httpError(400, "package appeal finalAction must be none or approve");
   }
   return { status, note, finalAction };
 }
