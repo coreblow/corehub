@@ -304,6 +304,14 @@ Run `mode=check` before a real deploy. Run `mode=deploy` only after the check pa
 
 In `deploy` mode the workflow applies the idempotent D1 schema migration before deploying the Worker. Keep `mode=check` as the required preflight so the migration plan, Worker-local smoke, and Wrangler dry run are visible before production approval.
 
+Run the final repository-side production readiness gate before requesting production approval:
+
+```sh
+npm run validate:production-finalization
+```
+
+This gate checks the Worker config, deploy workflow, operator smoke workflow, rollback runbook, private package visibility docs, and rate-limit policy. It does not prove that real D1/R2/secrets are already applied; that remains the protected production deploy step.
+
 ## Production Access Policy
 
 CoreHub production uses the same actor boundary across CLI, admin UI, publisher portal, and Registry API:

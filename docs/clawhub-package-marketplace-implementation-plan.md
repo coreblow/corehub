@@ -205,6 +205,7 @@ Implemented in this phase:
 - Registry API v1 hides `private` channel packages from anonymous catalog/list/search/detail/download metadata.
 - Admin actors and active publisher members can read private package metadata.
 - API handler supports a fixed-window rate limit via `COREHUB_RATE_LIMIT_MAX` and `COREHUB_RATE_LIMIT_WINDOW_MS`.
+- `npm run validate:production-finalization` checks repository-side production readiness before operator approval.
 
 ## Done Criteria For Final
 
