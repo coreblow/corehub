@@ -74,7 +74,8 @@ Implemented package CLI parity starters:
 - `corehub package publish <source> --dry-run` resolves local folder or archive metadata, publisher ownership, artifact checksum, upload plan, submission plan, and pending review status.
 - `--family code-plugin|bundle-plugin` maps to the CoreHub `plugin` kind while preserving CoreBlow-native catalog metadata.
 - `corehub package verify <artifact>` checks local SHA-256 directly or compares the artifact against hosted package metadata.
-- `corehub package moderation-status <id>` and `corehub package readiness <id>` expose read-only lifecycle and marketplace readiness state before mutating delete/undelete flows are enabled.
+- `corehub package moderation-status <id>` and `corehub package readiness <id>` expose read-only lifecycle and marketplace readiness state.
+- `corehub package delete <id> --yes` and `corehub package undelete <id> --yes` provide soft lifecycle parity for hiding and restoring published packages without deleting history.
 - Live registry writes remain split into `package upload request`, `package upload verify`, and `package submit` until production publish writes are explicitly enabled.
 
 ### Phase 3: Publisher Identity
@@ -102,7 +103,7 @@ Implemented moderation/trust starters:
 - `corehub package reports list` and `corehub package reports triage` expose moderator intake without auto-hiding packages.
 - `corehub package appeal <id>` creates a publisher appeal for a published version.
 - `corehub package appeals list` and `corehub package appeals resolve` expose the moderator/admin appeal queue with ClawHub-style `open`, `accepted`, and `rejected` statuses.
-- Admin status and support bundles include package report and appeal counts with recent samples.
+- Admin status and support bundles include package lifecycle, report, and appeal counts with recent samples.
 
 ### Phase 6: Install and Sync
 

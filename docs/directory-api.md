@@ -193,6 +193,8 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package appeal <entry-id> --version <version> --message <text>`
 - `corehub package appeals list`
 - `corehub package appeals resolve <appeal-id>`
+- `corehub package delete <entry-id> --yes`
+- `corehub package undelete <entry-id> --yes`
 - `corehub package install <entry-id>`
 - `corehub package upload request <artifact|folder> --dry-run`
 - `corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run`

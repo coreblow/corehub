@@ -913,6 +913,7 @@ export class CoreHubLocalStorageAdapter {
       submissions: this.submissions.size,
       reviews: this.reviews.size,
       packageVersions: this.packageVersions.size,
+      softDeletedPackages: this.softDeletedPackageCount(),
       packageReports: this.packageReports.length,
       packageAppeals: this.packageAppeals.length,
       ownershipTransfers: this.ownershipTransfers.size,
@@ -951,6 +952,7 @@ export class CoreHubLocalStorageAdapter {
       queues: {
         submissions: countByStatus([...this.submissions.values()].map((record) => record.submission.status)),
         reviews: countByStatus([...this.reviews.values()].map((review) => review.status)),
+        packageLifecycle: countByStatus([...this.packageVersions.values()].map((version) => (version.softDeletedAt ? "deleted" : "active"))),
         packageReports: countByStatus(this.packageReports.map((report) => report.status)),
         packageAppeals: countByStatus(this.packageAppeals.map((appeal) => appeal.status)),
         ownershipTransfers: countByStatus([...this.ownershipTransfers.values()].map((transfer) => transfer.status)),
@@ -996,6 +998,10 @@ export class CoreHubLocalStorageAdapter {
       recent: {
         submissions: latestItems([...this.submissions.values()].map((record) => record.submission), limit),
         reviews: latestItems([...this.reviews.values()], limit),
+        packageLifecycle: latestItems(
+          [...this.packageVersions.values()].filter((version) => version.softDeletedAt || version.restoredAt),
+          limit,
+        ),
         packageReports: latestItems(this.packageReports, limit),
         packageAppeals: latestItems(this.packageAppeals, limit),
         ownershipTransfers: latestItems([...this.ownershipTransfers.values()], limit),
@@ -1092,6 +1098,74 @@ export class CoreHubLocalStorageAdapter {
     });
     await this.persistState();
     return { status: report.status, report };
+  }
+
+  async softDeletePackage(packageId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const versions = this.packageVersionsForPackage(packageId);
+    if (versions.length === 0) throw httpError(404, "Package not found");
+    const ownerHandle = this.packageOwnerHandle(packageId) ?? versions[0]?.publisherHandle;
+    this.requirePackageLifecyclePermission(actor, ownerHandle, "package.delete");
+    const deletedAt = now.toISOString();
+    const reason = typeof input?.reason === "string" && input.reason.trim().length > 0 ? input.reason.trim() : undefined;
+    let changedVersions = 0;
+    for (const version of versions) {
+      if (version.softDeletedAt) continue;
+      version.softDeletedAt = deletedAt;
+      version.deletedBy = actor;
+      if (reason) version.deleteReason = reason;
+      version.artifact = version.artifact ? { ...version.artifact, downloadEnabled: false } : version.artifact;
+      changedVersions += 1;
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "package.delete",
+      targetType: "package",
+      targetId: packageId,
+      metadata: {
+        packageId,
+        publisherHandle: ownerHandle,
+        versions: versions.length,
+        changedVersions,
+        reason: reason ?? null,
+      },
+      createdAt: deletedAt,
+    });
+    await this.persistState();
+    return { ok: true, status: "deleted", packageId, versions: versions.length, changedVersions, deletedAt };
+  }
+
+  async undeletePackage(packageId, { actor = defaultActor(), now = new Date() } = {}) {
+    const versions = this.packageVersionsForPackage(packageId);
+    if (versions.length === 0) throw httpError(404, "Package not found");
+    const ownerHandle = this.packageOwnerHandle(packageId) ?? versions[0]?.publisherHandle;
+    this.requirePackageLifecyclePermission(actor, ownerHandle, "package.undelete");
+    const restoredAt = now.toISOString();
+    let changedVersions = 0;
+    for (const version of versions) {
+      if (!version.softDeletedAt) continue;
+      delete version.softDeletedAt;
+      delete version.deletedBy;
+      delete version.deleteReason;
+      version.restoredAt = restoredAt;
+      version.restoredBy = actor;
+      version.artifact = version.artifact ? { ...version.artifact, downloadEnabled: true } : version.artifact;
+      changedVersions += 1;
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "package.undelete",
+      targetType: "package",
+      targetId: packageId,
+      metadata: {
+        packageId,
+        publisherHandle: ownerHandle,
+        versions: versions.length,
+        changedVersions,
+      },
+      createdAt: restoredAt,
+    });
+    await this.persistState();
+    return { ok: true, status: "restored", packageId, versions: versions.length, changedVersions, restoredAt };
   }
 
   async createPackageAppeal(input, { actor = defaultActor(), now = new Date() } = {}) {
@@ -1475,6 +1549,11 @@ export class CoreHubLocalStorageAdapter {
     throw httpError(403, `Actor ${actor.id} cannot ${action}`);
   }
 
+  requirePackageLifecyclePermission(actor, publisherHandle, action) {
+    if (this.hasAdminPermission(actor)) return;
+    this.requirePublisherPermission(actor, publisherHandle, action);
+  }
+
   hasPublisherMembership(actor, publisherHandle) {
     return this.publisherMembers.some(
       (member) =>
@@ -1497,9 +1576,24 @@ export class CoreHubLocalStorageAdapter {
     return versions.at(0)?.publisherHandle ?? null;
   }
 
+  packageVersionsForPackage(packageId) {
+    return [...this.packageVersions.values()]
+      .filter((version) => version.packageId === packageId)
+      .sort((left, right) => (right.publishedAt ?? right.createdAt).localeCompare(left.publishedAt ?? left.createdAt));
+  }
+
+  softDeletedPackageCount() {
+    const packageIds = new Set();
+    for (const version of this.packageVersions.values()) {
+      if (version.softDeletedAt) packageIds.add(version.packageId);
+    }
+    return packageIds.size;
+  }
+
   projectedVersionForPackage(packageId, version) {
     const versions = [...this.packageVersions.values()]
       .filter((item) => item.packageId === packageId && item.status === "available")
+      .filter((item) => !item.softDeletedAt)
       .filter((item) => item.version === version || (version === "latest" && (item.tag === "latest" || !item.tag)))
       .sort((left, right) => (right.publishedAt ?? right.createdAt).localeCompare(left.publishedAt ?? left.createdAt));
     return versions.at(0) ?? null;
@@ -1529,6 +1623,7 @@ export class CoreHubLocalStorageAdapter {
     const entries = [];
     for (const version of this.packageVersions.values()) {
       if (version.status !== "available") continue;
+      if (version.softDeletedAt) continue;
       const submissionRecord = this.submissions.get(version.submissionId);
       if (!submissionRecord) continue;
       const artifactUpload = this.findArtifactUpload(version.artifactUploadId);
@@ -1878,6 +1973,19 @@ export function createCoreHubApiHandler({
         const body = await readJsonBody(request);
         const actor = actorFromRequest(request, storage);
         const result = await storage.resolvePackageAppeal(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "DELETE" && segments[0] === "packages" && segments.length === 2) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.softDeletePackage(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "packages" && segments[2] === "undelete" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.undeletePackage(decodeURIComponent(segments[1]), { actor, now: now() });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 

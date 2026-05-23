@@ -1894,6 +1894,54 @@ try {
     const projectedVersionsPayload = await projectedVersionsResponse.json();
     assert.equal(projectedVersionsPayload.data[0].tag, "latest");
 
+    const packageDelete = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "delete",
+        "plugin-lab",
+        "--yes",
+        "--reason",
+        "Soft delete fixture.",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageDeletePayload = JSON.parse(packageDelete.stdout);
+    assert.equal(packageDeletePayload.status, "deleted");
+    assert.equal(packageDeletePayload.packageId, "plugin-lab");
+    assert.equal(packageDeletePayload.changedVersions, 1);
+
+    const deletedEntriesResponse = await fetch(`${apiRegistryUrl}/api/v1/entries`);
+    assert.equal(deletedEntriesResponse.status, 200);
+    assert.equal((await deletedEntriesResponse.json()).data.length, 0);
+    const deletedPackageResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab`);
+    assert.equal(deletedPackageResponse.status, 404);
+
+    const deletedAdminStatus = await execFileAsync(
+      process.execPath,
+      [cliPath, "admin", "status", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const deletedAdminStatusPayload = JSON.parse(deletedAdminStatus.stdout);
+    assert.equal(deletedAdminStatusPayload.counts.softDeletedPackages, 1);
+    assert.equal(deletedAdminStatusPayload.queues.packageLifecycle.deleted, 1);
+
+    const packageUndelete = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "undelete", "plugin-lab", "--yes", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const packageUndeletePayload = JSON.parse(packageUndelete.stdout);
+    assert.equal(packageUndeletePayload.status, "restored");
+    assert.equal(packageUndeletePayload.packageId, "plugin-lab");
+    assert.equal(packageUndeletePayload.changedVersions, 1);
+
+    const restoredPackageResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab`);
+    assert.equal(restoredPackageResponse.status, 200);
+
     const packageReport = await execFileAsync(
       process.execPath,
       [
@@ -2087,9 +2135,11 @@ try {
     assert.equal(adminStatusPayload.status, "ok");
     assert.equal(adminStatusPayload.readiness.status, "ready");
     assert.equal(adminStatusPayload.counts.installEvents, 2);
+    assert.equal(adminStatusPayload.counts.softDeletedPackages, 0);
     assert.equal(adminStatusPayload.counts.packageReports, 1);
     assert.equal(adminStatusPayload.counts.packageAppeals, 1);
     assert.equal(adminStatusPayload.queues.reviews.approved, 1);
+    assert.equal(adminStatusPayload.queues.packageLifecycle.active, 1);
     assert.equal(adminStatusPayload.queues.packageReports.confirmed, 1);
     assert.equal(adminStatusPayload.queues.packageAppeals.accepted, 1);
     assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
@@ -2108,6 +2158,9 @@ try {
     const supportBundle = JSON.parse(await readFile(supportBundlePath, "utf8"));
     assert.equal(supportBundle.bundle.redaction.secretsIncluded, false);
     assert.equal(supportBundle.counts.installEvents, 2);
+    assert.equal(supportBundle.counts.softDeletedPackages, 0);
+    assert.equal(supportBundle.recent.packageLifecycle[0].packageId, "plugin-lab");
+    assert.equal(typeof supportBundle.recent.packageLifecycle[0].restoredAt, "string");
     assert.equal(supportBundle.recent.packageReports[0].status, "confirmed");
     assert.equal(supportBundle.recent.packageAppeals[0].status, "accepted");
     assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
@@ -2118,6 +2171,8 @@ try {
     assert.equal(pluginLabSlot.artifactUpload.status, "verified");
     assert.equal(persistedState.submissions[0].submission.status, "approved");
     assert.equal(persistedState.packageVersions[0].status, "available");
+    assert.equal("softDeletedAt" in persistedState.packageVersions[0], false);
+    assert.equal(typeof persistedState.packageVersions[0].restoredAt, "string");
     assert.equal(persistedState.installEvents.length, 2);
     assert.equal(persistedState.packageReports[0].status, "confirmed");
     assert.equal(persistedState.packageAppeals[0].status, "accepted");
@@ -2126,6 +2181,8 @@ try {
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.report.triage"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.appeal.create"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.appeal.resolve"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.delete"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.undelete"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.event.ingest"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "install.analytics.summary"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "audit.list"), true);

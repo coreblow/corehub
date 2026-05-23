@@ -332,6 +332,32 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "delete") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package delete requires an entry id");
+    if (!registry) throw new Error("package delete requires --registry or COREHUB_REGISTRY");
+    if (!hasFlag(args, "--yes")) throw new Error("package delete requires --yes");
+    const auth = await requireAuthState();
+    const result = await new CoreHubRegistryClient(registry).deletePackage(
+      id,
+      { reason: readOption(args, "--reason") },
+      { auth },
+    );
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (subcommand === "undelete") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package undelete requires an entry id");
+    if (!registry) throw new Error("package undelete requires --registry or COREHUB_REGISTRY");
+    if (!hasFlag(args, "--yes")) throw new Error("package undelete requires --yes");
+    const auth = await requireAuthState();
+    const result = await new CoreHubRegistryClient(registry).undeletePackage(id, { auth });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
   if (subcommand === "install") {
     const id = positionalArgs(args)[0];
     if (!id) throw new Error("package install requires an entry id");
@@ -3068,6 +3094,24 @@ class CoreHubRegistryClient {
     });
   }
 
+  async deletePackage(packageId, payload = {}, options = {}) {
+    return this.writeData(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}`), {
+      auth: options.auth,
+      method: "DELETE",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async undeletePackage(packageId, options = {}) {
+    return this.writeData(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}/undelete`), {
+      auth: options.auth,
+      method: "POST",
+      expectedVersion: "v2",
+    });
+  }
+
   async decideReview(reviewId, decision, payload = {}, options = {}) {
     return this.writeData(this.apiV2Url(`/reviews/${encodeURIComponent(reviewId)}/${decision}`), {
       auth: options.auth,
@@ -3300,6 +3344,8 @@ Usage:
   corehub package appeal <entry-id> --version version --message text --registry https://coreblow.com/corehub
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package appeals resolve <appeal-id> --status accepted|rejected|open [--note text] [--action none|approve] --registry https://coreblow.com/corehub
+  corehub package delete <entry-id> --yes [--reason text] --registry https://coreblow.com/corehub
+  corehub package undelete <entry-id> --yes --registry https://coreblow.com/corehub
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
@@ -3330,6 +3376,8 @@ Usage:
   corehub package appeal <entry-id> --version version --message text --registry https://coreblow.com/corehub
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package appeals resolve <appeal-id> --status accepted|rejected|open [--note text] [--action none|approve] --registry https://coreblow.com/corehub
+  corehub package delete <entry-id> --yes [--reason text] --registry https://coreblow.com/corehub
+  corehub package undelete <entry-id> --yes --registry https://coreblow.com/corehub
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]

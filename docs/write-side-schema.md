@@ -98,6 +98,8 @@ The future authenticated API should expose these resources under a new versioned
 | `POST /corehub/api/v2/transfers/:id/accept` | Target publisher accepts and completes ownership transfer. |
 | `POST /corehub/api/v2/transfers/:id/reject` | Target publisher or admin rejects ownership transfer. |
 | `POST /corehub/api/v2/transfers/:id/cancel` | Source publisher cancels a pending transfer. |
+| `DELETE /corehub/api/v2/packages/:id` | Soft-delete all published versions for a package. |
+| `POST /corehub/api/v2/packages/:id/undelete` | Restore soft-deleted package versions. |
 | `GET /corehub/api/v2/audit/events` | List write-side audit events with target, action, actor, and pagination filters. |
 | `GET /corehub/api/v2/audit/verify` | Verify the append-only audit hash chain and return the current head hash. |
 | `GET /corehub/api/v2/audit/retention` | Inspect retention policy, prune cutoff, and integrity failure behavior. |
@@ -237,6 +239,8 @@ Phase 18 adds the server-side shape before wiring production R2 or S3 credential
 | `POST /corehub/api/v2/package-appeals` | Accepts a publisher appeal for a published package version and records it as a separate moderation queue item. |
 | `GET /corehub/api/v2/package-appeals` | Lists package appeals for moderators and admins with status, package, and pagination filters. |
 | `POST /corehub/api/v2/package-appeals/:id/resolve` | Records a moderator/admin appeal resolution, note, and optional final action. |
+| `DELETE /corehub/api/v2/packages/:id` | Soft-deletes all published versions for the package and removes it from Registry API v1 projections. |
+| `POST /corehub/api/v2/packages/:id/undelete` | Restores soft-deleted package versions and makes the package visible to Registry API v1 projections again. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approves a pending submission review and creates an `available` package version. |
 | `POST /corehub/api/v2/reviews/:id/block` | Blocks a pending submission review and creates a blocked package version record for audit visibility. |
 | `GET /corehub/api/v1/packages/:id/download` | Returns signed read metadata, or redirects to a signed read URL by default. |
@@ -267,6 +271,8 @@ Review approval is the first point where a submitted artifact can become install
 Package reports are separate from submission reviews. A report does not hide or block a package by itself; it becomes an auditable moderation intake record until a moderator triages it as `confirmed`, `dismissed`, or reopened as `open`.
 
 Package appeals are separate from package reports. A verified publisher can appeal a published version with a message, and a moderator resolves the appeal as `accepted`, `rejected`, or reopened as `open` with optional final action `none` or `approve`.
+
+Package delete and undelete are soft lifecycle operations. Delete marks package versions with `softDeletedAt`, records the actor and optional reason, disables artifact download in state, and hides the package from Registry API v1. Undelete clears the soft-delete marker, records restore metadata, and makes the package visible again without rewriting submission, review, or audit history.
 
 The admin CLI can now call these API v2 review decisions:
 
@@ -313,7 +319,7 @@ Phase 23 keeps production persistence out of scope, but the local storage adapte
 | `slots` | Upload slots, signed upload metadata, expected artifact checksum, and artifact upload status. |
 | `submissions` | Package submission records plus pending or decided package version previews. |
 | `reviews` | Moderation review decisions and reviewer audit metadata. |
-| `packageVersions` | Approved or blocked version records used by projection. |
+| `packageVersions` | Approved, blocked, soft-deleted, or restored version records used by projection. |
 | `auditEvents` | Append-only audit events for upload, verification, submission, review decision, and admin read actions. |
 | `auditCheckpoints` | Local checkpoint records created after export-before-prune retention actions. |
 
