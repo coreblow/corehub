@@ -385,7 +385,9 @@ assert.ok(inspected.files.some((file) => file.path === "SKILL.md"));
 
 const cliPath = new URL("../src/cli.mjs", import.meta.url).pathname;
 const auditIncidentCheckPath = new URL("../scripts/audit-incident-check.mjs", import.meta.url).pathname;
+const d1MigrationPath = new URL("../scripts/corehub-d1-migration.mjs", import.meta.url).pathname;
 const persistenceSnapshotPath = new URL("../scripts/persistence-snapshot.mjs", import.meta.url).pathname;
+const persistenceMigrationSmokePath = new URL("../scripts/smoke-persistence-migration.mjs", import.meta.url).pathname;
 const explore = await execFileAsync(process.execPath, [cliPath, "explore"]);
 assert.match(explore.stdout, /corehub-directory\tskill\tCoreHub Directory Metadata/);
 
@@ -918,6 +920,20 @@ try {
   const d1Snapshot = JSON.parse(d1Rows.get("write-side-state").value);
   assert.equal(d1Store.kind, "d1-snapshot");
   assert.equal(d1Snapshot.slots[0].id, "upload-plugin-lab-0-2-0");
+
+  const d1Sql = await execFileAsync(process.execPath, [d1MigrationPath, "sql"]);
+  assert.match(d1Sql.stdout, /CREATE TABLE IF NOT EXISTS corehub_state/);
+
+  const d1Plan = await execFileAsync(process.execPath, [d1MigrationPath, "apply", "--dry-run"]);
+  const d1PlanPayload = JSON.parse(d1Plan.stdout);
+  assert.equal(d1PlanPayload.status, "apply_planned");
+  assert.equal(d1PlanPayload.table, "corehub_state");
+  assert.match(d1PlanPayload.applyCommand, /wrangler d1 execute corehub/);
+
+  const persistenceMigrationSmoke = await execFileAsync(process.execPath, [persistenceMigrationSmokePath]);
+  const persistenceMigrationPayload = JSON.parse(persistenceMigrationSmoke.stdout);
+  assert.equal(persistenceMigrationPayload.status, "ok");
+  assert.deepEqual(persistenceMigrationPayload.persistedKeys, ["write-side-state"]);
 } finally {
   await rm(snapshotStoreDir, { recursive: true, force: true });
 }

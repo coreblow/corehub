@@ -138,9 +138,15 @@ jobs:
       - name: Run production deploy preflight
         run: npm run deploy:worker:check -- --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml" --require-wrangler
 
+      - name: Plan D1 migration
+        run: npm run persistence:d1 -- apply --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml" --dry-run
+
       - name: Deploy Worker
         if: needs.validate-deploy-request.outputs.run_deploy == 'true'
-        run: wrangler deploy --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml"
+        run: |
+          set -euo pipefail
+          npm run persistence:d1 -- apply --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml" --apply
+          wrangler deploy --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml"
 
       - name: Run post-deploy smoke
         run: |

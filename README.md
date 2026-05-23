@@ -84,7 +84,7 @@ npm run smoke:local-publish
 
 See `docs/local-publish-runbook.md` for the manual command flow.
 
-See `docs/production-persistence.md` for the D1 state-store bootstrap contract, R2 artifact storage binding, Cloudflare Worker entrypoint, and binding placeholders.
+See `docs/production-persistence.md` for the D1 state-store bootstrap contract, R2 artifact storage binding, Cloudflare Worker entrypoint, migration apply helper, and binding placeholders.
 
 Run the production-style audit incident automation check:
 
@@ -94,7 +94,7 @@ COREHUB_REGISTRY=https://coreblow.com/corehub npm run audit:incident
 
 See `docs/production-audit-monitoring.md` for cron, GitHub Actions, and Cloudflare Scheduled Worker wiring.
 
-See `docs/production-persistence.md` for the write-side persistence adapter boundary.
+See `docs/production-persistence.md` for the write-side persistence adapter boundary, `docs/state-export-import-runbook.md` for backup/restore operations, and `docs/production-rollback.md` for production rollback.
 
 ### CLI
 

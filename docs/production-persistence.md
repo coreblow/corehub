@@ -58,6 +58,8 @@ The tool validates:
 | Audit chain shape | Ensures audit sequence and `previousHash` continuity can be inspected before restore. |
 | Export hash | Reports a SHA-256 for backup custody records. |
 
+The full operator flow is documented in [State Export And Import Runbook](state-export-import-runbook.md).
+
 ## Migration Versioning Contract
 
 Inspect the current persistence version and migration list:
@@ -95,6 +97,16 @@ CREATE TABLE IF NOT EXISTS corehub_state (
 );
 ```
 
+Generate, plan, and apply the D1 migration through the checked-in helper:
+
+```sh
+npm run persistence:d1 -- sql
+npm run persistence:d1 -- apply --config ops/cloudflare/wrangler.corehub-api.production.toml --dry-run
+npm run persistence:d1 -- apply --config ops/cloudflare/wrangler.corehub-api.production.toml --apply
+```
+
+The helper is fail-closed: `apply` is dry-run unless `--apply` is present, and production apply refuses placeholder D1 database ids. The deploy workflow runs the dry run during production checks and applies the migration immediately before `wrangler deploy`.
+
 Future phases can split this snapshot into normalized tables for artifact uploads, submissions, reviews, package versions, audit events, and audit checkpoints.
 
 ## Bootstrap Selection
@@ -127,10 +139,11 @@ wrangler deploy --config ops/cloudflare/wrangler.corehub-api.persistence.example
 Before deploying, run the Worker-local smoke:
 
 ```sh
+npm run smoke:persistence-migration
 npm run smoke:worker-local
 ```
 
-The smoke invokes `src/worker.mjs` through the Fetch API with mock D1 and R2 bindings, uploads and verifies an artifact, approves the review, checks the projected v1 registry response, and reads the artifact back through a signed download URL.
+`smoke:persistence-migration` applies the D1 schema to a mock D1 binding and verifies a save/load round trip for the `write-side-state` snapshot. `smoke:worker-local` invokes `src/worker.mjs` through the Fetch API with mock D1 and R2 bindings, uploads and verifies an artifact, approves the review, checks the projected v1 registry response, and reads the artifact back through a signed download URL.
 
 Then run the deploy readiness gate before `wrangler deploy`:
 
@@ -266,6 +279,19 @@ Required GitHub configuration:
 | `CLOUDFLARE_ACCOUNT_ID` | secret | Cloudflare account used by Wrangler. |
 
 Run `mode=check` before a real deploy. Run `mode=deploy` only after the check passes and the production environment approval is complete.
+
+In `deploy` mode the workflow applies the idempotent D1 schema migration before deploying the Worker. Keep `mode=check` as the required preflight so the migration plan, Worker-local smoke, and Wrangler dry run are visible before production approval.
+
+## Production Rollback
+
+Rollback is documented in [Production Rollback](production-rollback.md).
+
+The short version:
+
+1. Capture a support bundle and current smoke output.
+2. Redeploy the last known good Worker revision through the protected deploy workflow.
+3. Restore state only from a validated snapshot or approved D1 backup.
+4. Verify admin readiness, audit integrity, public registry reads, signed download metadata, and artifact reads when intentionally enabled.
 
 ## Security Gate Workflows
 

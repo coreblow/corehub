@@ -18,6 +18,8 @@ runStep("readiness", [
   config,
 ]);
 
+runStep("persistence-migration-smoke", [process.execPath, "scripts/smoke-persistence-migration.mjs"]);
+
 runStep("worker-local-smoke", [process.execPath, "scripts/smoke-worker-local.mjs"]);
 
 if (skipWrangler) {
