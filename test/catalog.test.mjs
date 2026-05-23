@@ -468,18 +468,27 @@ assert.equal(packageReadinessPayload.ready, true);
 assert.deepEqual(packageReadinessPayload.blockers, []);
 assert.equal(packageReadinessPayload.checks.some((check) => check.id === "coreblow-compatibility"), true);
 
-const packageInstall = await execFileAsync(process.execPath, [
-  cliPath,
-  "package",
-  "install",
-  "plugin-lab",
-]);
-const installPlan = JSON.parse(packageInstall.stdout);
-assert.equal(installPlan.dryRun, false);
-assert.equal(installPlan.install.status, "blocked");
-assert.equal(installPlan.download.verified, false);
-assert.match(installPlan.install.message, /resolved an installable CoreBlow plugin archive/);
-assert.equal(installPlan.plan.at(-1).step, "install-plugin");
+const localInstallHome = await mkdtemp(join(tmpdir(), "corehub-local-install-home-"));
+try {
+  const packageInstall = await execFileAsync(
+    process.execPath,
+    [
+      cliPath,
+      "package",
+      "install",
+      "plugin-lab",
+    ],
+    { env: { ...process.env, COREHUB_HOME: localInstallHome } },
+  );
+  const installPlan = JSON.parse(packageInstall.stdout);
+  assert.equal(installPlan.dryRun, false);
+  assert.equal(installPlan.install.status, "installed");
+  assert.equal(installPlan.download.verified, true);
+  assert.match(installPlan.install.message, /recorded local install state/);
+  assert.equal(installPlan.plan.at(-1).step, "install-plugin");
+} finally {
+  await rm(localInstallHome, { recursive: true, force: true });
+}
 
 const topLevelInstallPreview = await execFileAsync(process.execPath, [
   cliPath,
@@ -2244,6 +2253,28 @@ try {
       { env: apiAuthEnv },
     );
 
+    const skippedAnalytics = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "analytics",
+        "record",
+        "plugin-lab",
+        "--version",
+        "0.1.0",
+        "--event",
+        "installed",
+        "--source",
+        "cli",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: { ...apiAuthEnv, COREHUB_DISABLE_TELEMETRY: "1" } },
+    );
+    const skippedAnalyticsPayload = JSON.parse(skippedAnalytics.stdout);
+    assert.equal(skippedAnalyticsPayload.status, "skipped");
+    assert.equal(skippedAnalyticsPayload.reason, "telemetry_disabled");
+
     const analyticsSummary = await execFileAsync(
       process.execPath,
       [cliPath, "analytics", "summary", "--package", "plugin-lab", "--registry", apiRegistryUrl],
@@ -2956,28 +2987,95 @@ try {
   }
 
   const installDir = await mkdtemp(join(tmpdir(), "corehub-install-"));
+  const installHome = await mkdtemp(join(tmpdir(), "corehub-install-home-"));
+  const installEnv = { ...process.env, COREHUB_HOME: installHome };
   try {
     const installPath = join(installDir, "plugin-lab.coreblow-plugin.tgz");
-    const remoteInstall = await execFileAsync(process.execPath, [
-      cliPath,
-      "package",
-      "install",
-      "plugin-lab",
-      "--output",
-      installPath,
-      "--registry",
-      registryUrl,
-    ]);
+    const remoteInstall = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "install",
+        "plugin-lab",
+        "--output",
+        installPath,
+        "--registry",
+        registryUrl,
+      ],
+      { env: installEnv },
+    );
     const plan = JSON.parse(remoteInstall.stdout);
     assert.equal(plan.dryRun, false);
-    assert.equal(plan.install.status, "blocked");
+    assert.equal(plan.install.status, "installed");
     assert.equal(plan.download.verified, true);
     assert.equal(plan.download.output.bytes, entries[2].versions[0].artifact.size);
     assert.equal(plan.download.output.sha256, entries[2].versions[0].artifact.sha256);
     assert.equal(plan.plan.find((step) => step.step === "fetch-artifact").status, "complete");
+    assert.equal(plan.plan.find((step) => step.step === "install-plugin").status, "complete");
+    assert.equal(plan.localState.id, "plugin-lab");
+    assert.equal(plan.localState.version, "0.1.0");
+    assert.equal(plan.localState.pinned, false);
     assert.deepEqual(await readFile(installPath), pluginLabArtifactBytes);
+
+    const installedList = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "installed", "list"],
+      { env: installEnv },
+    );
+    const installedListPayload = JSON.parse(installedList.stdout);
+    assert.equal(installedListPayload.packages.length, 1);
+    assert.equal(installedListPayload.packages[0].id, "plugin-lab");
+
+    const pin = await execFileAsync(process.execPath, [cliPath, "package", "pin", "plugin-lab"], {
+      env: installEnv,
+    });
+    assert.equal(JSON.parse(pin.stdout).package.pinned, true);
+
+    const pinnedUpdate = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "update", "plugin-lab", "--registry", registryUrl],
+      { env: installEnv },
+    );
+    const pinnedUpdatePayload = JSON.parse(pinnedUpdate.stdout);
+    assert.equal(pinnedUpdatePayload.status, "skipped");
+    assert.equal(pinnedUpdatePayload.reason, "pinned");
+
+    const syncPinned = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "sync", "--registry", registryUrl],
+      { env: installEnv },
+    );
+    const syncPinnedPayload = JSON.parse(syncPinned.stdout);
+    assert.equal(syncPinnedPayload.results[0].status, "skipped");
+    assert.equal(syncPinnedPayload.results[0].reason, "pinned");
+
+    const unpin = await execFileAsync(process.execPath, [cliPath, "package", "unpin", "plugin-lab"], {
+      env: installEnv,
+    });
+    assert.equal(JSON.parse(unpin.stdout).package.pinned, false);
+
+    const update = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "update", "plugin-lab", "--registry", registryUrl],
+      { env: installEnv },
+    );
+    assert.equal(JSON.parse(update.stdout).status, "updated");
+
+    const uninstall = await execFileAsync(process.execPath, [cliPath, "package", "uninstall", "plugin-lab"], {
+      env: installEnv,
+    });
+    assert.equal(JSON.parse(uninstall.stdout).status, "uninstalled");
+
+    const emptyInstalledList = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "installed", "list"],
+      { env: installEnv },
+    );
+    assert.equal(JSON.parse(emptyInstalledList.stdout).packages.length, 0);
   } finally {
     await rm(installDir, { recursive: true, force: true });
+    await rm(installHome, { recursive: true, force: true });
   }
 
   const remoteTopLevelPreview = await execFileAsync(process.execPath, [
@@ -2993,20 +3091,29 @@ try {
   assert.equal(remotePreview.dryRun, true);
   assert.equal(remotePreview.install.status, "planned");
 
-  const remoteTopLevelInstall = await execFileAsync(process.execPath, [
-    cliPath,
-    "install",
-    "plugin-lab",
-    "--json",
-    "--registry",
-    registryUrl,
-  ]);
-  const remoteInstallPlan = JSON.parse(remoteTopLevelInstall.stdout);
-  assert.equal(remoteInstallPlan.dryRun, false);
-  assert.equal(remoteInstallPlan.install.status, "blocked");
-  assert.equal(remoteInstallPlan.download.verified, true);
-  assert.equal(remoteInstallPlan.download.output.bytes, entries[2].versions[0].artifact.size);
-  assert.match(remoteInstallPlan.install.message, /verified an installable CoreBlow plugin archive/);
+  const topInstallHome = await mkdtemp(join(tmpdir(), "corehub-top-install-home-"));
+  try {
+    const remoteTopLevelInstall = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "install",
+        "plugin-lab",
+        "--json",
+        "--registry",
+        registryUrl,
+      ],
+      { env: { ...process.env, COREHUB_HOME: topInstallHome } },
+    );
+    const remoteInstallPlan = JSON.parse(remoteTopLevelInstall.stdout);
+    assert.equal(remoteInstallPlan.dryRun, false);
+    assert.equal(remoteInstallPlan.install.status, "installed");
+    assert.equal(remoteInstallPlan.download.verified, true);
+    assert.equal(remoteInstallPlan.download.output.bytes, entries[2].versions[0].artifact.size);
+    assert.match(remoteInstallPlan.install.message, /recorded local install state/);
+  } finally {
+    await rm(topInstallHome, { recursive: true, force: true });
+  }
 
   const remotePublishers = await execFileAsync(process.execPath, [
     cliPath,

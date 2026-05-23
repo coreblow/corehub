@@ -169,6 +169,20 @@ Download endpoints support storage-backed signed redirects. The default response
 
 The CLI can perform a verified artifact fetch with `corehub package download <id> --output <path>`. Verified downloads write the artifact only after checking byte size and SHA-256 against the artifact manifest.
 
+CoreHub also keeps local install lifecycle state in `COREHUB_HOME/installs.json`:
+
+```sh
+corehub package install plugin-lab --registry https://coreblow.com/corehub
+corehub package installed list
+corehub package pin plugin-lab
+corehub package update plugin-lab --registry https://coreblow.com/corehub
+corehub package sync --registry https://coreblow.com/corehub
+corehub package unpin plugin-lab
+corehub package uninstall plugin-lab
+```
+
+Pinned packages are never overwritten by `update` or `sync`; unpin first to allow CoreHub to refresh local state. Set `COREHUB_DISABLE_TELEMETRY=1` to skip CLI analytics record writes.
+
 The OpenClaw-style user command is `corehub install <id>`. It is the intended install entrypoint, while `corehub package install <id> --dry-run` remains the technical planner. CoreHub now publishes the `plugin-lab` version as an installable CoreBlow plugin archive; install apply fetches and verifies the archive, then reports the CoreBlow installer handoff as blocked until the installer boundary is wired.
 
 ## Search

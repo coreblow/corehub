@@ -11,6 +11,7 @@ const command = process.argv[2] ?? "help";
 const args = process.argv.slice(3);
 const defaultRegistry = process.env.COREHUB_REGISTRY ?? "";
 const authSchemaVersion = "corehub.auth.v1";
+const installStateSchemaVersion = "corehub.installs.v1";
 const execFileAsync = promisify(execFile);
 
 async function main() {
@@ -373,7 +374,28 @@ async function runPackageCommand(values) {
     if (!id) throw new Error("package install requires an entry id");
     const output = readOption(args, "--output");
     const dryRun = hasFlag(args, "--dry-run");
-    console.log(JSON.stringify(await createPackageInstallPlan(id, { output, registry, dryRun }), null, 2));
+    console.log(
+      JSON.stringify(
+        await createPackageInstallPlan(id, {
+          output,
+          registry,
+          dryRun,
+          fetchForApply: !dryRun,
+        }),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (subcommand === "installed" || subcommand === "installs") {
+    await runPackageInstalledCommand(args, registry);
+    return;
+  }
+
+  if (["pin", "unpin", "uninstall", "update", "sync"].includes(subcommand)) {
+    await runPackageInstalledCommand([subcommand, ...args], registry);
     return;
   }
 
@@ -729,6 +751,23 @@ async function runAnalyticsCommand(values) {
     const source = readOption(args, "--source") ?? "cli";
     const clientId = readOption(args, "--client-id");
     const reason = readOption(args, "--reason");
+    if (process.env.COREHUB_DISABLE_TELEMETRY === "1") {
+      console.log(
+        JSON.stringify(
+          {
+            status: "skipped",
+            reason: "telemetry_disabled",
+            packageId,
+            version,
+            event,
+            source,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     const auth = await readAuthState();
     const result = await new CoreHubRegistryClient(registry).recordInstallEvent(
       { packageId, version, event, source, clientId, reason },
@@ -1274,9 +1313,18 @@ async function createPackageInstallPlan(id, options = {}) {
   const verified = output?.output ?? null;
   const dryRun = Boolean(options.dryRun);
   const installable = isCoreBlowPluginArchive(artifact);
+  const canRecordInstall = !dryRun && installable && Boolean(verified?.verified);
+  const installed = canRecordInstall
+    ? await recordLocalInstall({
+        download,
+        artifact,
+        output: verified,
+        registry: options.registry,
+      })
+    : null;
   const applyBlockedReason =
     installable && verified?.verified
-      ? "CoreHub verified an installable CoreBlow plugin archive. CoreBlow installer boundary wiring is the next phase."
+      ? "CoreHub verified the artifact and recorded local install state. CoreBlow installer handoff remains a separate boundary."
       : installable
       ? "CoreHub resolved an installable CoreBlow plugin archive. Run corehub install or provide --output to fetch and verify it before installer handoff."
       : artifact?.mediaType === "application/vnd.coreblow.corehub.manifest+json"
@@ -1286,7 +1334,7 @@ async function createPackageInstallPlan(id, options = {}) {
   return {
     dryRun,
     install: {
-      status: dryRun ? "planned" : "blocked",
+      status: dryRun ? "planned" : installed ? "installed" : "blocked",
       action: "install-plugin",
       writesCoreblowState: false,
       message: dryRun
@@ -1307,6 +1355,7 @@ async function createPackageInstallPlan(id, options = {}) {
           : "Pass the verified artifact to the CoreBlow plugin installer once installer wiring is available."
         : "Run with --output <path> to fetch and verify the artifact before install.",
     },
+    localState: installed,
     plan: [
       {
         step: "resolve-package",
@@ -1329,13 +1378,206 @@ async function createPackageInstallPlan(id, options = {}) {
       },
       {
         step: "install-plugin",
-        status: dryRun ? "planned" : "blocked",
+        status: dryRun ? "planned" : installed ? "complete" : "blocked",
         detail: dryRun
           ? "CoreBlow plugin installation is previewed only because --dry-run was provided."
           : applyBlockedReason,
       },
     ],
   };
+}
+
+async function runPackageInstalledCommand(values, registry) {
+  const subcommand = values[0] ?? "list";
+  const args = values.slice(1);
+
+  if (subcommand === "list" || subcommand === "ls") {
+    const state = await readInstallState();
+    const packages = activeInstallRecords(state);
+    console.log(JSON.stringify({ status: "ok", packages }, null, 2));
+    return;
+  }
+
+  if (subcommand === "pin" || subcommand === "unpin") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error(`package ${subcommand} requires an entry id`);
+    console.log(JSON.stringify(await setLocalInstallPinned(id, subcommand === "pin"), null, 2));
+    return;
+  }
+
+  if (subcommand === "uninstall") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package uninstall requires an entry id");
+    console.log(JSON.stringify(await uninstallLocalPackage(id), null, 2));
+    return;
+  }
+
+  if (subcommand === "update") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package update requires an entry id");
+    const state = await readInstallState();
+    const current = findLocalInstall(state, id);
+    if (!current) throw new Error(`CoreHub package is not installed locally: ${id}`);
+    const result = await createPackageUpdatePlan(id, {
+      registry,
+      dryRun: hasFlag(args, "--dry-run"),
+      output: readOption(args, "--output"),
+      current,
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (subcommand === "sync") {
+    const result = await syncLocalInstalls({
+      registry,
+      dryRun: hasFlag(args, "--dry-run"),
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  printPackageHelp();
+}
+
+async function createPackageUpdatePlan(id, options = {}) {
+  if (options.current?.pinned) {
+    return {
+      status: "skipped",
+      reason: "pinned",
+      packageId: id,
+      current: options.current,
+      message: `Package ${id} is pinned; update will not overwrite local state.`,
+    };
+  }
+  const plan = await createPackageInstallPlan(id, {
+    registry: options.registry || options.current?.registry,
+    output: options.output,
+    dryRun: options.dryRun,
+    fetchForApply: !options.dryRun,
+  });
+  return {
+    status: plan.localState ? "updated" : plan.dryRun ? "planned" : "blocked",
+    packageId: id,
+    previous: {
+      version: options.current?.version ?? null,
+      artifactSha256: options.current?.artifact?.sha256 ?? null,
+    },
+    plan,
+  };
+}
+
+async function syncLocalInstalls(options = {}) {
+  const state = await readInstallState();
+  const packages = activeInstallRecords(state);
+  const results = [];
+  for (const item of packages) {
+    if (item.pinned) {
+      results.push({ status: "skipped", reason: "pinned", packageId: item.id, current: item });
+      continue;
+    }
+    results.push(await createPackageUpdatePlan(item.id, { ...options, current: item }));
+  }
+  return {
+    status: "ok",
+    dryRun: Boolean(options.dryRun),
+    count: results.length,
+    results,
+  };
+}
+
+async function recordLocalInstall({ download, artifact, output, registry }) {
+  const state = await readInstallState();
+  const id = download.package?.id;
+  if (!id) throw new Error("CoreHub install cannot be recorded without package id");
+  const previous = findLocalInstall(state, id);
+  if (previous?.pinned) {
+    throw new Error(`Package ${id} is pinned; unpin it before reinstalling or updating`);
+  }
+  const now = new Date().toISOString();
+  const record = {
+    id,
+    name: download.package?.name ?? id,
+    kind: download.package?.kind ?? "plugin",
+    version: download.version ?? null,
+    publisher: download.publisher ?? null,
+    registry: normalizeRegistry(registry),
+    status: "installed",
+    pinned: Boolean(previous?.pinned),
+    artifact: {
+      name: artifact?.name ?? null,
+      mediaType: artifact?.mediaType ?? null,
+      size: artifact?.size ?? null,
+      sha256: artifact?.sha256 ?? null,
+    },
+    artifactPath: output?.path ?? null,
+    installedAt: previous?.installedAt ?? now,
+    updatedAt: now,
+  };
+  state.packages = state.packages.filter((item) => item.id !== id);
+  state.packages.push(record);
+  await writeInstallState(state);
+  return record;
+}
+
+async function setLocalInstallPinned(id, pinned) {
+  const state = await readInstallState();
+  const record = findLocalInstall(state, id);
+  if (!record) throw new Error(`CoreHub package is not installed locally: ${id}`);
+  const updated = { ...record, pinned, updatedAt: new Date().toISOString() };
+  state.packages = state.packages.map((item) => (item.id === id ? updated : item));
+  await writeInstallState(state);
+  return { status: pinned ? "pinned" : "unpinned", package: updated };
+}
+
+async function uninstallLocalPackage(id) {
+  const state = await readInstallState();
+  const record = findLocalInstall(state, id);
+  if (!record) throw new Error(`CoreHub package is not installed locally: ${id}`);
+  const updated = {
+    ...record,
+    status: "uninstalled",
+    pinned: false,
+    uninstalledAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  state.packages = state.packages.map((item) => (item.id === id ? updated : item));
+  await writeInstallState(state);
+  return { status: "uninstalled", package: updated };
+}
+
+function activeInstallRecords(state) {
+  return state.packages.filter((item) => item.status === "installed").sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function findLocalInstall(state, id) {
+  return activeInstallRecords(state).find((item) => item.id === id) ?? null;
+}
+
+async function readInstallState() {
+  try {
+    const raw = JSON.parse(await readFile(installStatePath(), "utf8"));
+    if (raw?.schemaVersion !== installStateSchemaVersion || !Array.isArray(raw.packages)) {
+      throw new Error(`CoreHub install state is invalid at ${installStatePath()}`);
+    }
+    return raw;
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return { schemaVersion: installStateSchemaVersion, packages: [] };
+    }
+    throw error;
+  }
+}
+
+async function writeInstallState(state) {
+  const path = installStatePath();
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await writeFile(path, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+}
+
+function installStatePath() {
+  const root = process.env.COREHUB_HOME || join(homedir(), ".corehub");
+  return join(root, "installs.json");
 }
 
 function isCoreBlowPluginArchive(artifact) {
@@ -3536,6 +3778,10 @@ Usage:
   corehub package delete <entry-id> --yes [--reason text] --registry https://coreblow.com/corehub
   corehub package undelete <entry-id> --yes --registry https://coreblow.com/corehub
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package installed list
+  corehub package pin|unpin|uninstall <entry-id>
+  corehub package update <entry-id> [--dry-run] [--registry https://coreblow.com/corehub]
+  corehub package sync [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]
@@ -3571,6 +3817,10 @@ Usage:
   corehub package delete <entry-id> --yes [--reason text] --registry https://coreblow.com/corehub
   corehub package undelete <entry-id> --yes --registry https://coreblow.com/corehub
   corehub package install <entry-id> [--dry-run] [--output artifact.json] [--registry https://coreblow.com/corehub]
+  corehub package installed list
+  corehub package pin|unpin|uninstall <entry-id>
+  corehub package update <entry-id> [--dry-run] [--registry https://coreblow.com/corehub]
+  corehub package sync [--dry-run] [--registry https://coreblow.com/corehub]
   corehub package submit <artifact|folder> --dry-run [--publisher handle] [--source url] [--changelog text] [--registry https://coreblow.com/corehub]
   corehub package upload request <artifact|folder> --dry-run [--publisher handle] [--provider r2|s3]
   corehub package upload verify <artifact|folder> --upload-slot <id> --dry-run [--publisher handle]

@@ -16,7 +16,7 @@ CoreHub uses ClawHub as the product and behavior specification, while keeping th
 
 Latest CoreHub split commit used for this plan:
 
-- `14128b5 CoreHub: add marketplace discovery filters`
+- `1e15e85 CoreHub: add publisher portal UI`
 
 Already implemented:
 
@@ -28,6 +28,7 @@ Already implemented:
 - Soft delete/undelete lifecycle.
 - Release moderation enforcement for report final actions `quarantine` and `revoke`.
 - Marketplace filters, deterministic ranking, and plugin-only v1 routes.
+- Publisher Portal self-service foundation.
 - Audit hash chain, retention, incident reporting, admin status, support bundle.
 - D1/R2 production persistence boundary and Worker deploy checks.
 
@@ -55,8 +56,8 @@ Already implemented:
 | Artifact upload UI | done | Publisher portal uploads, verifies, and submits artifacts through API v2. |
 | Submission/review status UI | done | Publisher portal lists owned submissions and review ids/statuses. |
 | Transfer UI | done | Publisher portal can request ownership transfers and list transfer statuses. |
-| Install pin/unpin/uninstall/list/update/sync | missing | Add local install state and safe update behavior. |
-| Telemetry opt-out | partial | Analytics exists; install/sync opt-out needs final CLI/runtime integration. |
+| Install pin/unpin/uninstall/list/update/sync | done | CLI stores CoreHub-local install state and skips pinned updates/syncs. |
+| Telemetry opt-out | done | `COREHUB_DISABLE_TELEMETRY=1` skips CLI analytics record writes. |
 | Production auth/rate limit/private visibility | partial | Harden browser OAuth, permissions, private package rules, and edge rate limits. |
 | Production deploy/rollback drill | partial | Persistence runbooks exist; final applied production drill remains. |
 
@@ -153,6 +154,8 @@ Remaining hardening:
 
 ### Phase I: Install and Sync Lifecycle
 
+Status: implemented for CoreHub-local CLI install state and telemetry opt-out; CoreBlow app installer handoff remains a separate integration boundary.
+
 Goal: CoreHub can manage local installed package state safely.
 
 Tasks:
@@ -169,6 +172,14 @@ Tasks:
   - `COREHUB_DISABLE_TELEMETRY=1`.
   - no raw IP/user-agent/client identifiers in stored analytics.
 - Add CLI tests around pinned state and blocked updates.
+
+Implemented:
+
+- `corehub package install <id>` records verified local install state after artifact verification.
+- `corehub package installed list` lists active local installs from `COREHUB_HOME/installs.json`.
+- `corehub package pin|unpin|uninstall <id>` manages local lifecycle state.
+- `corehub package update <id>` and `corehub package sync` refuse to overwrite pinned packages.
+- `COREHUB_DISABLE_TELEMETRY=1` skips CLI analytics record writes.
 
 ### Phase J: Production Finalization
 
