@@ -48,7 +48,7 @@ Already implemented:
 | Trusted publisher config | done | API v2 and CLI store package-level GitHub Actions trusted publisher policy. |
 | CI/OIDC publish token flow | partial | CoreHub-native mint/use/revoke exists; real GitHub OIDC JWT verification remains. |
 | Official channel guard | partial | Submission guard exists; needs full CI publish wrapper and public deploy policy. |
-| Direct package publish endpoint parity | partial | Current flow is upload/verify/submit; add CI-friendly publish wrapper only after trusted publisher boundary. |
+| Direct package publish endpoint parity | done | `corehub package publish` and the reusable package publish workflow wrap upload, verify, and pending review submission. |
 | Marketplace filters | done | Family, channel, category, capability, official, featured, and executes-code filters are wired into API v1/CLI. |
 | Marketplace ranking | done | Search uses deterministic exact/id/name/category/capability boosts with download/install tie-breakers. |
 | Plugin-specific list/search | done | `/corehub/api/v1/plugins` and `/corehub/api/v1/plugins/search` provide plugin-only parity. |
@@ -66,7 +66,7 @@ Already implemented:
 
 ### Phase F: Trusted Publisher and CI Publish Parity
 
-Status: implemented for CoreHub local/API v2/CLI parity, with real GitHub OIDC verification remaining as production hardening.
+Status: implemented for CoreHub local/API v2/CLI/workflow parity, with real GitHub OIDC JWT verification remaining as production hardening.
 
 Goal: ClawHub-style trusted publishing, implemented with CoreHub's auth, audit, and storage boundaries.
 
@@ -95,6 +95,12 @@ Tasks:
   - `package.publish_token.use`
   - `package.publish_token.revoke`
 - Extend tests and docs.
+
+Implemented:
+
+- `corehub package publish <source> --dry-run` previews the combined publish path.
+- `corehub package publish <source> --registry <url>` uploads/verifies artifacts and creates a pending review submission.
+- `.github/workflows/package-publish.yml` provides a reusable CI wrapper with safe dry-run defaults and token-gated live submissions.
 
 Gate:
 
@@ -130,7 +136,7 @@ Tasks:
 
 ### Phase H: Publisher Portal Full Self-Service
 
-Status: implemented for token-session publisher self-service foundation; real OAuth/session hardening and owned report/appeal visibility remain production hardening.
+Status: implemented for token-session publisher self-service foundation and final polish; real OAuth/session hardening and owned report/appeal visibility remain production hardening.
 
 Goal: Publisher can operate CoreHub without admin-only tools.
 
@@ -146,6 +152,8 @@ Tasks:
 - Submission/review status tracking.
 - Ownership transfer request UI where permitted.
 - Playwright smoke for authenticated publisher flows.
+- External artifact URL metadata mode for production-lite package submissions.
+- Upload history, submission filtering, permission summary, and clearer error/busy states.
 
 Remaining hardening:
 

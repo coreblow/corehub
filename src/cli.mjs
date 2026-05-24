@@ -2294,12 +2294,12 @@ async function createPackagePublishDryRun(source, values, registry) {
         "publisher handle resolved",
         "package id and version resolved",
         "artifact checksum computed",
-        "publish is dry-run only until registry writes are explicitly enabled",
+        "publish dry-run did not mutate registry state",
       ],
     },
     nextStep: registry
-      ? "Run package upload request, package upload verify, then package submit against this registry when live writes are approved."
-      : "Run with --registry to preview the hosted CoreHub write path, then upload and submit when live writes are approved.",
+      ? "Run without --dry-run from a protected publisher workflow to upload, verify, and create a pending review submission."
+      : "Run with --registry to preview the hosted CoreHub write path, then publish from a protected workflow when approved.",
   };
 }
 

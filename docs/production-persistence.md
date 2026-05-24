@@ -394,14 +394,14 @@ CoreHub mirrors the ClawHub repo-level security gates with:
 
 CoreHub exposes a reusable package publish workflow at `.github/workflows/package-publish.yml`.
 
-The workflow follows the ClawHub reusable publish pattern, but stays fail-closed while CoreHub write-side publishing is still staged:
+The workflow follows the ClawHub reusable publish pattern while keeping CoreHub's moderation boundary intact:
 
 - `workflow_call` entrypoint for package repos.
 - Caller repo checkout plus OIDC-based checkout of the exact CoreHub workflow source revision.
-- `dry_run: true` by default.
-- Local `corehub package submit <source> --dry-run` by default, with no production mutation.
-- Optional `remote_dry_run: true` for explicit API v2 submission exercises. This requires `secrets.corehub_token` because it can create pending review state.
-- `dry_run: false` fails until production write-side publishing is intentionally opened.
+- `dry_run: true` by default, using `corehub package publish <source> --dry-run`.
+- `dry_run: false` requires `secrets.corehub_token` and creates a pending review submission through API v2.
+- `provider: managed` is the default preview mode. For production-lite external artifacts, set `provider: external-url` or `provider: github-raw` with `artifact_url`.
+- Optional `publish_token_id` and `manual_override_reason` inputs map to the CoreHub trusted-publisher and admin override guards.
 - JSON output and an uploaded `corehub-package-submit.json` artifact for downstream review.
 
 Example caller workflow:
@@ -416,7 +416,24 @@ jobs:
       dry_run: true
 ```
 
-Use `remote_dry_run: true` only from protected branches or release workflows that are allowed to create pending review records in CoreHub.
+Live caller example:
+
+```yaml
+jobs:
+  corehub-package-publish:
+    uses: coreblow/corehub/.github/workflows/package-publish.yml@main
+    with:
+      source: ./dist/plugin-lab-0.2.0.coreblow-plugin.tgz
+      publisher: coreblow
+      dry_run: false
+      provider: external-url
+      artifact_url: https://github.com/coreblow/plugin-lab/releases/download/v0.2.0/plugin-lab-0.2.0.coreblow-plugin.tgz
+      publish_token_id: ${{ needs.mint.outputs.publish_token_id }}
+    secrets:
+      corehub_token: ${{ secrets.COREHUB_TOKEN }}
+```
+
+Use live publishing only from protected branches or release workflows that are allowed to create pending review records in CoreHub.
 
 ## CLI NPM Release Workflow
 

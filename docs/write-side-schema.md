@@ -131,12 +131,12 @@ corehub analytics summary --package plugin-lab --registry https://coreblow.com/c
 corehub admin status --registry https://coreblow.com/corehub
 corehub admin support-bundle --output ./corehub-support-bundle.json --registry https://coreblow.com/corehub
 corehub package publish ./plugin --dry-run
-corehub package publish ./plugin
+corehub package publish ./plugin --registry https://coreblow.com/corehub
 corehub package submit ./plugin-lab.coreblow-plugin.tgz
 corehub package transfer request plugin-lab --to coreblow
 ```
 
-Publishing should fail closed when package scope, publisher ownership, artifact checksum, or moderation status cannot be verified.
+Publishing should fail closed when package scope, publisher ownership, artifact checksum, trusted-publisher policy, or moderation status cannot be verified. A live publish creates a pending review submission; approval remains a separate moderator/admin action.
 
 ## Managed Artifact Upload Contract
 

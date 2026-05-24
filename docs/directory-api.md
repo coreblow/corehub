@@ -236,6 +236,6 @@ CoreHub keeps a ClawHub-style command shape so future backend work can attach to
 - `corehub package publish <source>`
 - `corehub registry info`
 
-Write commands currently report or perform local dry-run behavior. They must not publish remote artifacts until publisher write flows are available and release approval is explicit.
+Write commands keep dry-run defaults where possible. Live `corehub package publish <source> --registry <url>` creates a pending review submission; it does not bypass moderation or project directly into the public catalog.
 
 Read commands can use the hosted API with `--registry https://coreblow.com/corehub` or `COREHUB_REGISTRY=https://coreblow.com/corehub`.

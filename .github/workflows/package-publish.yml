@@ -9,12 +9,12 @@ on:
         type: string
         default: "."
       dry_run:
-        description: Preview only. Real publish is intentionally fail-closed until CoreHub write-side publishing opens.
+        description: Preview only. Set false from a protected workflow to create a pending CoreHub submission.
         required: false
         type: boolean
         default: true
       remote_dry_run:
-        description: Use the registry API v2 dry-run path. This can create pending review state and requires a token.
+        description: Backward-compatible alias for authenticated registry preview. Dry-run publish remains non-mutating.
         required: false
         type: boolean
         default: false
@@ -36,9 +36,36 @@ on:
         required: false
         type: string
       artifact_upload:
-        description: Optional verified artifact upload id for remote dry-runs.
+        description: Deprecated. Kept for callers that still use the older submit workflow.
         required: false
         type: string
+      provider:
+        description: Artifact storage provider for live publish.
+        required: false
+        type: string
+        default: managed
+      artifact_url:
+        description: External artifact URL for github-raw or external-url publish mode.
+        required: false
+        type: string
+      channel:
+        description: Package channel stored on the CoreHub submission.
+        required: false
+        type: string
+        default: stable
+      publish_token_id:
+        description: Optional CoreHub publish token id minted for a trusted publisher run.
+        required: false
+        type: string
+      manual_override_reason:
+        description: Optional admin override reason when bypassing trusted publisher policy.
+        required: false
+        type: string
+      max_bytes:
+        description: Upload contract max bytes.
+        required: false
+        type: string
+        default: "104857600"
       node_version:
         description: Node.js version used to run the CoreHub CLI.
         required: false
@@ -49,7 +76,7 @@ on:
         required: false
     outputs:
       submission_json:
-        description: Structured JSON output from corehub package submit.
+        description: Structured JSON output from corehub package publish.
         value: ${{ jobs.publish.outputs.submission_json }}
       submission_id:
         description: Planned or remote submission id.
@@ -142,27 +169,43 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run }}
           REMOTE_DRY_RUN: ${{ inputs.remote_dry_run }}
+          PROVIDER: ${{ inputs.provider }}
+          ARTIFACT_URL: ${{ inputs.artifact_url }}
           COREHUB_TOKEN: ${{ secrets.corehub_token }}
         run: |
           set -euo pipefail
-          if [[ "$DRY_RUN" != "true" ]]; then
-            echo "::error::CoreHub package publishing is dry-run only until production write-side publish is opened."
+          if [[ "$DRY_RUN" != "true" && -z "$COREHUB_TOKEN" ]]; then
+            echo "::error::live CoreHub package publish requires secrets.corehub_token."
             exit 1
           fi
           if [[ "$REMOTE_DRY_RUN" == "true" && -z "$COREHUB_TOKEN" ]]; then
-            echo "::error::remote_dry_run requires secrets.corehub_token because it can create pending review state."
+            echo "::warning::remote_dry_run no longer mutates CoreHub; using local token fallback for preview."
+          fi
+          if [[ "$PROVIDER" != "managed" && "$PROVIDER" != "github-raw" && "$PROVIDER" != "external-url" ]]; then
+            echo "::error::provider must be managed, github-raw, or external-url."
+            exit 1
+          fi
+          if [[ "$DRY_RUN" != "true" && "$PROVIDER" != "managed" && -z "$ARTIFACT_URL" ]]; then
+            echo "::error::live publish with provider=$PROVIDER requires artifact_url."
             exit 1
           fi
 
-      - name: Run CoreHub package submit dry-run
+      - name: Run CoreHub package publish
         env:
           INPUT_SOURCE: ${{ inputs.source }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_REMOTE_DRY_RUN: ${{ inputs.remote_dry_run }}
           INPUT_REGISTRY: ${{ inputs.registry }}
           INPUT_PUBLISHER: ${{ inputs.publisher }}
           INPUT_SOURCE_URL: ${{ inputs.source_url }}
           INPUT_CHANGELOG: ${{ inputs.changelog }}
           INPUT_ARTIFACT_UPLOAD: ${{ inputs.artifact_upload }}
+          INPUT_PROVIDER: ${{ inputs.provider }}
+          INPUT_ARTIFACT_URL: ${{ inputs.artifact_url }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_PUBLISH_TOKEN_ID: ${{ inputs.publish_token_id }}
+          INPUT_MANUAL_OVERRIDE_REASON: ${{ inputs.manual_override_reason }}
+          INPUT_MAX_BYTES: ${{ inputs.max_bytes }}
           SECRET_COREHUB_TOKEN: ${{ secrets.corehub_token }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: |
@@ -173,7 +216,10 @@ jobs:
             exit 1
           fi
 
-          args=("package" "submit" "$source_path" "--dry-run")
+          args=("package" "publish" "$source_path" "--registry" "$INPUT_REGISTRY")
+          if [[ "$INPUT_DRY_RUN" == "true" ]]; then
+            args+=("--dry-run")
+          fi
           if [[ -n "$INPUT_PUBLISHER" ]]; then
             args+=("--publisher" "$INPUT_PUBLISHER")
           fi
@@ -184,15 +230,31 @@ jobs:
             args+=("--changelog" "$INPUT_CHANGELOG")
           fi
           if [[ -n "$INPUT_ARTIFACT_UPLOAD" ]]; then
-            args+=("--artifact-upload" "$INPUT_ARTIFACT_UPLOAD")
+            echo "::warning::artifact_upload is ignored by corehub package publish; use publish_token_id or artifact_url for current flows."
           fi
-          if [[ "$INPUT_REMOTE_DRY_RUN" == "true" ]]; then
-            args+=("--registry" "$INPUT_REGISTRY")
+          if [[ -n "$INPUT_PROVIDER" ]]; then
+            args+=("--provider" "$INPUT_PROVIDER")
+          fi
+          if [[ -n "$INPUT_ARTIFACT_URL" ]]; then
+            args+=("--artifact-url" "$INPUT_ARTIFACT_URL")
+          fi
+          if [[ -n "$INPUT_CHANNEL" ]]; then
+            args+=("--channel" "$INPUT_CHANNEL")
+          fi
+          if [[ -n "$INPUT_PUBLISH_TOKEN_ID" ]]; then
+            args+=("--publish-token-id" "$INPUT_PUBLISH_TOKEN_ID")
+          fi
+          if [[ -n "$INPUT_MANUAL_OVERRIDE_REASON" ]]; then
+            args+=("--manual-override-reason" "$INPUT_MANUAL_OVERRIDE_REASON")
+          fi
+          if [[ -n "$INPUT_MAX_BYTES" ]]; then
+            args+=("--max-bytes" "$INPUT_MAX_BYTES")
           fi
 
           mkdir -p "$(dirname "$COREHUB_RESULT_PATH")"
           COREHUB_TOKEN="${SECRET_COREHUB_TOKEN:-corehub-local-dry-run-token}" \
           COREHUB_USER="github:${GITHUB_ACTOR}" \
+          COREHUB_PUBLISHER="${INPUT_PUBLISHER:-}" \
             node "$GITHUB_WORKSPACE/$COREHUB_SOURCE_PATH/src/cli.mjs" "${args[@]}" | tee "$COREHUB_RESULT_PATH"
 
       - name: Capture publish outputs

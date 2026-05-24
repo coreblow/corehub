@@ -646,6 +646,16 @@ try {
   assert.equal(packagePublishPayload.artifact.sha256, pluginLabEntry.versions[0].artifact.sha256);
   assert.equal(packagePublishPayload.uploadPlan.endpoint, "/corehub/api/v2/artifacts/uploads");
   assert.equal(packagePublishPayload.submissionPlan.reviewStatus, "pending_review");
+  assert.match(packagePublishPayload.nextStep, /protected publisher workflow/);
+
+  const packagePublishWorkflow = await readFile(
+    new URL("../.github/workflows/package-publish.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(packagePublishWorkflow, /name: Run CoreHub package publish/);
+  assert.match(packagePublishWorkflow, /args=\("package" "publish" "\$source_path" "--registry" "\$INPUT_REGISTRY"\)/);
+  assert.match(packagePublishWorkflow, /live CoreHub package publish requires secrets\.corehub_token/);
+  assert.doesNotMatch(packagePublishWorkflow, /dry-run only until production write-side publish is opened/);
 
   const logout = await execFileAsync(process.execPath, [cliPath, "logout"], { env: authEnv });
   assert.match(logout.stdout, /Logged out/);

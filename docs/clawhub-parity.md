@@ -22,7 +22,7 @@ CoreHub should provide the same registry class of features as ClawHub:
 - Search via deterministic local search first, then hosted search when the backend is available.
 - Browse packages with family, trust, capability, review, and compatibility metadata.
 - Publish code-plugin and bundle-plugin packages through API and CLI flows.
-- Preview `package publish <source> --dry-run` as a single publisher-facing preflight before upload, verification, and submission.
+- Use `package publish <source>` as a single publisher-facing wrapper for preflight, upload, verification, and pending review submission.
 - Inspect entries without installing them.
 - Manage local installs with install, pin, unpin, uninstall, list, update, and sync flows.
 - Support publisher identity, ownership, transfers, moderation, reports, appeals, and admin review.
@@ -74,11 +74,12 @@ Still pending for full ClawHub parity:
 Implemented package CLI parity starters:
 
 - `corehub package publish <source> --dry-run` resolves local folder or archive metadata, publisher ownership, artifact checksum, upload plan, submission plan, and pending review status.
+- `corehub package publish <source> --registry <url>` wraps upload, verification, and submission into one CI-friendly command that still lands in pending review.
 - `--family code-plugin|bundle-plugin` maps to the CoreHub `plugin` kind while preserving CoreBlow-native catalog metadata.
 - `corehub package verify <artifact>` checks local SHA-256 directly or compares the artifact against hosted package metadata.
 - `corehub package moderation-status <id>` and `corehub package readiness <id>` expose read-only lifecycle and marketplace readiness state.
 - `corehub package delete <id> --yes` and `corehub package undelete <id> --yes` provide soft lifecycle parity for hiding and restoring published packages without deleting history.
-- Live registry writes remain split into `package upload request`, `package upload verify`, and `package submit` until production publish writes are explicitly enabled.
+- Lower-level `package upload request`, `package upload verify`, and `package submit` commands remain available for debugging and operator runbooks.
 
 ### Phase 3: Publisher Identity
 
