@@ -2190,18 +2190,39 @@ try {
     assert.equal(projectedVersionsResponse.status, 200);
     const projectedVersionsPayload = await projectedVersionsResponse.json();
     assert.equal(projectedVersionsPayload.data[0].tag, "latest");
+    assert.equal(projectedVersionsPayload.meta.limit, 50);
+    assert.equal(projectedVersionsPayload.meta.hasMore, false);
+    assert.equal(projectedVersionsPayload.meta.nextCursor, null);
+
+    const projectedSecurityResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/versions/0.1.0/security`);
+    assert.equal(projectedSecurityResponse.status, 200);
+    const projectedSecurityPayload = await projectedSecurityResponse.json();
+    assert.equal(projectedSecurityPayload.data.package.name, "plugin-lab");
+    assert.equal(projectedSecurityPayload.data.release.version, "0.1.0");
+    assert.equal(projectedSecurityPayload.data.release.artifactSha256, entries[2].versions[0].artifact.sha256);
+    assert.equal(projectedSecurityPayload.data.trust.blockedFromDownload, false);
+    assert.equal(projectedSecurityPayload.data.trust.scanStatus, "clean");
 
     const projectedPluginListResponse = await fetch(`${apiRegistryUrl}/api/v1/plugins?category=dev-tools&executesCode=true`);
     assert.equal(projectedPluginListResponse.status, 200);
     const projectedPluginListPayload = await projectedPluginListResponse.json();
     assert.equal(projectedPluginListPayload.data[0].id, "plugin-lab");
     assert.equal(projectedPluginListPayload.data[0].marketplace.family, "code-plugin");
+    assert.equal(projectedPluginListPayload.meta.total, 1);
+    assert.equal(projectedPluginListPayload.meta.limit, 50);
+    assert.equal(projectedPluginListPayload.meta.cursor, null);
+    assert.equal(projectedPluginListPayload.meta.nextCursor, null);
 
     const projectedPluginSearchResponse = await fetch(`${apiRegistryUrl}/api/v1/plugins/search?q=plugin&isOfficial=false`);
     assert.equal(projectedPluginSearchResponse.status, 200);
     const projectedPluginSearchPayload = await projectedPluginSearchResponse.json();
     assert.equal(projectedPluginSearchPayload.data[0].id, "plugin-lab");
     assert.equal(projectedPluginSearchPayload.data[0].score > 0, true);
+    assert.equal(projectedPluginSearchPayload.meta.total, 1);
+
+    const invalidCursorResponse = await fetch(`${apiRegistryUrl}/api/v1/packages?cursor=not-a-cursor`);
+    assert.equal(invalidCursorResponse.status, 400);
+    assert.match((await invalidCursorResponse.json()).error, /cursor/);
 
     const projectedPackageFilterResponse = await fetch(`${apiRegistryUrl}/api/v1/packages?family=code-plugin&capabilityTag=published`);
     assert.equal(projectedPackageFilterResponse.status, 200);
@@ -2745,9 +2766,18 @@ try {
   const rateLimitUrl = `http://127.0.0.1:${rateLimitServer.address().port}/corehub/api/v1`;
   const firstRateLimited = await fetch(rateLimitUrl, { headers: { "x-corehub-client-id": "rate-limit-test" } });
   assert.equal(firstRateLimited.status, 200);
+  assert.equal(firstRateLimited.headers.get("x-ratelimit-limit"), "1");
+  assert.equal(firstRateLimited.headers.get("x-ratelimit-remaining"), "0");
+  assert.equal(firstRateLimited.headers.get("ratelimit-limit"), "1");
+  assert.equal(firstRateLimited.headers.get("ratelimit-remaining"), "0");
   const secondRateLimited = await fetch(rateLimitUrl, { headers: { "x-corehub-client-id": "rate-limit-test" } });
   assert.equal(secondRateLimited.status, 429);
   assert.equal(secondRateLimited.headers.get("retry-after"), "60");
+  assert.equal(secondRateLimited.headers.get("x-ratelimit-limit"), "1");
+  assert.equal(secondRateLimited.headers.get("x-ratelimit-remaining"), "0");
+  assert.equal(secondRateLimited.headers.get("ratelimit-limit"), "1");
+  assert.equal(secondRateLimited.headers.get("ratelimit-remaining"), "0");
+  assert.equal(secondRateLimited.headers.get("ratelimit-reset"), "60");
   assert.equal((await secondRateLimited.json()).error, "Rate limit exceeded");
 } finally {
   await new Promise((resolve) => rateLimitServer.close(resolve));

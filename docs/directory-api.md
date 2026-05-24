@@ -142,6 +142,7 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 | `GET` | `/corehub/api/v1/publishers/:handle` | Inspect one publisher and its catalog entries. |
 | `GET` | `/corehub/api/v1/packages/:id` | Inspect one package-compatible entry. |
 | `GET` | `/corehub/api/v1/packages/:id/versions` | Return publisher-owned version metadata. |
+| `GET` | `/corehub/api/v1/packages/:id/versions/:version/security` | Return the version-exact public security and trust summary used by install clients. |
 | `GET` | `/corehub/api/v1/packages/:id/files` | Return file metadata from the artifact manifest. |
 | `GET` | `/corehub/api/v1/packages/:id/artifact` | Return artifact manifest metadata, checksum, provenance, storage locator, and download policy. |
 | `GET` | `/corehub/api/v1/packages/:id/download` | Return a signed storage redirect, or signed download metadata with `redirect=false`. |
@@ -151,17 +152,35 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 
 ### Response Shape
 
-All v1 responses return:
+List and search v1 responses return:
 
 ```json
 {
   "apiVersion": "v1",
   "data": [],
   "meta": {
-    "count": 0
+    "count": 0,
+    "total": 0,
+    "limit": 50,
+    "offset": 0,
+    "cursor": null,
+    "nextCursor": null,
+    "hasMore": false
   }
 }
 ```
+
+List and search routes support `limit` and `cursor`. Clients should pass the returned `meta.nextCursor` to continue. Existing `offset` reads remain accepted for local tooling, but cursor reads are the public compatibility path.
+
+When edge rate limiting is enabled, responses include standard limit headers:
+
+- `X-RateLimit-Limit`
+- `X-RateLimit-Remaining`
+- `X-RateLimit-Reset`
+- `RateLimit-Limit`
+- `RateLimit-Remaining`
+- `RateLimit-Reset`
+- `Retry-After` on `429` responses
 
 The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
 

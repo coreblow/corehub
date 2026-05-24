@@ -2173,6 +2173,7 @@ export function createCoreHubApiHandler({
     try {
       const url = new URL(request.url, "http://127.0.0.1");
       const rateLimitResult = limiter?.check(request, now());
+      if (rateLimitResult) applyRateLimitHeaders(response, rateLimitResult);
       if (rateLimitResult?.limited) {
         response.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
         return json(response, 429, {
@@ -2764,7 +2765,7 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
   if (segments[0] === "catalog" && segments.length === 1) return dataResponse(visibleEntries, visibleEntries.length);
   if (segments[0] === "entries" && segments.length === 1) {
     const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url));
-    return dataResponse(filtered, filtered.length);
+    return paginatedDataResponse(filtered, url);
   }
   if (segments[0] === "entries" && segments.length === 2) {
     const entry = findProjectedEntry(visibleEntries, segments[1]);
@@ -2772,8 +2773,11 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
   }
   if (segments[0] === "search" && segments.length === 1) {
     const query = url.searchParams.get("q") ?? "";
-    const results = searchCatalogRecords(visibleEntries, query, parseMarketplaceFiltersFromUrl(url));
-    return dataResponse(results, results.length, results.length > 0 || query.trim().length > 0 ? 200 : 400);
+    const results = searchCatalogRecords(visibleEntries, query, {
+      ...parseMarketplaceFiltersFromUrl(url),
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+    return paginatedDataResponse(results, url, results.length > 0 || query.trim().length > 0 ? 200 : 400);
   }
   if (segments[0] === "download" && segments.length === 1) {
     const entry = findProjectedEntry(visibleEntries, url.searchParams.get("id"));
@@ -2789,35 +2793,45 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
   }
   if (segments[0] === "packages" && segments.length === 1) {
     const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url));
-    return dataResponse(filtered, filtered.length);
+    return paginatedDataResponse(filtered, url);
   }
   if (segments[0] === "packages" && segments[1] === "search" && segments.length === 2) {
     const query = url.searchParams.get("q") ?? "";
-    const results = searchCatalogRecords(visibleEntries, query, parseMarketplaceFiltersFromUrl(url));
-    return dataResponse(results, results.length);
+    const results = searchCatalogRecords(visibleEntries, query, {
+      ...parseMarketplaceFiltersFromUrl(url),
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+    return paginatedDataResponse(results, url);
   }
   if (segments[0] === "plugins" && segments.length === 1) {
     const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }));
-    return dataResponse(filtered, filtered.length);
+    return paginatedDataResponse(filtered, url);
   }
   if (segments[0] === "plugins" && segments[1] === "search" && segments.length === 2) {
     const query = url.searchParams.get("q") ?? "";
-    const results = searchCatalogRecords(visibleEntries, query, parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }));
-    return dataResponse(results, results.length);
+    const results = searchCatalogRecords(visibleEntries, query, {
+      ...parseMarketplaceFiltersFromUrl(url, { pluginOnly: true }),
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+    return paginatedDataResponse(results, url);
   }
   if (segments[0] === "code-plugins" && segments.length === 1) {
     const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url, { family: "code-plugin" }));
-    return dataResponse(filtered, filtered.length);
+    return paginatedDataResponse(filtered, url);
   }
   if (segments[0] === "bundle-plugins" && segments.length === 1) {
     const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url, { family: "bundle-plugin" }));
-    return dataResponse(filtered, filtered.length);
+    return paginatedDataResponse(filtered, url);
   }
   if (segments[0] === "packages" && segments.length >= 2) {
     const entry = findProjectedEntry(visibleEntries, segments[1]);
     if (!entry) return dataResponse(null, 0, 404);
     if (segments.length === 2) return dataResponse(entry);
-    if (segments[2] === "versions" && segments.length === 3) return dataResponse(entry.versions, entry.versions.length);
+    if (segments[2] === "versions" && segments.length === 3) return paginatedDataResponse(entry.versions, url);
+    if (segments[2] === "versions" && segments[4] === "security" && segments.length === 5) {
+      const version = findProjectedVersion(entry, segments[3]);
+      return version ? dataResponse(createPackageSecuritySummary(entry, version)) : dataResponse(null, 0, 404);
+    }
     if (segments[2] === "moderation" && segments.length === 3) return dataResponse(createPackageModerationStatus(entry));
     if (segments[2] === "readiness" && segments.length === 3) return dataResponse(createPackageReadiness(entry));
     if (segments[2] === "artifact" && segments.length === 3) {
@@ -3024,13 +3038,102 @@ function selectLatestPackageVersion(entry) {
   );
 }
 
-function dataResponse(data, count = data === null ? 0 : 1, statusCode = data === null ? 404 : 200) {
+function createPackageSecuritySummary(entry, version) {
+  const trust = version.artifact?.trust ?? packageReleaseTrust(version);
+  const scanStatus = trust.blockedFromDownload
+    ? trust.moderationState === "revoked" || trust.moderationState === "quarantined"
+      ? "malicious"
+      : "blocked"
+    : version.artifact?.security?.scanStatus ?? "clean";
+  return {
+    package: {
+      name: entry.id,
+      displayName: entry.name,
+      family: entry.marketplace?.family ?? entry.family ?? (entry.kind === "plugin" ? "code-plugin" : entry.kind),
+    },
+    release: {
+      releaseId: version.id ?? `${entry.id}@${version.version}`,
+      version: version.version,
+      artifactKind: version.artifact?.kind ?? version.artifact?.storage?.provider ?? null,
+      artifactSha256: version.artifact?.sha256 ?? null,
+      npmIntegrity: version.artifact?.npm?.integrity ?? version.artifact?.integrity ?? null,
+      npmShasum: version.artifact?.npm?.shasum ?? version.artifact?.shasum ?? null,
+      npmTarballName: version.artifact?.npm?.tarballName ?? version.artifact?.name ?? null,
+      createdAt: version.publishedAt ?? version.createdAt ?? null,
+    },
+    trust: {
+      scanStatus,
+      moderationState: trust.moderationState ?? null,
+      blockedFromDownload: Boolean(trust.blockedFromDownload),
+      reasons: Array.isArray(trust.reasons) ? trust.reasons : [],
+      pending: Boolean(trust.pending),
+      stale: Boolean(trust.stale),
+    },
+  };
+}
+
+function findProjectedVersion(entry, target) {
+  const decoded = decodeURIComponent(target);
+  return entry.versions?.find((version) => version.version === decoded || version.tag === decoded) ?? null;
+}
+
+function paginatedDataResponse(items, url, statusCode = 200) {
+  const page = paginateV1(items, url);
+  return dataResponse(page.items, page.meta.count, statusCode, page.meta);
+}
+
+function paginateV1(items, url) {
+  const limit = parseV1PositiveInteger(url.searchParams.get("limit"), "limit", 50);
+  const cursor = decodeV1Cursor(url.searchParams.get("cursor"));
+  const offset = cursor?.offset ?? parseNonNegativeInteger(url.searchParams.get("offset"), "offset", 0);
+  const end = offset + limit;
+  const pageItems = items.slice(offset, end);
+  const nextOffset = end < items.length ? end : null;
+  return {
+    items: pageItems,
+    meta: {
+      count: pageItems.length,
+      total: items.length,
+      limit,
+      offset,
+      cursor: url.searchParams.get("cursor") ?? null,
+      nextCursor: nextOffset === null ? null : encodeV1Cursor({ offset: nextOffset }),
+      hasMore: nextOffset !== null,
+    },
+  };
+}
+
+function encodeV1Cursor(value) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function decodeV1Cursor(value) {
+  if (!value) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!decoded || !Number.isSafeInteger(decoded.offset) || decoded.offset < 0) {
+      throw new Error("invalid cursor");
+    }
+    return { offset: decoded.offset };
+  } catch {
+    throw httpError(400, "cursor must be a valid CoreHub pagination cursor");
+  }
+}
+
+function parseV1PositiveInteger(value, name, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) throw httpError(400, `${name} must be a positive integer`);
+  return parsed;
+}
+
+function dataResponse(data, count = data === null ? 0 : 1, statusCode = data === null ? 404 : 200, meta = undefined) {
   return {
     statusCode,
     payload: {
       apiVersion: "v1",
       data,
-      meta: { count },
+      meta: meta ?? { count },
     },
   };
 }
@@ -3787,17 +3890,47 @@ function createRateLimiter(config) {
       const timestamp = now.getTime();
       const current = buckets.get(key);
       if (!current || timestamp >= current.resetAt) {
-        buckets.set(key, { count: 1, resetAt: timestamp + windowMs });
-        return { limited: false };
+        const resetAt = timestamp + windowMs;
+        buckets.set(key, { count: 1, resetAt });
+        return {
+          limited: false,
+          limit,
+          remaining: Math.max(0, limit - 1),
+          resetAt,
+          resetAfterSeconds: Math.max(1, Math.ceil(windowMs / 1000)),
+        };
       }
       current.count += 1;
-      if (current.count <= limit) return { limited: false };
+      const resetAfterSeconds = Math.max(1, Math.ceil((current.resetAt - timestamp) / 1000));
+      if (current.count <= limit) {
+        return {
+          limited: false,
+          limit,
+          remaining: Math.max(0, limit - current.count),
+          resetAt: current.resetAt,
+          resetAfterSeconds,
+        };
+      }
       return {
         limited: true,
-        retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - timestamp) / 1000)),
+        limit,
+        remaining: 0,
+        resetAt: current.resetAt,
+        resetAfterSeconds,
+        retryAfterSeconds: resetAfterSeconds,
       };
     },
   };
+}
+
+function applyRateLimitHeaders(response, result) {
+  const resetEpochSeconds = Math.ceil(result.resetAt / 1000);
+  response.setHeader("X-RateLimit-Limit", String(result.limit));
+  response.setHeader("X-RateLimit-Remaining", String(result.remaining));
+  response.setHeader("X-RateLimit-Reset", String(resetEpochSeconds));
+  response.setHeader("RateLimit-Limit", String(result.limit));
+  response.setHeader("RateLimit-Remaining", String(result.remaining));
+  response.setHeader("RateLimit-Reset", String(result.resetAfterSeconds));
 }
 
 function rateLimitKey(request) {

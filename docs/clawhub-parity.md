@@ -62,14 +62,21 @@ Implemented v1 read endpoints:
 - `GET /corehub/api/v1/plugins/search?q=<query>`
 - `GET /corehub/api/v1/packages/:id`
 - `GET /corehub/api/v1/packages/:id/versions`
+- `GET /corehub/api/v1/packages/:id/versions/:version/security`
 
-Still pending for full ClawHub parity:
+Implemented ClawHub-style public API compatibility starters:
 
-- file and download endpoints
-- auth and publisher identity
-- write-side publish APIs
-- moderation queues and audit logs
-- install/sync telemetry
+- List, search, and versions routes return cursor-aware `meta` with `limit`, `offset`, `cursor`, `nextCursor`, and `hasMore`.
+- Rate-limited responses include `X-RateLimit-*`, `RateLimit-*`, and `Retry-After` headers.
+
+Still pending or deferred for full ClawHub product parity:
+
+- package file route and npm-compatible packument/tarball endpoints
+- real browser OAuth and fuller user/org account management
+- deep hosted scanner pipeline and rescan/backfill operations
+- normalized package persistence/search digest tables for scale
+- richer moderator CLI operations
+- full hosted skill lifecycle and community surfaces
 
 Implemented package CLI parity starters:
 
