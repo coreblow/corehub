@@ -70,7 +70,8 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Cursor pagination | v1 accepted | ClawHub list/search supports cursor pagination and merged source cursors. | CoreHub list/search/version routes now return cursor-aware metadata with backward-compatible offset reads. | Keep covered by route tests. |
 | Standard rate limit headers | v1 accepted | ClawHub documents read/write/download buckets with `X-RateLimit-*` and `RateLimit-*` headers. | CoreHub fixed-window limiter now emits `X-RateLimit-*`, `RateLimit-*`, and `Retry-After` on limited responses. | Add separate policy buckets later if needed. |
 | Error envelope compatibility | full parity missing | ClawHub public API has documented auth, permission, rate-limit, and blocked-download failure semantics. | CoreHub has JSON errors, but not a locked ClawHub-compatible public error contract. | Lock and test error response schema. |
-| Deep scanner pipeline | intentionally deferred | Static scan, VirusTotal-style scanner state, LLM/ClawScan review, scan jobs, rescan/backfill, scanner evidence. | CoreHub can attach review evidence and enforce block states, but does not implement ClawHub scanner internals. | Post-v1 major phase. |
+| Static scanner pipeline | v1 accepted | Static scan job model, scan status, rescan/backfill operations, and scanner evidence. | CoreHub now stores static scan jobs, emits public scan status, exposes admin rescan/backfill routes, and includes scan counts/evidence in support bundles. | Keep covered by route tests. |
+| Deep hosted scanner parity | intentionally deferred | VirusTotal-style scanner state, LLM/ClawScan review, hosted queues, external scanner callbacks, and rich rescan policy. | CoreHub has the scanner boundary and static evidence model, but does not implement ClawHub scanner internals. | Post-v1 major phase. |
 | Normalized package persistence | intentionally deferred | ClawHub has normalized `packages`, `packageReleases`, stats, reports, appeals, scan jobs, search digests, trusted publishers, token tables. | CoreHub production uses D1-backed state store/snapshot boundary. | Post-v1 schema normalization plan before scale. |
 | Search digest/index depth | full parity missing | ClawHub stores package/skill search digest tables and indexed query paths. | CoreHub uses deterministic local/projected search over catalog/state. | Add normalized digest/index when persistence is normalized. |
 | Real browser OAuth | intentionally deferred | ClawHub has GitHub-backed browser auth/account model. | CoreHub v1 accepts token-backed browser sessions plus token-hash enforcement. | Implement with CoreBlow app auth boundary. |
@@ -93,10 +94,8 @@ The next work should not start another broad phase. Implement these rows one at 
 After P0:
 
 1. Define normalized D1 migration plan for package tables, release tables, stats, reports, appeals, trusted publishers, tokens, and search digests.
-2. Add scan job/evidence schema without copying ClawHub Convex internals.
-3. Add scanner status public projection and admin rescan/backfill queue.
-4. Expand moderator CLI and support bundle around scanner/backfill state.
-5. Add publisher portal report/appeal visibility and transfer accept/reject controls.
+2. Expand moderator CLI around scanner/backfill operations.
+3. Add publisher portal report/appeal visibility and transfer accept/reject controls.
 
 ## P2 Product Scope Decisions
 

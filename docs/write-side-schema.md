@@ -103,6 +103,9 @@ The future authenticated API should expose these resources under a new versioned
 | `DELETE /corehub/api/v2/packages/:id` | Soft-delete all published versions for a package. |
 | `POST /corehub/api/v2/packages/:id/undelete` | Restore soft-deleted package versions. |
 | `GET /corehub/api/v2/session/validate` | Validate a token-backed browser session for the requested `admin` or `publisher` role before loading privileged UI data. |
+| `GET /corehub/api/v2/package-scans` | List static package scan jobs with status, package, and version filters. |
+| `POST /corehub/api/v2/package-scans/backfill` | Backfill missing static scan jobs for available package versions. |
+| `POST /corehub/api/v2/packages/:id/scans/rescan` | Run a new static scan job for one package version. |
 | `GET /corehub/api/v2/audit/events` | List write-side audit events with target, action, actor, and pagination filters. |
 | `GET /corehub/api/v2/audit/verify` | Verify the append-only audit hash chain and return the current head hash. |
 | `GET /corehub/api/v2/audit/retention` | Inspect retention policy, prune cutoff, and integrity failure behavior. |

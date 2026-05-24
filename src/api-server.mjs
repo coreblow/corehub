@@ -215,6 +215,7 @@ export class CoreHubLocalStorageAdapter {
     this.packageVersions = new Map();
     this.packageReports = [];
     this.packageAppeals = [];
+    this.packageScanJobs = [];
     this.trustedPublishers = new Map();
     this.publishTokens = new Map();
     this.ownershipTransfers = new Map();
@@ -1010,6 +1011,7 @@ export class CoreHubLocalStorageAdapter {
       moderatedPackageVersions: this.moderatedPackageVersionCount(),
       packageReports: this.packageReports.length,
       packageAppeals: this.packageAppeals.length,
+      packageScanJobs: this.packageScanJobs.length,
       trustedPublishers: this.trustedPublishers.size,
       activePublishTokens: [...this.publishTokens.values()].filter((token) => !token.revokedAt && new Date(token.expiresAt).getTime() > now.getTime()).length,
       ownershipTransfers: this.ownershipTransfers.size,
@@ -1055,6 +1057,8 @@ export class CoreHubLocalStorageAdapter {
         publishTokens: countByStatus([...this.publishTokens.values()].map((token) => token.revokedAt ? "revoked" : "active")),
         packageReports: countByStatus(this.packageReports.map((report) => report.status)),
         packageAppeals: countByStatus(this.packageAppeals.map((appeal) => appeal.status)),
+        packageScans: countByStatus(this.packageScanJobs.map((job) => job.status)),
+        packageScanResults: countByStatus(this.packageScanJobs.map((job) => job.scanStatus)),
         ownershipTransfers: countByStatus([...this.ownershipTransfers.values()].map((transfer) => transfer.status)),
       },
       analytics,
@@ -1110,6 +1114,7 @@ export class CoreHubLocalStorageAdapter {
         publishTokens: latestItems([...this.publishTokens.values()], limit),
         packageReports: latestItems(this.packageReports, limit),
         packageAppeals: latestItems(this.packageAppeals, limit),
+        packageScanJobs: latestItems(this.packageScanJobs, limit),
         ownershipTransfers: latestItems([...this.ownershipTransfers.values()], limit),
         auditEvents: recentAudit.items,
       },
@@ -1537,6 +1542,102 @@ export class CoreHubLocalStorageAdapter {
     return { status: appeal.status, appeal };
   }
 
+  listPackageScanJobs(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "package.scan.list");
+    const status = options.status ?? "all";
+    const jobs = this.packageScanJobs
+      .filter((job) => status === "all" || job.status === status)
+      .filter((job) => !options.packageId || job.packageId === options.packageId)
+      .filter((job) => !options.version || job.version === options.version)
+      .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
+    return paginate(jobs, options);
+  }
+
+  async rescanPackageVersion(packageId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "package.scan.rescan");
+    const version = this.projectedVersionForPackage(packageId, input.version ?? "latest");
+    if (!version) throw httpError(404, "Package version not found for scan");
+    const job = this.runStaticPackageScan(version, {
+      actor,
+      now,
+      source: normalizePackageScanSource(input.source ?? "manual"),
+      reason: input.reason ?? "Operator requested package rescan.",
+    });
+    await this.persistState();
+    return { status: job.status, job };
+  }
+
+  async backfillPackageScans(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "package.scan.backfill");
+    const includeExisting = input.includeExisting === true;
+    const packageId = typeof input.packageId === "string" && input.packageId.trim() ? input.packageId.trim() : null;
+    const versions = [...this.packageVersions.values()]
+      .filter((version) => version.status === "available" && !version.softDeletedAt)
+      .filter((version) => !packageId || version.packageId === packageId);
+    const jobs = [];
+    for (const version of versions) {
+      if (!includeExisting && this.latestPackageScanJob(version.packageId, version.version)) continue;
+      jobs.push(
+        this.runStaticPackageScan(version, {
+          actor,
+          now,
+          source: "backfill",
+          reason: input.reason ?? "Backfill missing CoreHub static scan evidence.",
+        }),
+      );
+    }
+    await this.persistState();
+    return { status: "backfilled", count: jobs.length, jobs };
+  }
+
+  runStaticPackageScan(version, { actor, now, source, reason }) {
+    const requestedAt = now.toISOString();
+    const artifactUpload = this.findArtifactUpload(version.artifactUploadId);
+    const evidence = createStaticScanEvidence({ version, artifactUpload, actor, createdAt: requestedAt });
+    const scanStatus = evidence.some((item) => item.severity === "high" || item.severity === "critical")
+      ? "malicious"
+      : evidence.some((item) => item.severity === "medium")
+        ? "suspicious"
+        : "clean";
+    const job = {
+      id: `scan-${slugId(version.packageId)}-${slugVersion(version.version)}-${String(this.packageScanJobs.length + 1).padStart(6, "0")}`,
+      packageId: version.packageId,
+      version: version.version,
+      packageVersionId: version.id,
+      artifactUploadId: version.artifactUploadId,
+      scanner: "corehub-static",
+      source,
+      status: "completed",
+      scanStatus,
+      reason,
+      requestedBy: actor,
+      requestedAt,
+      startedAt: requestedAt,
+      completedAt: requestedAt,
+      evidence,
+    };
+    this.packageScanJobs.push(job);
+    version.scanStatus = scanStatus;
+    version.latestScanJobId = job.id;
+    version.scannedAt = requestedAt;
+    this.recordAuditEvent({
+      actor,
+      action: "package.scan.complete",
+      targetType: "packageScanJob",
+      targetId: job.id,
+      metadata: {
+        packageId: job.packageId,
+        version: job.version,
+        scanner: job.scanner,
+        source: job.source,
+        scanStatus: job.scanStatus,
+        evidenceCount: job.evidence.length,
+      },
+      createdAt: requestedAt,
+    });
+    return job;
+  }
+
   listAuditEvents(options = {}) {
     this.requireAdminPermission(options.authActor ?? defaultActor(), "audit.list");
     const records = this.auditEvents
@@ -1953,6 +2054,46 @@ export class CoreHubLocalStorageAdapter {
     return versions.at(0) ?? null;
   }
 
+  latestPackageScanJob(packageId, version) {
+    return this.packageScanJobs
+      .filter((job) => job.packageId === packageId && job.version === version)
+      .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt))
+      .at(0) ?? null;
+  }
+
+  latestPackageScanSummary(packageId, version) {
+    const job = this.latestPackageScanJob(packageId, version);
+    return job
+      ? {
+          scanner: job.scanner,
+          status: job.status,
+          scanStatus: job.scanStatus,
+          jobId: job.id,
+          completedAt: job.completedAt ?? null,
+          evidenceCount: job.evidence?.length ?? 0,
+        }
+      : {
+          scanner: "corehub-static",
+          status: "missing",
+          scanStatus: "pending",
+          jobId: null,
+          completedAt: null,
+          evidenceCount: 0,
+        };
+  }
+
+  latestPackageScanTrust(packageId, version) {
+    const summary = this.latestPackageScanSummary(packageId, version);
+    return {
+      scanStatus: summary.scanStatus,
+      scanner: summary.scanner,
+      status: summary.status,
+      jobId: summary.jobId,
+      pending: summary.status === "missing" || summary.status === "queued" || summary.status === "running",
+      stale: false,
+    };
+  }
+
   recordAuditEvent({ actor, action, targetType, targetId, metadata = {}, createdAt }) {
     const checkpoint = this.latestAuditCheckpoint();
     const previousHash = this.auditEvents.at(-1)?.eventHash ?? checkpoint?.head ?? "0".repeat(64);
@@ -2009,6 +2150,7 @@ export class CoreHubLocalStorageAdapter {
           category: "dev-tools",
           capabilityTags: [submission.kind, "published"],
         },
+        scanner: this.latestPackageScanSummary(version.packageId, version.version),
         publisher: {
           handle: version.publisherHandle,
           displayName: titleizeHandle(version.publisherHandle),
@@ -2042,6 +2184,7 @@ export class CoreHubLocalStorageAdapter {
               sha256: artifactUpload.sha256,
               downloadEnabled: !trust.blockedFromDownload,
               trust,
+              security: this.latestPackageScanTrust(version.packageId, version.version),
               storage: artifactUpload.storage,
               provenance: {
                 source,
@@ -2071,6 +2214,7 @@ export class CoreHubLocalStorageAdapter {
       packageVersions: [...this.packageVersions.values()],
       packageReports: this.packageReports,
       packageAppeals: this.packageAppeals,
+      packageScanJobs: this.packageScanJobs,
       trustedPublishers: [...this.trustedPublishers.values()],
       publishTokens: [...this.publishTokens.values()],
       ownershipTransfers: [...this.ownershipTransfers.values()],
@@ -2097,6 +2241,7 @@ export class CoreHubLocalStorageAdapter {
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
     this.packageReports = state.packageReports ?? [];
     this.packageAppeals = state.packageAppeals ?? [];
+    this.packageScanJobs = state.packageScanJobs ?? [];
     this.trustedPublishers = new Map((state.trustedPublishers ?? []).map((trustedPublisher) => [trustedPublisher.packageId, trustedPublisher]));
     this.publishTokens = new Map((state.publishTokens ?? []).map((token) => [token.id, token]));
     this.ownershipTransfers = new Map((state.ownershipTransfers ?? []).map((transfer) => [transfer.id, transfer]));
@@ -2609,6 +2754,45 @@ export function createCoreHubApiHandler({
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
+      if (request.method === "GET" && segments[0] === "package-scans" && segments.length === 1) {
+        const options = readListOptions(url);
+        const actor = actorFromRequest(request, storage);
+        options.authActor = actor;
+        options.status = url.searchParams.get("status") ?? "all";
+        options.packageId = url.searchParams.get("package") ?? undefined;
+        options.version = url.searchParams.get("version") ?? undefined;
+        const result = storage.listPackageScanJobs(options);
+        await storage.auditRead({
+          actor,
+          action: "package.scan.list",
+          targetType: "packageScanJob",
+          targetId: options.packageId ?? options.status,
+          metadata: { total: result.meta.total },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
+      }
+
+      if (request.method === "POST" && segments[0] === "package-scans" && segments[1] === "backfill" && segments.length === 2) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.backfillPackageScans(body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "packages" &&
+        segments[2] === "scans" &&
+        segments[3] === "rescan" &&
+        segments.length === 4
+      ) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.rescanPackageVersion(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (request.method === "GET" && segments[0] === "audit" && segments[1] === "events" && segments.length === 2) {
         const options = readAuditListOptions(url);
         const actor = actorFromRequest(request, storage);
@@ -2855,6 +3039,7 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
     if (segments[2] === "file" && segments.length === 3) {
       return packageFileResponse(storage, entry, url);
     }
+    if (segments[2] === "scan" && segments.length === 3) return dataResponse(createPackageScanStatus(entry, url));
     if (segments[2] === "moderation" && segments.length === 3) return dataResponse(createPackageModerationStatus(entry));
     if (segments[2] === "readiness" && segments.length === 3) return dataResponse(createPackageReadiness(entry));
     if (segments[2] === "artifact" && segments.length === 3) {
@@ -3195,6 +3380,15 @@ function createPackageReadiness(entry) {
         ? latest.artifact.trust.moderationReason
         : `Review state is ${entry.review?.state ?? "unknown"} and latest status is ${latest?.status ?? "missing"}.`,
   );
+  const scan = latestProjectedScan(entry, latest);
+  add(
+    "static-scan",
+    "Static scan",
+    scan?.scanStatus === "malicious" || scan?.scanStatus === "suspicious" ? "fail" : scan?.jobId ? "pass" : "warn",
+    scan?.jobId
+      ? `Static scan ${scan.jobId} completed with ${scan.scanStatus}.`
+      : "Static scan evidence is missing for the latest package version.",
+  );
   const blockers = checks.filter((check) => check.status === "fail").map((check) => check.id);
   return {
     status: "ok",
@@ -3209,6 +3403,38 @@ function createPackageReadiness(entry) {
     checks,
     blockers,
   };
+}
+
+function createPackageScanStatus(entry, url) {
+  const version = selectPackageVersionForRead(entry, url);
+  const scan = latestProjectedScan(entry, version);
+  return {
+    status: "ok",
+    package: {
+      id: entry.id,
+      kind: entry.kind,
+      name: entry.name,
+      latestVersion: version?.version ?? null,
+      publisher: entry.publisher ?? null,
+    },
+    scan,
+  };
+}
+
+function latestProjectedScan(entry, version) {
+  if (!version) return null;
+  return (
+    version.artifact?.security ??
+    entry.scanner ??
+    {
+      scanner: "corehub-static",
+      status: "missing",
+      scanStatus: "pending",
+      jobId: null,
+      completedAt: null,
+      evidenceCount: 0,
+    }
+  );
 }
 
 function selectLatestPackageVersion(entry) {
@@ -3229,11 +3455,15 @@ function selectPackageVersionForRead(entry, url) {
 
 function createPackageSecuritySummary(entry, version) {
   const trust = version.artifact?.trust ?? packageReleaseTrust(version);
+  const security = version.artifact?.security ?? {};
   const scanStatus = trust.blockedFromDownload
     ? trust.moderationState === "revoked" || trust.moderationState === "quarantined"
       ? "malicious"
       : "blocked"
-    : version.artifact?.security?.scanStatus ?? "clean";
+    : security.scanStatus ?? "clean";
+  const scanBlocked = scanStatus === "malicious";
+  const reasons = Array.isArray(trust.reasons) ? [...trust.reasons] : [];
+  if (scanBlocked && !reasons.includes("scan:malicious")) reasons.push("scan:malicious");
   return {
     package: {
       name: entry.id,
@@ -3253,10 +3483,10 @@ function createPackageSecuritySummary(entry, version) {
     trust: {
       scanStatus,
       moderationState: trust.moderationState ?? null,
-      blockedFromDownload: Boolean(trust.blockedFromDownload),
-      reasons: Array.isArray(trust.reasons) ? trust.reasons : [],
-      pending: Boolean(trust.pending),
-      stale: Boolean(trust.stale),
+      blockedFromDownload: Boolean(trust.blockedFromDownload || scanBlocked),
+      reasons,
+      pending: Boolean(trust.pending || security.pending),
+      stale: Boolean(trust.stale || security.stale),
     },
   };
 }
@@ -3857,6 +4087,55 @@ function createSubmissionReviewEvidence({ submission, artifactUpload, actor, cre
   ];
 }
 
+function createStaticScanEvidence({ version, artifactUpload, actor, createdAt }) {
+  const evidence = [
+    {
+      id: `scan-evidence-${slugId(version.packageId)}-${slugVersion(version.version)}-artifact`,
+      type: "artifact_metadata",
+      severity: artifactUpload?.status === "verified" ? "info" : "medium",
+      summary: artifactUpload?.status === "verified" ? "Artifact upload is verified." : "Artifact upload is not verified.",
+      metadata: {
+        artifactUploadId: version.artifactUploadId,
+        status: artifactUpload?.status ?? "missing",
+        size: artifactUpload?.size ?? null,
+        sha256: artifactUpload?.sha256 ?? null,
+        storageProvider: artifactUpload?.storage?.provider ?? null,
+      },
+      createdBy: actor,
+      createdAt,
+    },
+    {
+      id: `scan-evidence-${slugId(version.packageId)}-${slugVersion(version.version)}-size`,
+      type: "artifact_size",
+      severity: artifactUpload?.size && artifactUpload.size <= 100 * 1024 * 1024 ? "info" : "medium",
+      summary: artifactUpload?.size && artifactUpload.size <= 100 * 1024 * 1024
+        ? "Artifact size is within the CoreHub static scan limit."
+        : "Artifact size is missing or exceeds the CoreHub static scan limit.",
+      metadata: {
+        size: artifactUpload?.size ?? null,
+        maxBytes: 100 * 1024 * 1024,
+      },
+      createdBy: actor,
+      createdAt,
+    },
+  ];
+  if (version.channel === "official") {
+    evidence.push({
+      id: `scan-evidence-${slugId(version.packageId)}-${slugVersion(version.version)}-official`,
+      type: "official_channel",
+      severity: "info",
+      summary: "Official channel release is recorded for operator policy review.",
+      metadata: {
+        channel: version.channel,
+        publisherHandle: version.publisherHandle,
+      },
+      createdBy: actor,
+      createdAt,
+    });
+  }
+  return evidence;
+}
+
 function normalizeReviewEvidence(input, { id, actor, createdAt }) {
   const type = normalizeRequiredString(input?.type ?? "manual_note", "type");
   if (!/^[a-z][a-z0-9_.-]*$/.test(type)) throw httpError(400, "evidence type must be a lowercase identifier");
@@ -3870,6 +4149,14 @@ function normalizeReviewEvidence(input, { id, actor, createdAt }) {
     createdBy: actor,
     createdAt,
   };
+}
+
+function normalizePackageScanSource(value) {
+  const source = normalizeRequiredString(value, "source");
+  if (!["manual", "backfill", "submission", "rescan"].includes(source)) {
+    throw httpError(400, "source must be manual, backfill, submission, or rescan");
+  }
+  return source;
 }
 
 function normalizeActorInput(value, name) {

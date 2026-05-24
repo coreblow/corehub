@@ -77,6 +77,12 @@
         "$ref": "#/$defs/moderationReview"
       }
     },
+    "packageScanJobs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/packageScanJob"
+      }
+    },
     "ownershipTransfers": {
       "type": "array",
       "items": {
@@ -578,6 +584,111 @@
         "type": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9_.-]*$"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "createdBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "packageScanJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "packageId",
+        "version",
+        "packageVersionId",
+        "artifactUploadId",
+        "scanner",
+        "source",
+        "status",
+        "scanStatus",
+        "requestedBy",
+        "requestedAt",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "packageId": {
+          "$ref": "#/$defs/packageId"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "packageVersionId": {
+          "$ref": "#/$defs/id"
+        },
+        "artifactUploadId": {
+          "$ref": "#/$defs/id"
+        },
+        "scanner": {
+          "type": "string",
+          "enum": ["corehub-static"]
+        },
+        "source": {
+          "type": "string",
+          "enum": ["manual", "backfill", "submission", "rescan"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["queued", "running", "completed", "failed"]
+        },
+        "scanStatus": {
+          "type": "string",
+          "enum": ["pending", "clean", "suspicious", "malicious", "failed"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "requestedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "startedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "completedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/packageScanEvidence"
+          }
+        }
+      }
+    },
+    "packageScanEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "severity", "summary", "metadata", "createdBy", "createdAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]*$"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["info", "low", "medium", "high", "critical"]
         },
         "summary": {
           "type": "string",

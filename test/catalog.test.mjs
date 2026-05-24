@@ -2212,6 +2212,50 @@ try {
     assert.equal(projectedVersionsPayload.meta.hasMore, false);
     assert.equal(projectedVersionsPayload.meta.nextCursor, null);
 
+    const packageScanBeforeBackfillResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/scan`);
+    assert.equal(packageScanBeforeBackfillResponse.status, 200);
+    assert.equal((await packageScanBeforeBackfillResponse.json()).data.scan.scanStatus, "pending");
+
+    const packageScanBackfillResponse = await fetch(`${apiBaseUrl}/package-scans/backfill`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-corehub-user": "github:coreblow-admin",
+      },
+      body: JSON.stringify({ packageId: "plugin-lab", reason: "Backfill static scan for test." }),
+    });
+    assert.equal(packageScanBackfillResponse.status, 200);
+    const packageScanBackfillPayload = await packageScanBackfillResponse.json();
+    assert.equal(packageScanBackfillPayload.data.count, 1);
+    assert.equal(packageScanBackfillPayload.data.jobs[0].scanner, "corehub-static");
+    assert.equal(packageScanBackfillPayload.data.jobs[0].scanStatus, "clean");
+    assert.equal(packageScanBackfillPayload.data.jobs[0].evidence.some((event) => event.type === "artifact_metadata"), true);
+
+    const packageScanRescanResponse = await fetch(`${apiBaseUrl}/packages/plugin-lab/scans/rescan`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-corehub-user": "github:coreblow-admin",
+      },
+      body: JSON.stringify({ version: "0.1.0", source: "rescan", reason: "Rescan static evidence for test." }),
+    });
+    assert.equal(packageScanRescanResponse.status, 200);
+    assert.equal((await packageScanRescanResponse.json()).data.job.scanStatus, "clean");
+
+    const packageScanListResponse = await fetch(`${apiBaseUrl}/package-scans?package=plugin-lab`, {
+      headers: { "x-corehub-user": "github:coreblow-admin" },
+    });
+    assert.equal(packageScanListResponse.status, 200);
+    const packageScanListPayload = await packageScanListResponse.json();
+    assert.equal(packageScanListPayload.meta.total, 2);
+    assert.equal(packageScanListPayload.data.some((job) => job.source === "rescan"), true);
+
+    const packageScanStatusResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/scan`);
+    assert.equal(packageScanStatusResponse.status, 200);
+    const packageScanStatusPayload = await packageScanStatusResponse.json();
+    assert.equal(packageScanStatusPayload.data.scan.scanStatus, "clean");
+    assert.equal(packageScanStatusPayload.data.scan.status, "completed");
+
     const projectedSecurityResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/versions/0.1.0/security`);
     assert.equal(projectedSecurityResponse.status, 200);
     const projectedSecurityPayload = await projectedSecurityResponse.json();
@@ -2641,12 +2685,15 @@ try {
     assert.equal(adminStatusPayload.counts.activePublishTokens, 0);
     assert.equal(adminStatusPayload.counts.packageReports, 1);
     assert.equal(adminStatusPayload.counts.packageAppeals, 1);
+    assert.equal(adminStatusPayload.counts.packageScanJobs, 2);
     assert.equal(adminStatusPayload.queues.reviews.approved, 1);
     assert.equal(adminStatusPayload.queues.packageLifecycle.active, 1);
     assert.equal(adminStatusPayload.queues.packageReleaseModeration.quarantined, 1);
     assert.equal(adminStatusPayload.queues.publishTokens.revoked, 1);
     assert.equal(adminStatusPayload.queues.packageReports.confirmed, 1);
     assert.equal(adminStatusPayload.queues.packageAppeals.accepted, 1);
+    assert.equal(adminStatusPayload.queues.packageScans.completed, 2);
+    assert.equal(adminStatusPayload.queues.packageScanResults.clean, 2);
     assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
     assert.equal(adminStatusPayload.analytics.uniqueClients, 1);
     assert.equal(adminStatusPayload.audit.valid, true);
@@ -2673,6 +2720,7 @@ try {
     assert.equal(supportBundle.recent.publishTokens[0].revokedBy.id, "github:coreblow-admin");
     assert.equal(supportBundle.recent.packageReports[0].status, "confirmed");
     assert.equal(supportBundle.recent.packageAppeals[0].status, "accepted");
+    assert.equal(supportBundle.recent.packageScanJobs[0].scanStatus, "clean");
     assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
 
     const persistedState = JSON.parse(await readFile(apiStatePath, "utf8"));
@@ -2689,7 +2737,10 @@ try {
     assert.equal(persistedState.installEvents.length, 2);
     assert.equal(persistedState.packageReports[0].status, "confirmed");
     assert.equal(persistedState.packageAppeals[0].status, "accepted");
+    assert.equal(persistedState.packageScanJobs.length, 2);
+    assert.equal(persistedState.packageScanJobs[0].evidence.some((event) => event.type === "artifact_metadata"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
+    assert.equal(persistedState.auditEvents.some((event) => event.action === "package.scan.complete"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.report.create"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.report.triage"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.appeal.create"), true);
