@@ -1,0 +1,200 @@
+name: Production Drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: "CoreHub registry URL"
+        required: true
+        default: "https://coreblow.com/corehub"
+      package:
+        description: "Package id to verify"
+        required: true
+        default: "plugin-lab"
+      d1_database_id:
+        description: "Cloudflare D1 database id. Falls back to vars.COREHUB_D1_DATABASE_ID"
+        required: false
+        default: ""
+      rollback_version_id:
+        description: "Worker version id to rollback to during the drill"
+        required: true
+        type: string
+      verify_read:
+        description: "Fetch signed artifact bytes during smoke"
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: corehub-production-drill
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  production-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: Production
+      url: https://coreblow.com/corehub
+    env:
+      COREHUB_REGISTRY: ${{ inputs.registry }}
+      COREHUB_SMOKE_PACKAGE: ${{ inputs.package }}
+      COREHUB_D1_DATABASE_ID: ${{ inputs.d1_database_id || vars.COREHUB_D1_DATABASE_ID }}
+      COREHUB_SIGNING_SECRET: ${{ secrets.COREHUB_SIGNING_SECRET }}
+      COREHUB_SESSION_TOKEN_SHA256: ${{ secrets.COREHUB_SESSION_TOKEN_SHA256 }}
+      COREHUB_TOKEN: ${{ secrets.COREHUB_TOKEN }}
+      COREHUB_USER: ${{ vars.COREHUB_USER || 'github:coreblow-admin' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ROLLBACK_VERSION_ID: ${{ inputs.rollback_version_id }}
+      VERIFY_READ: ${{ inputs.verify_read }}
+    steps:
+      - name: Check drill configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in COREHUB_D1_DATABASE_ID COREHUB_SIGNING_SECRET COREHUB_SESSION_TOKEN_SHA256 COREHUB_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID ROLLBACK_VERSION_ID; do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing required production drill configuration: ${missing[*]}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
+      - name: Materialize production Wrangler config
+        run: |
+          set -euo pipefail
+          node scripts/materialize-worker-config.mjs \
+            --database-id "$COREHUB_D1_DATABASE_ID" \
+            --output ops/cloudflare/wrangler.corehub-api.production.toml \
+            --force
+
+      - name: Capture current Worker version
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/corehub-production-drill"
+          wrangler deployments status --config ops/cloudflare/wrangler.corehub-api.production.toml --json > "$RUNNER_TEMP/corehub-production-drill/current-deployment.json"
+          node <<'JS' >> "$GITHUB_ENV"
+          const fs = require("node:fs");
+          const status = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/corehub-production-drill/current-deployment.json`, "utf8"));
+          const current = status.versions?.find((version) => Number(version.percentage) === 100)?.version_id;
+          if (!current) throw new Error("Unable to resolve current Worker version id");
+          console.log(`CURRENT_VERSION_ID=${current}`);
+          JS
+
+      - name: Live smoke current revision
+        run: |
+          set -euo pipefail
+          args=("--registry" "$COREHUB_REGISTRY" "--package" "$COREHUB_SMOKE_PACKAGE" "--verify-web" "--verify-admin")
+          if [[ "$VERIFY_READ" == "true" ]]; then
+            args+=("--verify-read")
+          fi
+          npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-production-drill/current-smoke.log"
+
+      - name: Export D1 SQL backup
+        run: |
+          set -euo pipefail
+          wrangler d1 export corehub --remote --output "$RUNNER_TEMP/corehub-production-drill/corehub-d1-export.sql" --config ops/cloudflare/wrangler.corehub-api.production.toml
+          test -s "$RUNNER_TEMP/corehub-production-drill/corehub-d1-export.sql"
+
+      - name: Export D1 state snapshot
+        run: |
+          set -euo pipefail
+          wrangler d1 execute corehub --remote --json --command "SELECT key, value, updated_at FROM corehub_state WHERE key = 'write-side-state';" --config ops/cloudflare/wrangler.corehub-api.production.toml > "$RUNNER_TEMP/corehub-production-drill/corehub-state-row.json"
+          node <<'JS'
+          const fs = require("node:fs");
+          const rowPath = `${process.env.RUNNER_TEMP}/corehub-production-drill/corehub-state-row.json`;
+          const payload = JSON.parse(fs.readFileSync(rowPath, "utf8"));
+          const row = payload?.[0]?.results?.[0] ?? payload?.result?.[0]?.results?.[0] ?? payload?.results?.[0];
+          if (!row?.value) throw new Error("D1 state row is missing");
+          const snapshot = JSON.parse(row.value);
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/corehub-production-drill/write-side-state.backup.json`, `${JSON.stringify(snapshot, null, 2)}\n`);
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/corehub-production-drill/state-row-meta.json`, `${JSON.stringify({ key: row.key, updatedAt: row.updated_at, bytes: Buffer.byteLength(row.value) }, null, 2)}\n`);
+          JS
+
+      - name: Validate backup and restore dry-run
+        run: |
+          set -euo pipefail
+          npm run persistence:snapshot -- validate --input "$RUNNER_TEMP/corehub-production-drill/write-side-state.backup.json"
+          npm run persistence:snapshot -- restore \
+            --input "$RUNNER_TEMP/corehub-production-drill/write-side-state.backup.json" \
+            --output "$RUNNER_TEMP/corehub-production-drill/write-side-state.restore-plan.json" \
+            --dry-run
+
+      - name: Apply approved no-op restore to D1
+        run: |
+          set -euo pipefail
+          node <<'JS'
+          const fs = require("node:fs");
+          const snapshotPath = `${process.env.RUNNER_TEMP}/corehub-production-drill/write-side-state.backup.json`;
+          const snapshot = fs.readFileSync(snapshotPath, "utf8").trim();
+          const escaped = snapshot.replaceAll("'", "''");
+          const updatedAt = new Date().toISOString();
+          fs.writeFileSync(
+            `${process.env.RUNNER_TEMP}/corehub-production-drill/restore.sql`,
+            `UPDATE corehub_state SET value = '${escaped}', updated_at = '${updatedAt}' WHERE key = 'write-side-state';\n`,
+          );
+          JS
+          wrangler d1 execute corehub --remote --file "$RUNNER_TEMP/corehub-production-drill/restore.sql" --config ops/cloudflare/wrangler.corehub-api.production.toml
+
+      - name: Verify restored D1 snapshot
+        run: |
+          set -euo pipefail
+          wrangler d1 execute corehub --remote --json --command "SELECT key, value, updated_at FROM corehub_state WHERE key = 'write-side-state';" --config ops/cloudflare/wrangler.corehub-api.production.toml > "$RUNNER_TEMP/corehub-production-drill/corehub-state-row-restored.json"
+          node <<'JS'
+          const fs = require("node:fs");
+          const payload = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/corehub-production-drill/corehub-state-row-restored.json`, "utf8"));
+          const row = payload?.[0]?.results?.[0] ?? payload?.result?.[0]?.results?.[0] ?? payload?.results?.[0];
+          if (!row?.value) throw new Error("Restored D1 state row is missing");
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/corehub-production-drill/write-side-state.restored.json`, `${JSON.stringify(JSON.parse(row.value), null, 2)}\n`);
+          JS
+          npm run persistence:snapshot -- validate --input "$RUNNER_TEMP/corehub-production-drill/write-side-state.restored.json"
+
+      - name: Rollback Worker revision
+        run: |
+          set -euo pipefail
+          wrangler rollback "$ROLLBACK_VERSION_ID" --config ops/cloudflare/wrangler.corehub-api.production.toml --message "CoreHub production rollback drill" --yes
+          args=("--registry" "$COREHUB_REGISTRY" "--package" "$COREHUB_SMOKE_PACKAGE" "--verify-web")
+          if [[ "$VERIFY_READ" == "true" ]]; then
+            args+=("--verify-read")
+          fi
+          npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-production-drill/rollback-smoke.log"
+
+      - name: Restore current Worker revision
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${CURRENT_VERSION_ID:-}" ]]; then
+            wrangler rollback "$CURRENT_VERSION_ID" --config ops/cloudflare/wrangler.corehub-api.production.toml --message "CoreHub production rollback drill restore" --yes
+          fi
+          args=("--registry" "$COREHUB_REGISTRY" "--package" "$COREHUB_SMOKE_PACKAGE" "--verify-web" "--verify-admin")
+          if [[ "$VERIFY_READ" == "true" ]]; then
+            args+=("--verify-read")
+          fi
+          npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-production-drill/final-smoke.log"
+
+      - name: Upload drill artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: corehub-production-drill-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/corehub-production-drill/*.json
+            ${{ runner.temp }}/corehub-production-drill/*.log
+            ${{ runner.temp }}/corehub-production-drill/*.sql
+            ops/cloudflare/wrangler.corehub-api.production.toml
+          if-no-files-found: ignore
