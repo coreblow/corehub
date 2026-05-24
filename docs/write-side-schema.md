@@ -136,7 +136,7 @@ corehub package submit ./plugin-lab.coreblow-plugin.tgz
 corehub package transfer request plugin-lab --to coreblow
 ```
 
-Publishing should fail closed when package scope, publisher ownership, artifact checksum, trusted-publisher policy, or moderation status cannot be verified. A live publish creates a pending review submission; approval remains a separate moderator/admin action.
+Publishing should fail closed when package scope, publisher ownership, artifact checksum, trusted-publisher policy, official-channel policy, or moderation status cannot be verified. A live publish creates a pending review submission; approval remains a separate moderator/admin action.
 
 ## Managed Artifact Upload Contract
 

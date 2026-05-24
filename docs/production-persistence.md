@@ -400,8 +400,10 @@ The workflow follows the ClawHub reusable publish pattern while keeping CoreHub'
 - Caller repo checkout plus OIDC-based checkout of the exact CoreHub workflow source revision.
 - `dry_run: true` by default, using `corehub package publish <source> --dry-run`.
 - `dry_run: false` requires `secrets.corehub_token` and creates a pending review submission through API v2.
+- `dry_run: false` must run from a protected branch or tag, as reported by GitHub's `github.ref_protected` context.
 - `provider: managed` is the default preview mode. For production-lite external artifacts, set `provider: external-url` or `provider: github-raw` with `artifact_url`.
 - Optional `publish_token_id` and `manual_override_reason` inputs map to the CoreHub trusted-publisher and admin override guards.
+- Live `channel: official` publishes require `publish_token_id` or an explicit `manual_override_reason`; API v2 still rejects non-admin official submissions unless a trusted publisher token is attached.
 - JSON output and an uploaded `corehub-package-submit.json` artifact for downstream review.
 
 Example caller workflow:

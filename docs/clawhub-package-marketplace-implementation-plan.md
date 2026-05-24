@@ -47,7 +47,7 @@ Already implemented:
 | Ownership transfers | done | Keep CoreHub transfer endpoints and CLI commands. |
 | Trusted publisher config | done | API v2 and CLI store package-level GitHub Actions trusted publisher policy. |
 | CI/OIDC publish token flow | partial | CoreHub-native mint/use/revoke exists; real GitHub OIDC JWT verification remains. |
-| Official channel guard | partial | Submission guard exists; needs full CI publish wrapper and public deploy policy. |
+| Official channel guard | done | API and reusable workflow require admin, trusted publisher token, or explicit admin override for official live publish. |
 | Direct package publish endpoint parity | done | `corehub package publish` and the reusable package publish workflow wrap upload, verify, and pending review submission. |
 | Marketplace filters | done | Family, channel, category, capability, official, featured, and executes-code filters are wired into API v1/CLI. |
 | Marketplace ranking | done | Search uses deterministic exact/id/name/category/capability boosts with download/install tie-breakers. |
@@ -101,6 +101,8 @@ Implemented:
 - `corehub package publish <source> --dry-run` previews the combined publish path.
 - `corehub package publish <source> --registry <url>` uploads/verifies artifacts and creates a pending review submission.
 - `.github/workflows/package-publish.yml` provides a reusable CI wrapper with safe dry-run defaults and token-gated live submissions.
+- Live reusable workflow publishes must run from protected refs.
+- Live `official` workflow publishes require `publish_token_id` or an explicit `manual_override_reason`; the API still rejects non-admin official submissions without a trusted publisher token.
 
 Gate:
 

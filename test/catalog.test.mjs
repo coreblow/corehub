@@ -655,6 +655,8 @@ try {
   assert.match(packagePublishWorkflow, /name: Run CoreHub package publish/);
   assert.match(packagePublishWorkflow, /args=\("package" "publish" "\$source_path" "--registry" "\$INPUT_REGISTRY"\)/);
   assert.match(packagePublishWorkflow, /live CoreHub package publish requires secrets\.corehub_token/);
+  assert.match(packagePublishWorkflow, /live CoreHub package publish must run from a protected branch or tag/);
+  assert.match(packagePublishWorkflow, /official live publish requires publish_token_id or manual_override_reason/);
   assert.doesNotMatch(packagePublishWorkflow, /dry-run only until production write-side publish is opened/);
 
   const logout = await execFileAsync(process.execPath, [cliPath, "logout"], { env: authEnv });
@@ -670,6 +672,109 @@ const skillPublish = await execFileAsync(process.execPath, [
   new URL("../fixtures/example-skill", import.meta.url).pathname,
 ]);
 assert.equal(JSON.parse(skillPublish.stdout).dryRun, true);
+
+const officialGuardRoot = await mkdtemp(join(tmpdir(), "corehub-official-guard-"));
+try {
+  const storage = new CoreHubLocalStorageAdapter({
+    root: officialGuardRoot,
+    adminActorIds: ["github:trusted-admin"],
+  });
+  const ownerActor = { type: "user", id: "github:coreblow-admin" };
+  const adminActor = { type: "user", id: "github:trusted-admin" };
+  const artifact = {
+    name: "official-guard-0.0.1.coreblow-plugin.tgz",
+    mediaType: "application/vnd.coreblow.plugin-archive+gzip",
+    size: entries[2].versions[0].artifact.size,
+    sha256: entries[2].versions[0].artifact.sha256,
+    url: "https://raw.githubusercontent.com/coreblow/corehub/b184ccee4dc283abf850d880f971ef103ddb2ab8/artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz",
+  };
+  const stableSlot = await storage.requestUploadSlot(
+    {
+      packageId: "official-guard",
+      version: "0.0.1",
+      publisherHandle: "coreblow",
+      provider: "external-url",
+      artifact,
+    },
+    { actor: ownerActor },
+  );
+  const stableSubmission = await storage.createSubmission(
+    {
+      packageId: "official-guard",
+      version: "0.0.1",
+      publisherHandle: "coreblow",
+      kind: "plugin",
+      artifactUploadId: stableSlot.artifactUpload.id,
+      source: "https://github.com/coreblow/official-guard",
+      changelog: "Seed owner for official channel guard.",
+      channel: "stable",
+    },
+    { actor: ownerActor },
+  );
+  await storage.decideReview(stableSubmission.moderationReview.id, "approve", { notes: "seed" }, { actor: adminActor });
+
+  const officialSlot = await storage.requestUploadSlot(
+    {
+      packageId: "official-guard",
+      version: "0.0.2",
+      publisherHandle: "coreblow",
+      provider: "external-url",
+      artifact: { ...artifact, name: "official-guard-0.0.2.coreblow-plugin.tgz" },
+    },
+    { actor: ownerActor },
+  );
+  const officialSubmission = {
+    packageId: "official-guard",
+    version: "0.0.2",
+    publisherHandle: "coreblow",
+    kind: "plugin",
+    artifactUploadId: officialSlot.artifactUpload.id,
+    source: "https://github.com/coreblow/official-guard",
+    changelog: "Official channel guard fixture.",
+    channel: "official",
+  };
+  await assert.rejects(
+    () => storage.createSubmission(officialSubmission, { actor: ownerActor }),
+    /Official channel submissions require admin or trusted publisher token/,
+  );
+  await assert.rejects(
+    () =>
+      storage.createSubmission(
+        { ...officialSubmission, manualOverrideReason: "Owner override should not bypass official guard." },
+        { actor: ownerActor },
+      ),
+    /Official channel submissions require admin or trusted publisher token/,
+  );
+  await storage.setTrustedPublisher(
+    "official-guard",
+    { repository: "coreblow/official-guard", workflowFilename: "publish.yml" },
+    { actor: ownerActor },
+  );
+  const publishToken = await storage.mintPublishToken(
+    "official-guard",
+    {
+      version: "0.0.2",
+      repository: "coreblow/official-guard",
+      workflowFilename: "publish.yml",
+      runId: "12345",
+      runAttempt: "1",
+      sha: "abc123",
+      ref: "refs/heads/main",
+    },
+    { actor: ownerActor },
+  );
+  const officialAccepted = await storage.createSubmission(
+    { ...officialSubmission, publishTokenId: publishToken.publishToken.id },
+    { actor: ownerActor },
+  );
+  assert.equal(officialAccepted.submission.status, "pending_review");
+  assert.equal(officialAccepted.submission.channel, "official");
+  assert.equal(officialAccepted.submission.publishTokenId, publishToken.publishToken.id);
+  assert.equal(storage.publishTokens.get(publishToken.publishToken.id).usedBy.id, ownerActor.id);
+  assert.equal(storage.auditEvents.some((event) => event.action === "package.publish_token.use"), true);
+} finally {
+  await rm(officialGuardRoot, { recursive: true, force: true });
+}
 
 const bootstrapDir = await mkdtemp(join(tmpdir(), "corehub-server-"));
 const bootstrapServer = await createCoreHubServer({

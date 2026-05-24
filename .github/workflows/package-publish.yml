@@ -171,11 +171,19 @@ jobs:
           REMOTE_DRY_RUN: ${{ inputs.remote_dry_run }}
           PROVIDER: ${{ inputs.provider }}
           ARTIFACT_URL: ${{ inputs.artifact_url }}
+          CHANNEL: ${{ inputs.channel }}
+          PUBLISH_TOKEN_ID: ${{ inputs.publish_token_id }}
+          MANUAL_OVERRIDE_REASON: ${{ inputs.manual_override_reason }}
+          REF_PROTECTED: ${{ github.ref_protected }}
           COREHUB_TOKEN: ${{ secrets.corehub_token }}
         run: |
           set -euo pipefail
           if [[ "$DRY_RUN" != "true" && -z "$COREHUB_TOKEN" ]]; then
             echo "::error::live CoreHub package publish requires secrets.corehub_token."
+            exit 1
+          fi
+          if [[ "$DRY_RUN" != "true" && "$REF_PROTECTED" != "true" ]]; then
+            echo "::error::live CoreHub package publish must run from a protected branch or tag."
             exit 1
           fi
           if [[ "$REMOTE_DRY_RUN" == "true" && -z "$COREHUB_TOKEN" ]]; then
@@ -187,6 +195,10 @@ jobs:
           fi
           if [[ "$DRY_RUN" != "true" && "$PROVIDER" != "managed" && -z "$ARTIFACT_URL" ]]; then
             echo "::error::live publish with provider=$PROVIDER requires artifact_url."
+            exit 1
+          fi
+          if [[ "$DRY_RUN" != "true" && "$CHANNEL" == "official" && -z "$PUBLISH_TOKEN_ID" && -z "$MANUAL_OVERRIDE_REASON" ]]; then
+            echo "::error::official live publish requires publish_token_id or manual_override_reason."
             exit 1
           fi
 
