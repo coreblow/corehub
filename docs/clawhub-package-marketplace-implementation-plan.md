@@ -14,9 +14,9 @@ CoreHub uses ClawHub as the product and behavior specification, while keeping th
 
 ## Current Baseline
 
-Latest CoreHub split commit used for this plan:
+Latest CoreHub split commit used for this acceptance lock:
 
-- `d4805cf CoreHub: add install lifecycle state`
+- `9d99daa CoreHub: add production drill workflow`
 
 Already implemented:
 
@@ -32,6 +32,7 @@ Already implemented:
 - Local install lifecycle state and telemetry opt-out.
 - Audit hash chain, retention, incident reporting, admin status, support bundle.
 - D1 production persistence boundary, external artifact URL mode, and Worker deploy checks.
+- Protected production deploy and production drill with D1 export, validated backup, restore dry run/apply, Worker rollback, revision restore, and live smoke evidence.
 
 ## Parity Matrix
 
@@ -53,14 +54,16 @@ Already implemented:
 | Marketplace ranking | done | Search uses deterministic exact/id/name/category/capability boosts with download/install tie-breakers. |
 | Plugin-specific list/search | done | `/corehub/api/v1/plugins` and `/corehub/api/v1/plugins/search` provide plugin-only parity. |
 | Publisher portal UI | done | `/corehub/publisher` provides publisher self-service foundation. |
-| Browser login/session for publisher portal | partial | Token/session UX, explicit session validation, and production token-hash verification are wired; real OAuth remains. |
+| Browser login/session for publisher portal | done | Token/session UX, explicit session validation, and production token-hash verification are accepted for v1; real OAuth is intentionally deferred to the CoreBlow app auth boundary. |
 | Artifact upload UI | done | Publisher portal uploads, verifies, and submits artifacts through API v2. |
 | Submission/review status UI | done | Publisher portal lists owned submissions and review ids/statuses. |
 | Transfer UI | done | Publisher portal can request ownership transfers and list transfer statuses. |
 | Install pin/unpin/uninstall/list/update/sync | done | CLI stores CoreHub-local install state and skips pinned updates/syncs. |
 | Telemetry opt-out | done | `COREHUB_DISABLE_TELEMETRY=1` skips CLI analytics record writes. |
-| Production auth/rate limit/private visibility | partial | Private v1 visibility, session token hash verification, and API rate-limit boundary are wired; real OAuth remains. |
-| Production deploy/rollback drill | partial | Persistence runbooks exist; final applied production drill remains. |
+| Production auth/rate limit/private visibility | done | Private v1 visibility, session token hash verification, and API rate-limit boundary are wired; real OAuth is intentionally deferred. |
+| Production deploy/rollback drill | done | Protected production deploy and Production Drill workflow passed against real D1/Worker resources. |
+
+No `missing` rows remain for CoreHub v1 package marketplace parity. Deferred OAuth and deeper hosted scanner parity are documented v1 product decisions, not blockers for this acceptance scope.
 
 ## Implementation Phases From Here
 
@@ -140,7 +143,7 @@ Tasks:
 
 ### Phase H: Publisher Portal Full Self-Service
 
-Status: implemented for token-session publisher self-service foundation and final polish; real OAuth/session hardening and owned report/appeal visibility remain production hardening.
+Status: complete for CoreHub v1. Token-backed browser sessions, explicit session validation, publisher dashboard operations, artifact upload, submission status, and transfer request/status are accepted for this release scope.
 
 Goal: Publisher can operate CoreHub without admin-only tools.
 
@@ -159,7 +162,7 @@ Tasks:
 - External artifact URL metadata mode for production-lite package submissions.
 - Upload history, submission filtering, permission summary, and clearer error/busy states.
 
-Remaining hardening:
+Post-v1 hardening:
 
 - Report/appeal visibility for owned packages.
 - Transfer accept/reject browser controls for permitted recipient/source actors.
@@ -196,13 +199,12 @@ Implemented:
 
 ### Phase J: Production Finalization
 
-Status: in progress. Private package visibility, browser session validation with production token-hash verification, external artifact URL mode, and rate-limit boundary are implemented; real OAuth, production D1/secrets application, and live rollback drills remain operator-applied.
+Status: complete. Private package visibility, browser session validation with production token-hash verification, external artifact URL mode, rate-limit boundary, production D1/secrets application, live smoke, backup validation, restore path, Worker rollback, and Worker revision restore are implemented and operator-applied.
 
 Goal: CoreHub v1 package marketplace can be called final for ClawHub-inspired parity.
 
 Tasks:
 
-- Real browser OAuth/session login.
 - Private package visibility rules.
 - Edge rate limiting policy.
 - Production D1/secrets applied.
@@ -222,6 +224,13 @@ Implemented in this phase:
 - Worker production uses `COREHUB_OBJECT_STORE=external-url`, allowing moderated package artifacts to reference GitHub release/raw URLs without requiring paid object storage.
 - `npm run validate:production-finalization` checks repository-side production readiness before operator approval.
 - `npm run drill:production` rehearses backup validation, restore dry run/apply, persistence migration, and Worker-local smoke.
+- The protected deploy workflow passed in production run `26363845788`.
+- The protected Production Drill workflow passed in production run `26364024248`, covering live smoke, D1 SQL export, D1 state snapshot export, backup validation, restore dry run, approved no-op restore to D1, restored snapshot verification, Worker rollback, Worker revision restore, final live smoke, and artifact upload.
+
+Post-v1 hardening:
+
+- Real browser OAuth/session login when the CoreBlow app auth boundary is ready.
+- CLI/npm publication only after the operator explicitly approves opening the package from `private: true`.
 
 ## Done Criteria For Final
 

@@ -346,6 +346,40 @@ Run `mode=check` before a real deploy. It validates production config, plans the
 
 In `deploy` mode the workflow applies the idempotent D1 schema migration before deploying the Worker. Keep `mode=check` as the required preflight so the migration plan, Worker-local smoke, and Wrangler dry run are visible before production approval.
 
+## Production Drill Workflow
+
+CoreHub has a manual production drill workflow at `.github/workflows/production-drill.yml`.
+
+The workflow is the operator-applied version of the local rehearsal. It runs inside the protected `Production` environment and uses the same Cloudflare, D1, CoreHub token, and signing/session secrets as real deploys.
+
+The drill covers:
+
+- current revision capture
+- live smoke of the current revision
+- D1 SQL export
+- D1 state snapshot export
+- backup validation
+- restore dry run
+- approved no-op restore to D1
+- restored snapshot verification
+- Worker rollback to a supplied known-good version id
+- Worker revision restore to the captured current version id
+- final live smoke and artifact upload
+
+Run it after a successful production deploy or before declaring a production recovery path final:
+
+```sh
+gh workflow run production-drill.yml \
+  --repo coreblow/corehub \
+  --ref main \
+  -f registry=https://coreblow.com/corehub \
+  -f package=plugin-lab \
+  -f rollback_version_id=<known-good-worker-version-id> \
+  -f verify_read=true
+```
+
+The accepted CoreHub v1 production drill passed in run `26364024248`. It rolled back to `8406bea7-bfa7-4ad4-af11-d36870dd329d`, restored the captured current Worker version `178b5a5d-9057-4cb0-b23c-8f35a2580291`, and passed final live smoke.
+
 Run the final repository-side production readiness gate before requesting production approval:
 
 ```sh
@@ -353,7 +387,7 @@ npm run validate:production-finalization
 npm run drill:production
 ```
 
-The finalization gate checks the Worker config, deploy workflow, operator smoke workflow, rollback runbook, private package visibility docs, browser session token hash policy, and rate-limit policy. The production drill rehearsal exercises snapshot export, backup validation, restore dry run, restore apply, persistence migration smoke, and Worker-local smoke. These commands do not prove that real D1/secrets are already applied; that remains the protected production deploy step.
+The finalization gate checks the Worker config, deploy workflow, operator smoke workflow, production drill evidence, rollback runbook, private package visibility docs, browser session token hash policy, and rate-limit policy. The production drill rehearsal exercises snapshot export, backup validation, restore dry run, restore apply, persistence migration smoke, and Worker-local smoke. The protected Production Drill workflow is the proof that the same recovery path has been applied to real D1 and Worker resources.
 
 ## Production Access Policy
 

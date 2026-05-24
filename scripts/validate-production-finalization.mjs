@@ -10,6 +10,7 @@ const files = {
   productionRollback: "docs/production-rollback.md",
   directoryApi: "docs/directory-api.md",
   marketplacePlan: "docs/clawhub-package-marketplace-implementation-plan.md",
+  finalAcceptance: "docs/final-acceptance.md",
 };
 
 const checks = [];
@@ -32,6 +33,7 @@ requirePattern("production seed workflow protected environment", texts.productio
 requirePattern("production seed workflow uses API seed", texts.productionSeedWorkflow, /seed:production/);
 requirePattern("production seed workflow verifies smoke", texts.productionSeedWorkflow, /smoke:post-deploy/);
 requirePattern("operator smoke workflow", texts.operatorSmokeWorkflow, /--verify-admin[\s\S]*smoke:post-deploy/);
+requirePattern("production drill workflow", texts.finalAcceptance, /Production Drill workflow[\s\S]*success[\s\S]*26364024248/);
 requirePattern("rollback validated restore", texts.productionRollback, /persistence:snapshot -- validate[\s\S]*persistence:snapshot -- restore/);
 requirePattern(
   "production access policy",
@@ -43,7 +45,8 @@ requirePattern(
   texts.directoryApi,
   /Private channel packages are excluded from anonymous Registry API v1/,
 );
-requirePattern("phase j status", texts.marketplacePlan, /Phase J: Production Finalization[\s\S]*Status: in progress/);
+requirePattern("phase j status", texts.marketplacePlan, /Phase J: Production Finalization[\s\S]*Status: complete/);
+requirePattern("parity matrix locked", texts.marketplacePlan, /ClawHub-to-CoreHub matrix has no `missing` rows/);
 
 if (errors.length > 0) {
   console.error(JSON.stringify({ status: "failed", checks, errors }, null, 2));
