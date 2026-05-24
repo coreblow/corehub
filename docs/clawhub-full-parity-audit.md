@@ -45,7 +45,7 @@ ClawHub sources audited from `/Users/febrinanda/openclaw-refs/clawhub`:
 
 CoreHub is accepted for v1 package marketplace parity. Full ClawHub parity is not complete.
 
-The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth: npm/tarball compatibility, package file reads, deep hosted scanner pipeline, normalized persistence/indexing, full account/org/auth model, richer moderator tooling, and full skill/community marketplace surfaces.
+The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth: package file reads, deep hosted scanner pipeline, normalized persistence/indexing, full account/org/auth model, richer moderator tooling, and full skill/community marketplace surfaces.
 
 ## Matrix Lock
 
@@ -64,8 +64,8 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Install lifecycle and telemetry opt-out | v1 accepted | Install, pin, update, sync, opt-out telemetry. | CoreHub CLI stores local install state and honors `COREHUB_DISABLE_TELEMETRY=1`. | Keep accepted; app installer handoff remains separate. |
 | Production D1/deploy/drill | v1 accepted | Operational deployment, backup, restore, rollback. | CoreHub production-lite drill passed with real Worker/D1 revision, smoke, export, restore dry run/apply, rollback, restore. | Keep accepted; repeat after compatibility changes. |
 | Exact package security endpoint | v1 accepted | `GET /api/v1/packages/{name}/versions/{version}/security` returns exact release security and trust summary. | CoreHub now exposes version-exact public security and trust summary for install clients. | Keep covered by route tests. |
-| npm packument endpoint | full parity missing | `GET /api/npm/{package}` supports npm-compatible packument, including scoped package paths. | CoreHub has CoreHub package metadata, but no npm mirror endpoint. | Implement P0 minimal packument alias. |
-| npm tarball endpoint | full parity missing | `GET /api/npm/{package}/-/{tarball}.tgz` redirects/serves package tarballs. | CoreHub signed artifact routes exist, but no npm tarball URL compatibility. | Implement after packument. |
+| npm packument endpoint | v1 accepted | `GET /api/npm/{package}` supports npm-compatible packument, including scoped package paths. | CoreHub now emits minimal npm-compatible packuments for available `.tgz` versions, with tarball, integrity, shasum, and CoreHub SHA-256 metadata. | Keep covered by route tests. |
+| npm tarball endpoint | v1 accepted | `GET /api/npm/{package}/-/{tarball}.tgz` redirects/serves package tarballs. | CoreHub now redirects npm tarball requests to the exact signed or external artifact URL and preserves integrity headers. | Keep covered by route tests. |
 | Package file route | full parity missing | `GET /api/v1/packages/{name}/file?path=...` reads package file content. | CoreHub has artifact metadata/read path, but not ClawHub-style package file read. | Implement P0/P1 if CLI/UI needs file previews. |
 | Cursor pagination | v1 accepted | ClawHub list/search supports cursor pagination and merged source cursors. | CoreHub list/search/version routes now return cursor-aware metadata with backward-compatible offset reads. | Keep covered by route tests. |
 | Standard rate limit headers | v1 accepted | ClawHub documents read/write/download buckets with `X-RateLimit-*` and `RateLimit-*` headers. | CoreHub fixed-window limiter now emits `X-RateLimit-*`, `RateLimit-*`, and `Retry-After` on limited responses. | Add separate policy buckets later if needed. |
@@ -86,17 +86,10 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 
 The next work should not start another broad phase. Implement these rows one at a time:
 
-1. Add npm compatibility:
-   - `GET /corehub/api/npm/:package`
-   - scoped package path and encoded scoped package support.
-   - tarball URL metadata with integrity/shasum fields where available.
-2. Add tarball route compatibility:
-   - `GET /corehub/api/npm/:package/-/:tarball.tgz`
-   - redirect to CoreHub signed artifact route or external artifact URL.
-3. Add package file route:
+1. Add package file route:
    - `GET /corehub/api/v1/packages/:name/file?path=...`
    - only expose files from verified/readable artifact manifests.
-4. Lock the public error envelope for auth, permission, rate limit, not found, and blocked download.
+2. Lock the public error envelope for auth, permission, rate limit, not found, and blocked download.
 
 ## P1 Implementation Order
 

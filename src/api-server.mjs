@@ -2197,6 +2197,15 @@ export function createCoreHubApiHandler({
         return;
       }
 
+      const npmSegments = trimBasePath(url.pathname, "/corehub/api/npm");
+      if (npmSegments) {
+        const result = await handleNpmMirror(storage, request, url, npmSegments, {
+          actor: actorFromRequest(request, storage),
+          now: now(),
+        });
+        if (result) return sendApiResult(response, result);
+      }
+
       const v1Segments = trimBasePath(url.pathname, "/corehub/api/v1");
       if (v1Segments) {
         const result = await handleProjectedRegistryV1(storage, request, url, v1Segments, {
@@ -2853,6 +2862,51 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
   return null;
 }
 
+async function handleNpmMirror(storage, request, url, segments, { actor = defaultActor(), now = new Date() } = {}) {
+  if (request.method !== "GET") return null;
+  const parsed = parseNpmMirrorSegments(segments);
+  if (!parsed) return null;
+  const entries = storage.projectCatalogEntries();
+  const visibleEntries = entries.filter((entry) => canViewProjectedEntry(storage, actor, entry));
+  const entry = findNpmMirrorEntry(visibleEntries, parsed.packageName);
+  if (!entry) return npmErrorResponse("Package not found", 404);
+  if (parsed.kind === "packument") {
+    const packument = createNpmPackument(request, entry);
+    if (Object.keys(packument.versions).length === 0) return npmErrorResponse("Package has no npm-compatible versions", 404);
+    return {
+      statusCode: 200,
+      headers: {
+        "Cache-Control": "public, max-age=60",
+      },
+      payload: packument,
+    };
+  }
+  const version = findVersionForTarball(entry, parsed.tarballName);
+  if (!version) return npmErrorResponse("Package tarball not found", 404);
+  const artifact = version.artifact;
+  if (artifact?.downloadEnabled === false || artifact?.trust?.blockedFromDownload) {
+    return npmErrorResponse(artifact?.trust?.moderationReason ?? "Package release is blocked by moderation.", 403);
+  }
+  const download = await storage.createArtifactDownload(artifact, {
+    actor,
+    baseUrl: requestBaseUrl(request, url),
+    now,
+  });
+  if (!download.available) return npmErrorResponse(download.reason ?? "Package tarball is unavailable", download.blocked ? 403 : 404);
+  return {
+    statusCode: 302,
+    headers: {
+      Location: download.url,
+      "Content-Type": artifact.mediaType ?? "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${npmTarballName(entry, version)}"`,
+      "X-CoreHub-Artifact-SHA256": artifact.sha256,
+      ...(npmIntegrity(artifact) ? { "X-CoreHub-NPM-Integrity": npmIntegrity(artifact) } : {}),
+      ...(npmShasum(artifact) ? { "X-CoreHub-NPM-Shasum": npmShasum(artifact) } : {}),
+    },
+    body: "",
+  };
+}
+
 async function projectedDownloadResponse(storage, request, url, entry, { actor, baseUrl, now }) {
   const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
   if (version.artifact?.downloadEnabled === false || version.artifact?.trust?.blockedFromDownload) {
@@ -3069,6 +3123,143 @@ function createPackageSecuritySummary(entry, version) {
       pending: Boolean(trust.pending),
       stale: Boolean(trust.stale),
     },
+  };
+}
+
+function createNpmPackument(request, entry) {
+  const versions = {};
+  const time = {};
+  let latest = null;
+  for (const version of entry.versions ?? []) {
+    if (!isNpmMirrorVersion(version)) continue;
+    const npmVersion = createNpmVersionDocument(request, entry, version);
+    versions[version.version] = npmVersion;
+    if (version.publishedAt) time[version.version] = version.publishedAt;
+    if (!latest || version.tag === "latest") latest = version;
+  }
+  const versionDates = Object.values(time).filter(Boolean).sort();
+  if (versionDates[0]) time.created = versionDates[0];
+  if (versionDates.at(-1)) time.modified = versionDates.at(-1);
+  return {
+    _id: npmPackageName(entry),
+    name: npmPackageName(entry),
+    description: entry.summary ?? "",
+    homepage: entry.homepage ?? entry.source ?? defaultPublicBaseUrl,
+    "dist-tags": latest ? { latest: latest.version } : {},
+    versions,
+    time,
+  };
+}
+
+function createNpmVersionDocument(request, entry, version) {
+  const artifact = version.artifact;
+  return {
+    name: npmPackageName(entry),
+    version: version.version,
+    description: entry.summary ?? "",
+    homepage: entry.homepage ?? entry.source ?? defaultPublicBaseUrl,
+    dist: {
+      tarball: npmTarballUrl(request, entry, version),
+      integrity: npmIntegrity(artifact),
+      shasum: npmShasum(artifact),
+      corehubSha256: artifact.sha256,
+      fileCount: Array.isArray(artifact.files) ? artifact.files.length : undefined,
+      unpackedSize: artifact.unpackedSize ?? undefined,
+    },
+    corehub: {
+      packageId: entry.id,
+      kind: entry.kind,
+      family: entry.marketplace?.family ?? entry.family ?? (entry.kind === "plugin" ? "code-plugin" : entry.kind),
+      publisher: entry.publisher ?? null,
+      artifactName: artifact.name,
+      artifactSize: artifact.size,
+      artifactSha256: artifact.sha256,
+      storageProvider: artifact.storage?.provider ?? null,
+    },
+  };
+}
+
+function isNpmMirrorVersion(version) {
+  return (
+    version?.status === "available" &&
+    version.artifact?.downloadEnabled !== false &&
+    version.artifact?.trust?.blockedFromDownload !== true &&
+    typeof version.artifact?.name === "string" &&
+    version.artifact.name.endsWith(".tgz") &&
+    typeof version.artifact?.sha256 === "string"
+  );
+}
+
+function parseNpmMirrorSegments(segments) {
+  if (segments.length === 0) return null;
+  const first = decodeURIComponent(segments[0]);
+  let packageName;
+  let rest;
+  if (first.startsWith("@") && segments[1] && segments[1] !== "-") {
+    packageName = `${first}/${decodeURIComponent(segments[1])}`;
+    rest = segments.slice(2);
+  } else {
+    packageName = first;
+    rest = segments.slice(1);
+  }
+  if (!packageName) return null;
+  if (rest.length === 0) return { kind: "packument", packageName };
+  if (rest.length === 2 && rest[0] === "-") {
+    return { kind: "tarball", packageName, tarballName: decodeURIComponent(rest[1]) };
+  }
+  return null;
+}
+
+function findNpmMirrorEntry(entries, packageName) {
+  return (
+    entries.find((entry) => npmPackageName(entry) === packageName) ??
+    entries.find((entry) => entry.id === packageName) ??
+    entries.find((entry) => entry.publisher?.handle && `@${entry.publisher.handle}/${entry.id}` === packageName) ??
+    null
+  );
+}
+
+function findVersionForTarball(entry, tarballName) {
+  return (
+    entry.versions?.find((version) => isNpmMirrorVersion(version) && npmTarballName(entry, version) === tarballName) ??
+    null
+  );
+}
+
+function npmPackageName(entry) {
+  return entry.npm?.name ?? entry.package?.name ?? entry.marketplace?.npmName ?? entry.id;
+}
+
+function npmTarballName(entry, version) {
+  return (
+    version.artifact?.npm?.tarballName ??
+    version.artifact?.npmTarballName ??
+    version.artifact?.name ??
+    `${npmPackageName(entry).replace(/^@/, "").replace("/", "-")}-${version.version}.tgz`
+  );
+}
+
+function npmTarballUrl(request, entry, version) {
+  const packagePath = npmPackageName(entry).startsWith("@")
+    ? npmPackageName(entry).split("/").map(encodeURIComponent).join("/")
+    : encodeURIComponent(npmPackageName(entry));
+  return `${requestBaseUrl(request, new URL(request.url, "http://127.0.0.1")).replace(/\/$/, "")}/api/npm/${packagePath}/-/${encodeURIComponent(npmTarballName(entry, version))}`;
+}
+
+function npmIntegrity(artifact) {
+  if (artifact?.npm?.integrity) return artifact.npm.integrity;
+  if (artifact?.integrity) return artifact.integrity;
+  return artifact?.sha256 ? `sha256-${Buffer.from(artifact.sha256, "hex").toString("base64")}` : null;
+}
+
+function npmShasum(artifact) {
+  return artifact?.npm?.shasum ?? artifact?.shasum ?? artifact?.sha1 ?? null;
+}
+
+function npmErrorResponse(error, statusCode) {
+  return {
+    statusCode,
+    payload: { error },
   };
 }
 

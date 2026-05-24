@@ -149,6 +149,8 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 | `GET` | `/corehub/api/v1/packages/:id/moderation` | Return package review state, latest-version download block state, and moderation reasons. |
 | `GET` | `/corehub/api/v1/packages/:id/readiness` | Return marketplace readiness checks for publisher, version, artifact, source, compatibility, and moderation state. |
 | `GET` | `/corehub/api/v1/download?id=<id>` | Top-level signed download alias. |
+| `GET` | `/corehub/api/npm/:package` | Return an npm-compatible packument for tarball-backed CoreHub package versions. |
+| `GET` | `/corehub/api/npm/:package/-/:tarball.tgz` | Redirect to the exact CoreHub signed or external tarball artifact URL. |
 
 ### Response Shape
 
@@ -185,6 +187,8 @@ When edge rate limiting is enabled, responses include standard limit headers:
 The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
 
 Download endpoints support storage-backed signed redirects. The default response is a `302` to the artifact storage URL; CLI clients use `redirect=false` to inspect the signed contract before fetching bytes.
+
+The npm mirror is intentionally minimal. It lists only available `.tgz` package versions and emits npm-compatible `dist.tarball`, `dist.integrity`, and `dist.shasum` fields. When a SHA-1 npm shasum is not available in package metadata, `dist.shasum` is `null` and clients should verify with `dist.integrity` plus CoreHub's `dist.corehubSha256`.
 
 The CLI can perform a verified artifact fetch with `corehub package download <id> --output <path>`. Verified downloads write the artifact only after checking byte size and SHA-256 against the artifact manifest.
 

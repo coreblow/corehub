@@ -2203,6 +2203,38 @@ try {
     assert.equal(projectedSecurityPayload.data.trust.blockedFromDownload, false);
     assert.equal(projectedSecurityPayload.data.trust.scanStatus, "clean");
 
+    const npmPackumentResponse = await fetch(`${apiRegistryUrl}/api/npm/plugin-lab`);
+    assert.equal(npmPackumentResponse.status, 200);
+    const npmPackumentPayload = await npmPackumentResponse.json();
+    assert.equal(npmPackumentPayload.name, "plugin-lab");
+    assert.equal(npmPackumentPayload["dist-tags"].latest, "0.1.0");
+    assert.equal(
+      npmPackumentPayload.versions["0.1.0"].dist.integrity,
+      `sha256-${Buffer.from(entries[2].versions[0].artifact.sha256, "hex").toString("base64")}`,
+    );
+    assert.equal(npmPackumentPayload.versions["0.1.0"].dist.shasum, null);
+    assert.equal(npmPackumentPayload.versions["0.1.0"].dist.corehubSha256, entries[2].versions[0].artifact.sha256);
+    assert.match(
+      npmPackumentPayload.versions["0.1.0"].dist.tarball,
+      /\/corehub\/api\/npm\/plugin-lab\/-\/plugin-lab-0\.1\.0\.coreblow-plugin\.tgz$/,
+    );
+
+    const scopedNpmPackumentResponse = await fetch(`${apiRegistryUrl}/api/npm/%40coreblow%2Fplugin-lab`);
+    assert.equal(scopedNpmPackumentResponse.status, 200);
+    assert.equal((await scopedNpmPackumentResponse.json()).versions["0.1.0"].dist.corehubSha256, entries[2].versions[0].artifact.sha256);
+
+    const npmTarballResponse = await fetch(
+      `${apiRegistryUrl}/api/npm/plugin-lab/-/plugin-lab-0.1.0.coreblow-plugin.tgz`,
+      { redirect: "manual" },
+    );
+    assert.equal(npmTarballResponse.status, 302);
+    assert.match(npmTarballResponse.headers.get("location"), /\/corehub\/api\/v1\/artifacts\/read\?/);
+    assert.equal(npmTarballResponse.headers.get("x-corehub-artifact-sha256"), entries[2].versions[0].artifact.sha256);
+    assert.equal(
+      npmTarballResponse.headers.get("x-corehub-npm-integrity"),
+      `sha256-${Buffer.from(entries[2].versions[0].artifact.sha256, "hex").toString("base64")}`,
+    );
+
     const projectedPluginListResponse = await fetch(`${apiRegistryUrl}/api/v1/plugins?category=dev-tools&executesCode=true`);
     assert.equal(projectedPluginListResponse.status, 200);
     const projectedPluginListPayload = await projectedPluginListResponse.json();
