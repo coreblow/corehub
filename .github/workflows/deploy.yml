@@ -173,7 +173,11 @@ jobs:
           if [[ "$VERIFY_READ" == "true" ]]; then
             args+=("--verify-read")
           fi
-          npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-deploy/post-deploy-smoke.log"
+          if [[ "${{ needs.validate-deploy-request.outputs.run_deploy }}" == "true" ]]; then
+            npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-deploy/post-deploy-smoke.log"
+          else
+            COREHUB_TOKEN="" COREHUB_USER="" npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-deploy/post-deploy-smoke.log"
+          fi
 
       - name: Upload deploy artifacts
         if: ${{ always() }}
