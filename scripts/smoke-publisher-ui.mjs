@@ -106,6 +106,7 @@ try {
   await assertVisibleText(page, "Upload Artifact and Submit Package");
   await assertVisibleText(page, "Submission Status");
   await assertVisibleText(page, "Ownership Transfer");
+  await assertVisibleText(page, "Artifact Uploads");
   await assertVisibleText(page, "admin publisher");
 
   const loginError = page.locator("#loginError");
@@ -144,6 +145,20 @@ try {
   assert.equal(sessionStatus.payload.data.valid, true);
   assert.equal(sessionStatus.payload.data.role, "publisher");
   logStep("publisher session validation is explicit");
+
+  await page.locator("#artifactUrlInput").fill("https://raw.githubusercontent.com/coreblow/corehub/b184ccee4dc283abf850d880f971ef103ddb2ab8/artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz");
+  await page.locator("#artifactNameInput").fill("plugin-lab-0.2.0.coreblow-plugin.tgz");
+  await page.locator("#artifactMediaTypeInput").fill("application/vnd.coreblow.plugin-archive+gzip");
+  await page.locator("#artifactSizeInput").fill("736");
+  await page.locator("#artifactSha256Input").fill("4de3b0826298645b080a471904b5bfb7731aaed67a6b6da2bad26402e91a6c90");
+  await page.locator("#packageIdInput").fill("plugin-lab");
+  await page.locator("#versionInput").fill("0.2.0");
+  await page.locator("#sourceInput").fill("https://github.com/coreblow/plugin-lab");
+  await page.getByRole("button", { name: "Upload and submit" }).click();
+  await assertVisibleText(page, "Submitted submission-plugin-lab-0-2-0 for review.");
+  await assertVisibleText(page, "submission-plugin-lab-0-2-0");
+  await assertVisibleText(page, "upload-plugin-lab-0-2-0");
+  logStep("publisher portal submitted external artifact package");
 } finally {
   if (browser) await browser.close();
   await app.close();

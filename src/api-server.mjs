@@ -4221,6 +4221,9 @@ function renderCoreHubPublisherHtml() {
     .status.good { color: var(--good); border-color: #bbf7d0; background: #f0fdf4; }
     .status.warn { color: var(--warn); border-color: #fed7aa; background: #fff7ed; }
     .status.bad { color: var(--bad); border-color: #fecaca; background: #fef2f2; }
+    .split-toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .stack { display: grid; gap: 8px; }
+    .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     button, input, select, textarea {
       border: 1px solid var(--line);
       border-radius: 6px;
@@ -4239,6 +4242,10 @@ function renderCoreHubPublisherHtml() {
       cursor: pointer;
       font-weight: 650;
     }
+    button:disabled, input:disabled, select:disabled, textarea:disabled {
+      opacity: 0.58;
+      cursor: not-allowed;
+    }
     button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
     form { display: grid; gap: 10px; }
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -4249,6 +4256,7 @@ function renderCoreHubPublisherHtml() {
     .error, .notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; }
     .error { border: 1px solid #fecaca; color: var(--bad); background: #fef2f2; }
     .notice { border: 1px solid #bbf7d0; color: var(--good); background: #f0fdf4; }
+    .warning { border-color: #fed7aa; color: var(--warn); background: #fff7ed; }
     @media (max-width: 900px) {
       header, main { padding-left: 14px; padding-right: 14px; }
       .grid, .two, .form-grid { grid-template-columns: 1fr; }
@@ -4297,6 +4305,7 @@ function renderCoreHubPublisherHtml() {
       <div class="two">
         <section>
           <h2>Whoami</h2>
+          <p class="muted" id="permissionSummary">No publisher permissions loaded.</p>
           <div id="whoamiRows"></div>
         </section>
         <section>
@@ -4324,11 +4333,15 @@ function renderCoreHubPublisherHtml() {
         <h2>Upload Artifact and Submit Package</h2>
         <form id="publishForm">
           <div class="form-grid">
-            <label>Artifact file<input id="artifactFile" type="file" required></label>
+            <label>Artifact file<input id="artifactFile" type="file"></label>
             <label>Artifact URL<input id="artifactUrlInput" placeholder="https://github.com/org/repo/releases/download/v0.2.0/plugin.tgz"></label>
             <label>Publisher<select id="publisherSelect"></select></label>
             <label>Package id<input id="packageIdInput" placeholder="plugin-lab" required></label>
             <label>Version<input id="versionInput" placeholder="0.2.0" required></label>
+            <label>Artifact name<input id="artifactNameInput" placeholder="plugin-lab-0.2.0.coreblow-plugin.tgz"></label>
+            <label>Artifact media type<input id="artifactMediaTypeInput" placeholder="application/vnd.coreblow.plugin-archive+gzip"></label>
+            <label>Artifact size<input id="artifactSizeInput" inputmode="numeric" placeholder="736"></label>
+            <label>Artifact SHA-256<input id="artifactSha256Input" placeholder="64 hex characters"></label>
             <label>Kind
               <select id="kindInput"><option value="plugin">plugin</option><option value="skill">skill</option><option value="provider">provider</option><option value="channel">channel</option></select>
             </label>
@@ -4341,11 +4354,23 @@ function renderCoreHubPublisherHtml() {
           <button type="submit">Upload and submit</button>
         </form>
         <div class="notice hidden" id="publishNotice"></div>
+        <div class="error hidden" id="publishError"></div>
       </section>
 
       <div class="two">
         <section>
-          <div class="toolbar"><h2>Submission Status</h2><span class="status" id="submissionCount">0</span></div>
+          <div class="split-toolbar">
+            <h2>Submission Status</h2>
+            <div class="controls">
+              <select id="submissionFilter">
+                <option value="all">all</option>
+                <option value="pending_review">pending</option>
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+              </select>
+              <span class="status" id="submissionCount">0</span>
+            </div>
+          </div>
           <table>
             <thead><tr><th>Submission</th><th>Package</th><th>Status</th><th>Review</th></tr></thead>
             <tbody id="submissionsTable"></tbody>
@@ -4362,12 +4387,22 @@ function renderCoreHubPublisherHtml() {
             </div>
             <button type="submit">Request transfer</button>
           </form>
+          <div class="notice hidden" id="transferNotice"></div>
+          <div class="error hidden" id="transferError"></div>
           <table>
             <thead><tr><th>Transfer</th><th>Package</th><th>Route</th><th>Status</th></tr></thead>
             <tbody id="transfersTable"></tbody>
           </table>
         </section>
       </div>
+
+      <section>
+        <div class="split-toolbar"><h2>Artifact Uploads</h2><span class="status" id="uploadCount">0</span></div>
+        <table>
+          <thead><tr><th>Upload</th><th>Package</th><th>Publisher</th><th>Status</th></tr></thead>
+          <tbody id="uploadsTable"></tbody>
+        </table>
+      </section>
     </div>
   </main>
 
@@ -4395,6 +4430,9 @@ function renderCoreHubPublisherHtml() {
     nodes.claimForm.addEventListener("submit", claimPublisher);
     nodes.publishForm.addEventListener("submit", uploadAndSubmit);
     nodes.transferForm.addEventListener("submit", requestTransfer);
+    nodes.artifactFile.addEventListener("change", hydrateArtifactFieldsFromFile);
+    nodes.artifactUrlInput.addEventListener("input", updatePublishMode);
+    nodes.submissionFilter.addEventListener("change", () => state.dashboard && renderPortal(state.dashboard));
 
     if (state.session) {
       nodes.actorInput.value = state.session.actor;
@@ -4441,91 +4479,120 @@ function renderCoreHubPublisherHtml() {
       event.preventDefault();
       const handle = nodes.claimHandle.value.trim();
       if (!handle) return showNotice(nodes.claimNotice, "Handle is required.");
-      const payload = await api("/publishers/claim", {
-        method: "POST",
-        body: {
-          handle,
-          displayName: nodes.claimDisplayName.value.trim() || handle,
-          kind: "organization",
-        },
-      });
-      showNotice(nodes.claimNotice, "Publisher " + payload.data.publisher.handle + " " + payload.data.status + ".");
-      await loadPortal();
+      try {
+        setFormBusy(nodes.claimForm, true);
+        const payload = await api("/publishers/claim", {
+          method: "POST",
+          body: {
+            handle,
+            displayName: nodes.claimDisplayName.value.trim() || handle,
+            kind: "organization",
+          },
+        });
+        showNotice(nodes.claimNotice, "Publisher " + payload.data.publisher.handle + " " + payload.data.status + ".");
+        await loadPortal();
+      } catch (error) {
+        showNotice(nodes.claimNotice, error.message || "Publisher claim failed.", "warning");
+      } finally {
+        setFormBusy(nodes.claimForm, false);
+      }
     }
 
     async function uploadAndSubmit(event) {
       event.preventDefault();
       const file = nodes.artifactFile.files[0];
-      if (!file) return showNotice(nodes.publishNotice, "Choose an artifact first.");
-      const bytes = await file.arrayBuffer();
-      const sha256 = await sha256Hex(bytes);
       const packageId = nodes.packageIdInput.value.trim();
       const version = nodes.versionInput.value.trim();
       const publisherHandle = nodes.publisherSelect.value;
       const artifactUrl = nodes.artifactUrlInput.value.trim();
-      const upload = await api("/artifacts/uploads", {
-        method: "POST",
-        body: {
-          packageId,
-          version,
-          publisherHandle,
-          provider: artifactUrl ? "external-url" : "managed",
-          maxBytes: Math.max(file.size, 104857600),
-          artifact: {
-            name: file.name,
-            mediaType: file.type || "application/octet-stream",
-            size: file.size,
-            sha256,
-            ...(artifactUrl ? { url: artifactUrl } : {}),
+      if (!packageId || !version || !publisherHandle) return showPublishError("Package, version, and publisher are required.");
+      try {
+        const metadata = await readArtifactMetadata(file, artifactUrl);
+        if (!metadata) return showPublishError("Choose an artifact file or provide artifact URL metadata.");
+        setFormBusy(nodes.publishForm, true);
+        hideNode(nodes.publishError);
+        showNotice(nodes.publishNotice, "Preparing artifact upload contract.");
+        const upload = await api("/artifacts/uploads", {
+          method: "POST",
+          body: {
+            packageId,
+            version,
+            publisherHandle,
+            provider: artifactUrl ? "external-url" : "managed",
+            maxBytes: Math.max(metadata.size, 104857600),
+            artifact: {
+              name: metadata.name,
+              mediaType: metadata.mediaType,
+              size: metadata.size,
+              sha256: metadata.sha256,
+              ...(artifactUrl ? { url: artifactUrl } : {}),
+            },
           },
-        },
-      });
-      const slot = upload.data.uploadSlot;
-      let artifactUpload = slot.artifactUpload;
-      if (!artifactUrl) {
-        await apiRaw("/artifacts/uploads/" + encodeURIComponent(slot.id), {
-          method: "PUT",
-          headers: {
-            "content-type": file.type || "application/octet-stream",
-            "x-corehub-artifact-sha256": sha256,
-          },
-          body: bytes,
         });
-        const verified = await api("/artifacts/uploads/" + encodeURIComponent(slot.id) + "/verify", { method: "POST" });
-        artifactUpload = verified.data.artifactUpload;
+        const slot = upload.data.uploadSlot;
+        let artifactUpload = slot.artifactUpload;
+        if (!artifactUrl) {
+          showNotice(nodes.publishNotice, "Uploading artifact bytes.");
+          await apiRaw("/artifacts/uploads/" + encodeURIComponent(slot.id), {
+            method: "PUT",
+            headers: {
+              "content-type": metadata.mediaType,
+              "x-corehub-artifact-sha256": metadata.sha256,
+            },
+            body: metadata.bytes,
+          });
+          const verified = await api("/artifacts/uploads/" + encodeURIComponent(slot.id) + "/verify", { method: "POST" });
+          artifactUpload = verified.data.artifactUpload;
+        }
+        const submission = await api("/submissions", {
+          method: "POST",
+          body: {
+            packageId,
+            version,
+            publisherHandle,
+            kind: nodes.kindInput.value,
+            channel: nodes.channelInput.value,
+            artifactUploadId: artifactUpload.id,
+            source: nodes.sourceInput.value.trim() || "https://github.com/" + publisherHandle + "/" + packageId,
+            changelog: nodes.changelogInput.value.trim() || "CoreHub publisher portal submission.",
+          },
+        });
+        showNotice(nodes.publishNotice, "Submitted " + submission.data.submission.id + " for review.");
+        nodes.publishForm.reset();
+        nodes.changelogInput.value = "CoreHub publisher portal submission.";
+        await loadPortal();
+      } catch (error) {
+        showPublishError(error.message || "Package submission failed.");
+      } finally {
+        setFormBusy(nodes.publishForm, false);
+        updatePublishMode();
       }
-      const submission = await api("/submissions", {
-        method: "POST",
-        body: {
-          packageId,
-          version,
-          publisherHandle,
-          kind: nodes.kindInput.value,
-          channel: nodes.channelInput.value,
-          artifactUploadId: artifactUpload.id,
-          source: nodes.sourceInput.value.trim() || "https://github.com/" + publisherHandle + "/" + packageId,
-          changelog: nodes.changelogInput.value.trim() || "CoreHub publisher portal submission.",
-        },
-      });
-      showNotice(nodes.publishNotice, "Submitted " + submission.data.submission.id + " for review.");
-      await loadPortal();
     }
 
     async function requestTransfer(event) {
       event.preventDefault();
       const packageId = nodes.transferPackage.value.trim();
       const toPublisherHandle = nodes.transferTo.value.trim();
-      if (!packageId || !toPublisherHandle) return;
-      await api("/transfers", {
-        method: "POST",
-        body: {
-          packageId,
-          fromPublisherHandle: nodes.transferFrom.value,
-          toPublisherHandle,
-          reason: nodes.transferReason.value.trim() || undefined,
-        },
-      });
-      await loadPortal();
+      if (!packageId || !toPublisherHandle) return showTransferError("Package id and target publisher are required.");
+      try {
+        setFormBusy(nodes.transferForm, true);
+        hideNode(nodes.transferError);
+        await api("/transfers", {
+          method: "POST",
+          body: {
+            packageId,
+            fromPublisherHandle: nodes.transferFrom.value,
+            toPublisherHandle,
+            reason: nodes.transferReason.value.trim() || undefined,
+          },
+        });
+        showNotice(nodes.transferNotice, "Transfer requested.");
+        await loadPortal();
+      } catch (error) {
+        showTransferError(error.message || "Transfer request failed.");
+      } finally {
+        setFormBusy(nodes.transferForm, false);
+      }
     }
 
     async function api(path, options = {}) {
@@ -4574,12 +4641,19 @@ function renderCoreHubPublisherHtml() {
       nodes.sessionLabel.textContent = (session?.actor?.id || identity.actor.id) + " validated publisher";
       nodes.rolePill.textContent = identity.permissions.admin ? "admin publisher" : "publisher";
       nodes.rolePill.className = "status good";
+      const canPublish = identity.memberships.some((membership) => membership.permissions?.includes("submission.create"));
+      const canTransfer = dashboard.packages.length > 0 && identity.memberships.some((membership) => ["owner", "admin"].includes(membership.role));
+      nodes.publishForm.querySelector("button[type=submit]").disabled = !canPublish;
+      nodes.transferForm.querySelector("button[type=submit]").disabled = !canTransfer;
+      nodes.permissionSummary.textContent = canPublish
+        ? "Active publisher membership can upload artifacts and create submissions."
+        : "No active publishing permission is available for this actor.";
       nodes.metricPublishers.textContent = String(dashboard.counts.publishers);
       nodes.metricPackages.textContent = String(dashboard.counts.packages);
       nodes.metricPending.textContent = String(dashboard.counts.pendingSubmissions);
       nodes.metricTransfers.textContent = String(dashboard.counts.transfers);
       nodes.whoamiRows.innerHTML = identity.memberships.map((membership) =>
-        row(membership.publisherHandle, membership.role, membership.publisher?.status || "unknown")
+        row(membership.publisherHandle, membership.role, (membership.publisher?.status || "unknown") + " · " + (membership.permissions || []).join(", "))
       ).join("") || '<p class="muted">No publisher memberships.</p>';
       renderPublisherOptions(identity.memberships);
       renderTable(nodes.packagesTable, dashboard.packages, (item) => [
@@ -4589,20 +4663,31 @@ function renderCoreHubPublisherHtml() {
         item.marketplace?.channel,
         item.trustedPublisher?.repository || "not configured",
       ]);
-      renderTable(nodes.submissionsTable, dashboard.submissions, (item) => [
+      const filteredSubmissions = nodes.submissionFilter.value === "all"
+        ? dashboard.submissions
+        : dashboard.submissions.filter((item) => item.submission.status === nodes.submissionFilter.value);
+      renderTable(nodes.submissionsTable, filteredSubmissions, (item) => [
         item.submission.id,
         item.submission.packageId + "@" + item.submission.version,
-        item.submission.status,
+        statusBadge(item.submission.status),
         item.moderationReview?.id || "pending",
       ]);
       renderTable(nodes.transfersTable, dashboard.transfers, (item) => [
         item.id,
         item.packageId,
         item.fromPublisherHandle + " -> " + item.toPublisherHandle,
-        item.status,
+        statusBadge(item.status),
+      ]);
+      renderTable(nodes.uploadsTable, dashboard.uploadSlots, (item) => [
+        item.id,
+        item.packageId + "@" + item.version,
+        item.publisherHandle,
+        statusBadge(item.status),
       ]);
       nodes.packageCount.textContent = String(dashboard.packages.length);
-      nodes.submissionCount.textContent = String(dashboard.submissions.length);
+      nodes.submissionCount.textContent = String(filteredSubmissions.length);
+      nodes.uploadCount.textContent = String(dashboard.uploadSlots.length);
+      updatePublishMode();
     }
 
     function renderPublisherOptions(memberships) {
@@ -4612,7 +4697,7 @@ function renderCoreHubPublisherHtml() {
     }
 
     function renderTable(target, items, cellsFor) {
-      target.innerHTML = (items || []).map((item) => "<tr>" + cellsFor(item).map((cell) => "<td>" + escapeHtml(cell || "-") + "</td>").join("") + "</tr>").join("") || "<tr><td colspan=\\"5\\" class=\\"muted\\">No records</td></tr>";
+      target.innerHTML = (items || []).map((item) => "<tr>" + cellsFor(item).map((cell) => "<td>" + renderCell(cell) + "</td>").join("") + "</tr>").join("") || "<tr><td colspan=\\"5\\" class=\\"muted\\">No records</td></tr>";
     }
 
     function row(label, status, detail) {
@@ -4631,9 +4716,88 @@ function renderCoreHubPublisherHtml() {
       nodes.loginError.classList.remove("hidden");
     }
 
-    function showNotice(target, message) {
+    function showNotice(target, message, kind = "notice") {
       target.textContent = message;
+      target.className = kind === "notice" ? "notice" : "notice warning";
       target.classList.remove("hidden");
+    }
+
+    function showPublishError(message) {
+      nodes.publishError.textContent = message;
+      nodes.publishError.classList.remove("hidden");
+    }
+
+    function showTransferError(message) {
+      nodes.transferError.textContent = message;
+      nodes.transferError.classList.remove("hidden");
+    }
+
+    function hideNode(node) {
+      node.classList.add("hidden");
+    }
+
+    function setFormBusy(form, busy) {
+      [...form.querySelectorAll("button, input, select, textarea")].forEach((node) => {
+        node.disabled = busy;
+      });
+    }
+
+    async function hydrateArtifactFieldsFromFile() {
+      const file = nodes.artifactFile.files[0];
+      if (!file) return;
+      nodes.artifactNameInput.value = file.name;
+      nodes.artifactMediaTypeInput.value = file.type || "application/octet-stream";
+      nodes.artifactSizeInput.value = String(file.size);
+      const bytes = await file.arrayBuffer();
+      nodes.artifactSha256Input.value = await sha256Hex(bytes);
+    }
+
+    function updatePublishMode() {
+      const external = Boolean(nodes.artifactUrlInput.value.trim());
+      nodes.artifactFile.required = !external;
+      nodes.artifactNameInput.required = external;
+      nodes.artifactMediaTypeInput.required = external;
+      nodes.artifactSizeInput.required = external;
+      nodes.artifactSha256Input.required = external;
+    }
+
+    async function readArtifactMetadata(file, artifactUrl) {
+      if (file) {
+        const bytes = await file.arrayBuffer();
+        const size = Number.parseInt(nodes.artifactSizeInput.value.trim() || String(file.size), 10);
+        const sha256 = nodes.artifactSha256Input.value.trim() || await sha256Hex(bytes);
+        if (!Number.isSafeInteger(size) || size <= 0) throw new Error("Artifact size must be a positive integer.");
+        if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error("Artifact SHA-256 must be 64 lowercase hex characters.");
+        return {
+          name: nodes.artifactNameInput.value.trim() || file.name,
+          mediaType: nodes.artifactMediaTypeInput.value.trim() || file.type || "application/octet-stream",
+          size,
+          sha256,
+          bytes,
+        };
+      }
+      if (!artifactUrl) return null;
+      const size = Number.parseInt(nodes.artifactSizeInput.value.trim(), 10);
+      const sha256 = nodes.artifactSha256Input.value.trim().toLowerCase();
+      if (!nodes.artifactNameInput.value.trim()) throw new Error("Artifact name is required for external URL submissions.");
+      if (!nodes.artifactMediaTypeInput.value.trim()) throw new Error("Artifact media type is required for external URL submissions.");
+      if (!Number.isSafeInteger(size) || size <= 0) throw new Error("Artifact size must be a positive integer.");
+      if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error("Artifact SHA-256 must be 64 lowercase hex characters.");
+      return {
+        name: nodes.artifactNameInput.value.trim(),
+        mediaType: nodes.artifactMediaTypeInput.value.trim(),
+        size,
+        sha256,
+      };
+    }
+
+    function statusBadge(value) {
+      return { __html: '<span class="status ' + statusClass(value) + '">' + escapeHtml(value || "-") + '</span>' };
+    }
+
+    function renderCell(value) {
+      if (value && typeof value === "object" && "__html" in value) return value.__html;
+      return escapeHtml(value || "-");
     }
 
     async function sha256Hex(buffer) {
