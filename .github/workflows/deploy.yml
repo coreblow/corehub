@@ -162,10 +162,14 @@ jobs:
           args=(
             "--registry" "$COREHUB_REGISTRY"
             "--package" "$COREHUB_SMOKE_PACKAGE"
-            "--verify-admin"
-            "--admin-support-bundle-output" "$RUNNER_TEMP/corehub-deploy/corehub-support-bundle.json"
-            "--admin-limit" "20"
           )
+          if [[ "${{ needs.validate-deploy-request.outputs.run_deploy }}" == "true" ]]; then
+            args+=(
+              "--verify-admin"
+              "--admin-support-bundle-output" "$RUNNER_TEMP/corehub-deploy/corehub-support-bundle.json"
+              "--admin-limit" "20"
+            )
+          fi
           if [[ "$VERIFY_READ" == "true" ]]; then
             args+=("--verify-read")
           fi

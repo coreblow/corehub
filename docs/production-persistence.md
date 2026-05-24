@@ -291,7 +291,8 @@ The workflow follows the ClawHub production deploy shape:
 - GitHub environment `Production`.
 - `check` mode for production preflight and Wrangler dry run.
 - `deploy` mode for real `wrangler deploy`.
-- Post-deploy smoke with admin visibility and a redacted support bundle.
+- Public smoke in `check` mode.
+- Post-deploy smoke with admin visibility and a redacted support bundle in `deploy` mode.
 - Artifact upload for deploy logs, post-deploy smoke output, support bundle, and the materialized Wrangler config.
 
 Required GitHub configuration:
@@ -306,7 +307,7 @@ Required GitHub configuration:
 | `CLOUDFLARE_API_TOKEN` | secret | Wrangler authentication. |
 | `CLOUDFLARE_ACCOUNT_ID` | secret | Cloudflare account used by Wrangler. |
 
-Run `mode=check` before a real deploy. Run `mode=deploy` only after the check passes and the production environment approval is complete.
+Run `mode=check` before a real deploy. It validates production config, plans the D1 migration, runs Worker-local checks, and verifies the public CoreHub surface without requiring the new Worker route to be live yet. Run `mode=deploy` only after the check passes and the production environment approval is complete.
 
 In `deploy` mode the workflow applies the idempotent D1 schema migration before deploying the Worker. Keep `mode=check` as the required preflight so the migration plan, Worker-local smoke, and Wrangler dry run are visible before production approval.
 
