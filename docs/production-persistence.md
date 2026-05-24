@@ -176,6 +176,39 @@ wrangler deploy --config ops/cloudflare/wrangler.corehub-api.production.toml
 
 The generated `ops/cloudflare/wrangler.corehub-api.production.toml` is ignored by git because it contains environment-specific resource ids. Re-run materialization with `--force` when replacing an existing local production config.
 
+## Production Seed Workflow
+
+Production D1 starts empty after the schema migration. Seed catalog packages through the CoreHub API, not by writing D1 rows directly, so upload, submission, review, and approval all remain auditable.
+
+Plan the seed locally:
+
+```sh
+npm run seed:production -- --registry https://coreblow.com/corehub --package plugin-lab --plan-only
+```
+
+Apply through the protected GitHub Actions workflow `.github/workflows/production-seed.yml`:
+
+- `check` mode plans the seed from `catalog.json` without mutating production.
+- `seed` mode calls the CoreHub API with the production operator token, creates an external artifact upload, submits the package, approves the review, and runs post-seed smoke.
+- `force` should stay off unless an operator intentionally wants to re-seed a visible version.
+- `verify_read` may be enabled when the operator wants to fetch signed artifact bytes and verify SHA-256 after seed.
+
+The workflow is idempotent by default: if the package version is already visible, it returns `already_seeded` and does not create a duplicate submission unless `force` is set.
+
+## Production Token Cleanup
+
+When a Cloudflare API token is exposed in chat, logs, screenshots, or terminal history, treat it as compromised even if it was short-lived.
+
+Use this rotation flow:
+
+1. Create a new scoped token for CoreHub production deploy.
+2. Update GitHub Environment secret `Production / CLOUDFLARE_API_TOKEN`.
+3. Run `.github/workflows/deploy.yml` in `check` mode.
+4. Revoke the exposed Cloudflare token from the Cloudflare dashboard.
+5. Keep unrelated tokens only when their owning workflow is known and still active; otherwise replace them with scoped purpose-specific tokens.
+
+The CoreHub deploy token should be scoped to D1 edit, Workers Scripts edit, Account Settings read, User Details read, Memberships read, Zone read, and Workers Routes edit for the `coreblow.com` zone.
+
 After the real deploy finishes, run the post-deploy smoke against the public CoreHub route:
 
 ```sh
@@ -294,6 +327,8 @@ The workflow follows the ClawHub production deploy shape:
 - Public smoke in `check` mode.
 - Post-deploy smoke with admin visibility and a redacted support bundle in `deploy` mode.
 - Artifact upload for deploy logs, post-deploy smoke output, support bundle, and the materialized Wrangler config.
+
+CoreHub also has a manual production seed workflow at `.github/workflows/production-seed.yml`. Use it after a fresh D1 deployment or approved restore when the registry needs the catalog bootstrap package loaded into production state.
 
 Required GitHub configuration:
 

@@ -1,0 +1,133 @@
+name: Production Seed
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Plan or apply the production seed through the CoreHub API"
+        required: true
+        default: check
+        type: choice
+        options:
+          - check
+          - seed
+      registry:
+        description: "CoreHub registry URL"
+        required: true
+        default: "https://coreblow.com/corehub"
+      package:
+        description: "Catalog package id to seed"
+        required: true
+        default: "plugin-lab"
+      version:
+        description: "Catalog package version to seed. Empty uses the first catalog version."
+        required: false
+        default: ""
+      force:
+        description: "Re-seed even when the package version is already visible"
+        required: true
+        default: false
+        type: boolean
+      verify_read:
+        description: "Fetch signed artifact bytes after seed"
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: corehub-production-seed
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  seed-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: Production
+      url: https://coreblow.com/corehub
+    env:
+      COREHUB_REGISTRY: ${{ inputs.registry }}
+      COREHUB_SEED_PACKAGE: ${{ inputs.package }}
+      COREHUB_SEED_VERSION: ${{ inputs.version }}
+      COREHUB_TOKEN: ${{ secrets.COREHUB_TOKEN }}
+      COREHUB_USER: ${{ vars.COREHUB_USER || 'github:coreblow-admin' }}
+      VERIFY_READ: ${{ inputs.verify_read || false }}
+    steps:
+      - name: Check seed configuration
+        run: |
+          set -euo pipefail
+          if [[ -z "$COREHUB_REGISTRY" || -z "$COREHUB_SEED_PACKAGE" ]]; then
+            echo "::error::COREHUB_REGISTRY and COREHUB_SEED_PACKAGE are required."
+            exit 1
+          fi
+          if [[ "${{ inputs.mode }}" == "seed" && -z "$COREHUB_TOKEN" ]]; then
+            echo "::error::COREHUB_TOKEN is required for seed mode."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Plan production seed
+        run: |
+          set -euo pipefail
+          args=(
+            "--registry" "$COREHUB_REGISTRY"
+            "--package" "$COREHUB_SEED_PACKAGE"
+            "--plan-only"
+          )
+          if [[ -n "$COREHUB_SEED_VERSION" ]]; then
+            args+=("--version" "$COREHUB_SEED_VERSION")
+          fi
+          npm run seed:production -- "${args[@]}"
+
+      - name: Apply production seed
+        if: inputs.mode == 'seed'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/corehub-production-seed"
+          args=(
+            "--registry" "$COREHUB_REGISTRY"
+            "--package" "$COREHUB_SEED_PACKAGE"
+          )
+          if [[ -n "$COREHUB_SEED_VERSION" ]]; then
+            args+=("--version" "$COREHUB_SEED_VERSION")
+          fi
+          if [[ "${{ inputs.force }}" == "true" ]]; then
+            args+=("--force")
+          fi
+          npm run seed:production -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-production-seed/seed.log"
+
+      - name: Verify production seed
+        if: inputs.mode == 'seed'
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/corehub-production-seed"
+          args=(
+            "--registry" "$COREHUB_REGISTRY"
+            "--package" "$COREHUB_SEED_PACKAGE"
+            "--verify-admin"
+            "--admin-support-bundle-output" "$RUNNER_TEMP/corehub-production-seed/support-bundle.json"
+            "--admin-limit" "20"
+          )
+          if [[ "$VERIFY_READ" == "true" ]]; then
+            args+=("--verify-read")
+          fi
+          npm run smoke:post-deploy -- "${args[@]}" | tee "$RUNNER_TEMP/corehub-production-seed/post-seed-smoke.log"
+
+      - name: Upload seed artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: corehub-production-seed-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/corehub-production-seed/seed.log
+            ${{ runner.temp }}/corehub-production-seed/post-seed-smoke.log
+            ${{ runner.temp }}/corehub-production-seed/support-bundle.json
+          if-no-files-found: ignore

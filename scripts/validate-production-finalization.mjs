@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 const files = {
   wrangler: "ops/cloudflare/wrangler.corehub-api.persistence.example.toml",
   deployWorkflow: ".github/workflows/deploy.yml",
+  productionSeedWorkflow: ".github/workflows/production-seed.yml",
   operatorSmokeWorkflow: ".github/workflows/operator-smoke.yml",
   productionPersistence: "docs/production-persistence.md",
   productionRollback: "docs/production-rollback.md",
@@ -27,6 +28,9 @@ requirePattern("production session token hashes", texts.wrangler, /COREHUB_REQUI
 requirePattern("production rate limit config", texts.wrangler, /COREHUB_RATE_LIMIT_MAX\s*=/);
 requirePattern("deploy workflow protected environment", texts.deployWorkflow, /environment:\s*(?:\n\s*name:\s*)?Production/);
 requirePattern("deploy workflow post deploy smoke", texts.deployWorkflow, /smoke:post-deploy/);
+requirePattern("production seed workflow protected environment", texts.productionSeedWorkflow, /environment:\s*(?:\n\s*name:\s*)?Production/);
+requirePattern("production seed workflow uses API seed", texts.productionSeedWorkflow, /seed:production/);
+requirePattern("production seed workflow verifies smoke", texts.productionSeedWorkflow, /smoke:post-deploy/);
 requirePattern("operator smoke workflow", texts.operatorSmokeWorkflow, /--verify-admin[\s\S]*smoke:post-deploy/);
 requirePattern("rollback validated restore", texts.productionRollback, /persistence:snapshot -- validate[\s\S]*persistence:snapshot -- restore/);
 requirePattern(
