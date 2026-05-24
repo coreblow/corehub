@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, createSign, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { join } from "node:path";
@@ -40,6 +40,19 @@ const writeSideSchema = JSON.parse(
 const writeSideState = JSON.parse(
   await readFile(new URL("../fixtures/write-side-state.json", import.meta.url), "utf-8"),
 );
+
+function base64UrlJson(value) {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+function signTestJwt(payload, privateKey, { kid = "test-key" } = {}) {
+  const encodedHeader = base64UrlJson({ alg: "RS256", typ: "JWT", kid });
+  const encodedPayload = base64UrlJson(payload);
+  const signer = createSign("RSA-SHA256");
+  signer.update(`${encodedHeader}.${encodedPayload}`);
+  signer.end();
+  return `${encodedHeader}.${encodedPayload}.${signer.sign(privateKey).toString("base64url")}`;
+}
 const auditAlertSchema = JSON.parse(
   await readFile(new URL("../schemas/corehub.audit-alert.schema.json", import.meta.url), "utf-8"),
 );
@@ -656,7 +669,9 @@ try {
   assert.match(packagePublishWorkflow, /args=\("package" "publish" "\$source_path" "--registry" "\$INPUT_REGISTRY"\)/);
   assert.match(packagePublishWorkflow, /live CoreHub package publish requires secrets\.corehub_token/);
   assert.match(packagePublishWorkflow, /live CoreHub package publish must run from a protected branch or tag/);
-  assert.match(packagePublishWorkflow, /official live publish requires publish_token_id or manual_override_reason/);
+  assert.match(packagePublishWorkflow, /official live publish requires publish_token_id, mint_publish_token, or manual_override_reason/);
+  assert.match(packagePublishWorkflow, /--oidc/);
+  assert.match(packagePublishWorkflow, /corehub-publish-token\.json/);
   assert.doesNotMatch(packagePublishWorkflow, /dry-run only until production write-side publish is opened/);
 
   const logout = await execFileAsync(process.execPath, [cliPath, "logout"], { env: authEnv });
@@ -750,19 +765,50 @@ try {
     { repository: "coreblow/official-guard", workflowFilename: "publish.yml" },
     { actor: ownerActor },
   );
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const publicJwk = publicKey.export({ format: "jwk" });
+  storage.githubOidcJwks = { keys: [{ ...publicJwk, kid: "test-key", alg: "RS256", use: "sig" }] };
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const oidcClaims = {
+    iss: "https://token.actions.githubusercontent.com",
+    aud: "corehub-publish-token",
+    sub: "repo:coreblow/official-guard:ref:refs/heads/main",
+    repository: "coreblow/official-guard",
+    repository_id: "123456",
+    repository_owner: "coreblow",
+    repository_owner_id: "42",
+    job_workflow_ref: "coreblow/official-guard/.github/workflows/publish.yml@refs/heads/main",
+    job_workflow_sha: "abc123workflow",
+    workflow_ref: "coreblow/official-guard/.github/workflows/publish.yml@refs/heads/main",
+    run_id: "12345",
+    run_attempt: "1",
+    sha: "abc123",
+    ref: "refs/heads/main",
+    nbf: nowSeconds - 60,
+    exp: nowSeconds + 300,
+  };
+  await assert.rejects(
+    () =>
+      storage.mintPublishToken(
+        "official-guard",
+        {
+          version: "0.0.2",
+          oidcToken: signTestJwt({ ...oidcClaims, repository: "other/repo" }, privateKey),
+        },
+        { actor: ownerActor },
+      ),
+    /OIDC repository does not match trusted publisher config/,
+  );
   const publishToken = await storage.mintPublishToken(
     "official-guard",
     {
       version: "0.0.2",
-      repository: "coreblow/official-guard",
-      workflowFilename: "publish.yml",
-      runId: "12345",
-      runAttempt: "1",
-      sha: "abc123",
-      ref: "refs/heads/main",
+      oidcToken: signTestJwt(oidcClaims, privateKey),
     },
     { actor: ownerActor },
   );
+  assert.equal(publishToken.publishToken.oidc.issuer, "https://token.actions.githubusercontent.com");
+  assert.equal(publishToken.publishToken.oidc.jobWorkflowRef, oidcClaims.job_workflow_ref);
   const officialAccepted = await storage.createSubmission(
     { ...officialSubmission, publishTokenId: publishToken.publishToken.id },
     { actor: ownerActor },

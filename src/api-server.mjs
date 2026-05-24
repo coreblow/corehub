@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, createPublicKey, createVerify, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { listCatalogRecords, parseMarketplaceFiltersFromUrl, searchCatalogRecords } from "./corehub.mjs";
@@ -13,6 +13,9 @@ const defaultSignedReadKeyId = "local-dev";
 const defaultSignedReadSecret = "corehub-local-development-signing-secret";
 const defaultAdminActorIds = ["github:coreblow-admin", "moderator:corehub"];
 const defaultAnalyticsSalt = "corehub-local-analytics-salt";
+const githubOidcIssuer = "https://token.actions.githubusercontent.com";
+const defaultGitHubOidcAudience = "corehub-publish-token";
+const defaultGitHubOidcJwksUrl = "https://token.actions.githubusercontent.com/.well-known/jwks";
 const publisherWriteRoles = new Set(["owner", "admin", "maintainer"]);
 const adminRoles = new Set(["admin", "moderator"]);
 const PUBLISHER_HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
@@ -187,6 +190,7 @@ export class CoreHubLocalStorageAdapter {
     auditRetentionDays = defaultAuditRetentionDays,
     adminActorIds = defaultAdminActorIds,
     analyticsSalt = defaultAnalyticsSalt,
+    githubOidcJwks,
   } = {}) {
     if (!root && !objectStore) throw new Error("CoreHubLocalStorageAdapter requires root or objectStore");
     this.root = root ? resolve(root) : null;
@@ -199,6 +203,7 @@ export class CoreHubLocalStorageAdapter {
     this.auditRetentionDays = normalizeAuditRetentionDays(auditRetentionDays);
     this.adminActorIds = new Set(normalizeActorIdList(adminActorIds, "adminActorIds"));
     this.analyticsSalt = normalizeAnalyticsSalt(analyticsSalt);
+    this.githubOidcJwks = githubOidcJwks ?? null;
     this.authSessions = [];
     this.publisherClaims = [];
     this.publisherAccounts = new Map(defaultPublisherAccounts().map((publisher) => [publisher.handle, publisher]));
@@ -1188,7 +1193,7 @@ export class CoreHubLocalStorageAdapter {
     if (!trustedPublisher) throw httpError(403, "Trusted publisher config is not set for this package");
     const ownerHandle = this.packageOwnerHandle(packageId);
     if (ownerHandle) this.requirePackageLifecyclePermission(actor, ownerHandle, "package.publish_token.mint");
-    const request = normalizePublishTokenMintRequest(input, trustedPublisher);
+    const request = await resolvePublishTokenMintRequest(input, trustedPublisher, { now, jwks: this.githubOidcJwks });
     const mintedAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
     const token = `corehub_pub_${randomBytes(24).toString("base64url")}`;
@@ -1210,6 +1215,7 @@ export class CoreHubLocalStorageAdapter {
       runAttempt: request.runAttempt,
       sha: request.sha,
       ref: request.ref,
+      ...(request.oidc ? { oidc: request.oidc } : {}),
       mintedBy: actor,
       mintedAt,
       expiresAt,
@@ -1228,6 +1234,8 @@ export class CoreHubLocalStorageAdapter {
         runId: request.runId,
         sha: request.sha,
         ref: request.ref,
+        oidcVerified: Boolean(request.oidc),
+        ...(request.oidc ? { oidc: request.oidc } : {}),
       },
       createdAt: mintedAt,
     });
@@ -3187,6 +3195,50 @@ function normalizeTrustedPublisherRequest(input) {
   };
 }
 
+async function resolvePublishTokenMintRequest(input, trustedPublisher, { now = new Date(), jwks } = {}) {
+  if (typeof input?.oidcToken === "string" && input.oidcToken.trim().length > 0) {
+    return normalizePublishTokenMintRequestFromOidc(input, trustedPublisher, { now, jwks });
+  }
+  return normalizePublishTokenMintRequest(input, trustedPublisher);
+}
+
+async function normalizePublishTokenMintRequestFromOidc(input, trustedPublisher, { now, jwks }) {
+  const version = normalizeRequiredString(input?.version, "version");
+  const audience = defaultGitHubOidcAudience;
+  const { payload } = await verifyGitHubActionsOidcToken(input.oidcToken, {
+    audience,
+    jwks,
+    now,
+  });
+  const repository = normalizeRequiredString(payload.repository, "oidc.repository").toLowerCase();
+  const workflowFilename = workflowFilenameFromOidcClaims(payload);
+  const environment = typeof payload.environment === "string" && payload.environment.trim().length > 0 ? payload.environment.trim() : undefined;
+  if (repository !== trustedPublisher.repository) throw httpError(403, "OIDC repository does not match trusted publisher config");
+  if (workflowFilename !== trustedPublisher.workflowFilename) throw httpError(403, "OIDC workflow does not match trusted publisher config");
+  if ((environment ?? undefined) !== (trustedPublisher.environment ?? undefined)) {
+    throw httpError(403, "OIDC environment does not match trusted publisher config");
+  }
+  return {
+    version,
+    repository,
+    workflowFilename,
+    runId: normalizeRequiredString(payload.run_id, "oidc.run_id"),
+    runAttempt: normalizeRequiredString(payload.run_attempt ?? "1", "oidc.run_attempt"),
+    sha: normalizeRequiredString(payload.sha, "oidc.sha"),
+    ref: normalizeRequiredString(payload.ref, "oidc.ref"),
+    oidc: {
+      issuer: payload.iss,
+      audience,
+      subject: payload.sub,
+      jobWorkflowRef: payload.job_workflow_ref,
+      jobWorkflowSha: payload.job_workflow_sha,
+      workflowRef: payload.workflow_ref,
+      repositoryId: payload.repository_id,
+      runId: String(payload.run_id),
+    },
+  };
+}
+
 function normalizePublishTokenMintRequest(input, trustedPublisher) {
   const version = normalizeRequiredString(input?.version, "version");
   const repository = normalizeRequiredString(input?.repository ?? trustedPublisher.repository, "repository").toLowerCase();
@@ -3206,6 +3258,62 @@ function normalizePublishTokenMintRequest(input, trustedPublisher) {
     sha: normalizeRequiredString(input?.sha, "sha"),
     ref: normalizeRequiredString(input?.ref, "ref"),
   };
+}
+
+async function verifyGitHubActionsOidcToken(token, { audience = defaultGitHubOidcAudience, jwks, now = new Date() } = {}) {
+  const parts = String(token).split(".");
+  if (parts.length !== 3) throw httpError(403, "GitHub OIDC token must be a JWT");
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const header = decodeJwtJson(encodedHeader, "header");
+  const payload = decodeJwtJson(encodedPayload, "payload");
+  if (header.alg !== "RS256") throw httpError(403, "GitHub OIDC token must use RS256");
+  if (payload.iss !== githubOidcIssuer) throw httpError(403, "GitHub OIDC issuer is not trusted");
+  if (!jwtAudienceMatches(payload.aud, audience)) throw httpError(403, "GitHub OIDC audience does not match CoreHub publish-token audience");
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+  if (!Number.isFinite(payload.exp)) throw httpError(403, "GitHub OIDC token expiry is missing");
+  if (Number.isFinite(payload.nbf) && payload.nbf > nowSeconds + 60) throw httpError(403, "GitHub OIDC token is not valid yet");
+  if (payload.exp <= nowSeconds - 60) throw httpError(403, "GitHub OIDC token is expired");
+  const keySet = jwks ?? await fetchGitHubOidcJwks();
+  const jwk = (keySet.keys ?? []).find((key) => key.kid === header.kid && key.kty === "RSA");
+  if (!jwk) throw httpError(403, "GitHub OIDC signing key was not found");
+  const verifier = createVerify("RSA-SHA256");
+  verifier.update(`${encodedHeader}.${encodedPayload}`);
+  verifier.end();
+  const valid = verifier.verify(createPublicKey({ key: jwk, format: "jwk" }), decodeBase64Url(encodedSignature));
+  if (!valid) throw httpError(403, "GitHub OIDC token signature is invalid");
+  return { header, payload };
+}
+
+async function fetchGitHubOidcJwks() {
+  const response = await fetch(defaultGitHubOidcJwksUrl, {
+    headers: { accept: "application/json", "user-agent": "corehub-oidc-verifier" },
+  });
+  if (!response.ok) throw httpError(503, `GitHub OIDC JWKS fetch failed: ${response.status}`);
+  return response.json();
+}
+
+function workflowFilenameFromOidcClaims(payload) {
+  const ref = normalizeRequiredString(payload.job_workflow_ref ?? payload.workflow_ref, "oidc.job_workflow_ref");
+  const marker = "/.github/workflows/";
+  const index = ref.indexOf(marker);
+  if (index === -1) throw httpError(403, "GitHub OIDC workflow ref is missing workflow path");
+  return ref.slice(index + marker.length).split("@")[0].split("/").at(-1);
+}
+
+function jwtAudienceMatches(actual, expected) {
+  return Array.isArray(actual) ? actual.includes(expected) : actual === expected;
+}
+
+function decodeJwtJson(value, label) {
+  try {
+    return JSON.parse(decodeBase64Url(value).toString("utf8"));
+  } catch (error) {
+    throw httpError(403, `GitHub OIDC token ${label} is invalid`, { cause: error });
+  }
+}
+
+function decodeBase64Url(value) {
+  return Buffer.from(String(value).replace(/-/g, "+").replace(/_/g, "/"), "base64");
 }
 
 function normalizePackageReportRequest(input) {

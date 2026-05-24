@@ -46,7 +46,7 @@ Already implemented:
 | Publisher identity and claims | done | Keep local/JWT/session shape until browser OAuth hardens. |
 | Ownership transfers | done | Keep CoreHub transfer endpoints and CLI commands. |
 | Trusted publisher config | done | API v2 and CLI store package-level GitHub Actions trusted publisher policy. |
-| CI/OIDC publish token flow | partial | CoreHub-native mint/use/revoke exists; real GitHub OIDC JWT verification remains. |
+| CI/OIDC publish token flow | done | CoreHub verifies GitHub Actions OIDC JWTs against JWKS before minting publish tokens. |
 | Official channel guard | done | API and reusable workflow require admin, trusted publisher token, or explicit admin override for official live publish. |
 | Direct package publish endpoint parity | done | `corehub package publish` and the reusable package publish workflow wrap upload, verify, and pending review submission. |
 | Marketplace filters | done | Family, channel, category, capability, official, featured, and executes-code filters are wired into API v1/CLI. |
@@ -66,7 +66,7 @@ Already implemented:
 
 ### Phase F: Trusted Publisher and CI Publish Parity
 
-Status: implemented for CoreHub local/API v2/CLI/workflow parity, with real GitHub OIDC JWT verification remaining as production hardening.
+Status: implemented for CoreHub local/API v2/CLI/workflow parity, including GitHub Actions OIDC JWT verification for publish-token minting.
 
 Goal: ClawHub-style trusted publishing, implemented with CoreHub's auth, audit, and storage boundaries.
 
@@ -101,8 +101,10 @@ Implemented:
 - `corehub package publish <source> --dry-run` previews the combined publish path.
 - `corehub package publish <source> --registry <url>` uploads/verifies artifacts and creates a pending review submission.
 - `.github/workflows/package-publish.yml` provides a reusable CI wrapper with safe dry-run defaults and token-gated live submissions.
+- `corehub package publish-token mint --oidc` sends the GitHub Actions OIDC JWT to API v2, where CoreHub verifies issuer, audience, signature, repository, workflow, environment, expiry, and run metadata before minting.
+- `.github/workflows/package-publish.yml` can set `mint_publish_token: true` to mint a publish token from the caller's protected GitHub Actions run before live publish.
 - Live reusable workflow publishes must run from protected refs.
-- Live `official` workflow publishes require `publish_token_id` or an explicit `manual_override_reason`; the API still rejects non-admin official submissions without a trusted publisher token.
+- Live `official` workflow publishes require `publish_token_id`, `mint_publish_token`, or an explicit `manual_override_reason`; the API still rejects non-admin official submissions without a trusted publisher token.
 
 Gate:
 

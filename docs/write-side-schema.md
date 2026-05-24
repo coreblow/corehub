@@ -247,7 +247,7 @@ Phase 18 adds the server-side shape for artifact references. The API handler acc
 | `GET /corehub/api/v2/packages/:id/trusted-publisher` | Reads the package trusted publisher policy for owners, members, admins, and moderators. |
 | `PUT /corehub/api/v2/packages/:id/trusted-publisher` | Sets GitHub Actions trusted publisher policy for a package owner or admin. |
 | `DELETE /corehub/api/v2/packages/:id/trusted-publisher` | Removes trusted publisher policy without deleting package history. |
-| `POST /corehub/api/v2/packages/:id/publish-tokens` | Mints a short-lived publish token for a matching trusted publisher workflow run. |
+| `POST /corehub/api/v2/packages/:id/publish-tokens` | Mints a short-lived publish token for a matching trusted publisher workflow run. When `oidcToken` is present, CoreHub verifies the GitHub Actions OIDC JWT before minting. |
 | `POST /corehub/api/v2/packages/:id/publish-tokens/:tokenId/revoke` | Revokes a short-lived publish token and records the revocation audit event. |
 | `POST /corehub/api/v2/reviews/:id/approve` | Approves a pending submission review and creates an `available` package version. |
 | `POST /corehub/api/v2/reviews/:id/block` | Blocks a pending submission review and creates a blocked package version record for audit visibility. |
@@ -282,14 +282,14 @@ Package appeals are separate from package reports. A verified publisher can appe
 
 Package delete and undelete are soft lifecycle operations. Delete marks package versions with `softDeletedAt`, records the actor and optional reason, disables artifact download in state, and hides the package from Registry API v1. Undelete clears the soft-delete marker, records restore metadata, and makes the package visible again without rewriting submission, review, or audit history.
 
-Trusted publisher policy lets a package owner bind a package to one GitHub Actions repository, workflow filename, and optional environment. Short-lived publish tokens can only be minted when the requested repository, workflow, and environment match that policy. Official-channel submissions fail closed unless the actor is an admin or supplies a matching trusted publisher token, and manual submissions against a trusted-publisher package require a manual override reason.
+Trusted publisher policy lets a package owner bind a package to one GitHub Actions repository, workflow filename, and optional environment. Short-lived publish tokens can only be minted when the requested repository, workflow, and environment match that policy. With `corehub package publish-token mint --oidc`, CoreHub verifies the GitHub Actions OIDC JWT issuer, audience, RS256 signature, expiry, repository, workflow filename, environment, run id, run attempt, SHA, and ref before minting. Official-channel submissions fail closed unless the actor is an admin or supplies a matching trusted publisher token, and manual submissions against a trusted-publisher package require a manual override reason.
 
 The trusted publisher CLI shape is:
 
 ```sh
 corehub package trusted-publisher set plugin-lab --repository coreblow/plugin-lab --workflow publish.yml --registry http://127.0.0.1:8787/corehub
 corehub package trusted-publisher get plugin-lab --registry http://127.0.0.1:8787/corehub
-corehub package publish-token mint plugin-lab --version 0.2.0 --repository coreblow/plugin-lab --workflow publish.yml --run-id 12345 --sha abc123 --ref refs/heads/main --registry http://127.0.0.1:8787/corehub
+corehub package publish-token mint plugin-lab --version 0.2.0 --oidc --registry http://127.0.0.1:8787/corehub
 corehub package publish-token revoke plugin-lab --token-id publish-token-plugin-lab-0-2-0-000001 --registry http://127.0.0.1:8787/corehub
 ```
 

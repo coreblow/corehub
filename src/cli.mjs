@@ -2197,18 +2197,24 @@ async function runPackagePublishTokenCommand(values, registry) {
   if (subcommand === "mint") {
     const version = readOption(args, "--version");
     if (!version) throw new Error("package publish-token mint requires --version <version>");
+    const oidcToken = await readPublishTokenOidcToken(args);
     const result = await client.mintPublishToken(
       packageId,
-      {
-        version,
-        repository: readOption(args, "--repository"),
-        workflowFilename: readOption(args, "--workflow") ?? readOption(args, "--workflow-filename"),
-        environment: readOption(args, "--environment"),
-        runId: readOption(args, "--run-id") ?? "local-run",
-        runAttempt: readOption(args, "--run-attempt") ?? "1",
-        sha: readOption(args, "--sha") ?? "local-dev-sha",
-        ref: readOption(args, "--ref") ?? "refs/heads/main",
-      },
+      oidcToken
+        ? {
+            version,
+            oidcToken,
+          }
+        : {
+            version,
+            repository: readOption(args, "--repository"),
+            workflowFilename: readOption(args, "--workflow") ?? readOption(args, "--workflow-filename"),
+            environment: readOption(args, "--environment"),
+            runId: readOption(args, "--run-id") ?? "local-run",
+            runAttempt: readOption(args, "--run-attempt") ?? "1",
+            sha: readOption(args, "--sha") ?? "local-dev-sha",
+            ref: readOption(args, "--ref") ?? "refs/heads/main",
+          },
       { auth },
     );
     console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
@@ -2224,6 +2230,27 @@ async function runPackagePublishTokenCommand(values, registry) {
   }
 
   printPackageHelp();
+}
+
+async function readPublishTokenOidcToken(args) {
+  const explicit = readOption(args, "--oidc-token");
+  if (explicit) return explicit;
+  if (!hasFlag(args, "--oidc")) return null;
+  const requestToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  const requestUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  if (!requestToken || !requestUrl) {
+    throw new Error("package publish-token mint --oidc requires GitHub Actions id-token: write environment");
+  }
+  const audience = encodeURIComponent("corehub-publish-token");
+  const joiner = requestUrl.includes("?") ? "&" : "?";
+  const response = await fetch(`${requestUrl}${joiner}audience=${audience}`, {
+    headers: { authorization: `Bearer ${requestToken}`, accept: "application/json" },
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.value) {
+    throw new Error(`GitHub Actions OIDC token request failed: ${response.status}`);
+  }
+  return payload.value;
 }
 
 async function createPackagePublishDryRun(source, values, registry) {
@@ -3789,7 +3816,7 @@ Usage:
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package appeals resolve <appeal-id> --status accepted|rejected|open [--note text] [--action none|approve] --registry https://coreblow.com/corehub
   corehub package trusted-publisher get|set|delete <entry-id> [--repository owner/repo] [--workflow file.yml] [--environment name] --registry https://coreblow.com/corehub
-  corehub package publish-token mint <entry-id> --version version [--repository owner/repo] [--workflow file.yml] --registry https://coreblow.com/corehub
+  corehub package publish-token mint <entry-id> --version version [--oidc | --oidc-token jwt | --repository owner/repo --workflow file.yml] --registry https://coreblow.com/corehub
   corehub package publish-token revoke <entry-id> --token-id id --registry https://coreblow.com/corehub
   corehub package delete <entry-id> --yes [--reason text] --registry https://coreblow.com/corehub
   corehub package undelete <entry-id> --yes --registry https://coreblow.com/corehub
@@ -3828,7 +3855,7 @@ Usage:
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package appeals resolve <appeal-id> --status accepted|rejected|open [--note text] [--action none|approve] --registry https://coreblow.com/corehub
   corehub package trusted-publisher get|set|delete <entry-id> [--repository owner/repo] [--workflow file.yml] [--environment name] --registry https://coreblow.com/corehub
-  corehub package publish-token mint <entry-id> --version version [--repository owner/repo] [--workflow file.yml] --registry https://coreblow.com/corehub
+  corehub package publish-token mint <entry-id> --version version [--oidc | --oidc-token jwt | --repository owner/repo --workflow file.yml] --registry https://coreblow.com/corehub
   corehub package publish-token revoke <entry-id> --token-id id --registry https://coreblow.com/corehub
   corehub package delete <entry-id> --yes [--reason text] --registry https://coreblow.com/corehub
   corehub package undelete <entry-id> --yes --registry https://coreblow.com/corehub

@@ -402,8 +402,9 @@ The workflow follows the ClawHub reusable publish pattern while keeping CoreHub'
 - `dry_run: false` requires `secrets.corehub_token` and creates a pending review submission through API v2.
 - `dry_run: false` must run from a protected branch or tag, as reported by GitHub's `github.ref_protected` context.
 - `provider: managed` is the default preview mode. For production-lite external artifacts, set `provider: external-url` or `provider: github-raw` with `artifact_url`.
-- Optional `publish_token_id` and `manual_override_reason` inputs map to the CoreHub trusted-publisher and admin override guards.
-- Live `channel: official` publishes require `publish_token_id` or an explicit `manual_override_reason`; API v2 still rejects non-admin official submissions unless a trusted publisher token is attached.
+- Optional `publish_token_id`, `mint_publish_token`, and `manual_override_reason` inputs map to the CoreHub trusted-publisher and admin override guards.
+- `mint_publish_token: true` requests a GitHub Actions OIDC JWT, sends it to `corehub package publish-token mint --oidc`, and lets API v2 verify issuer, audience, signature, repository, workflow, environment, expiry, and run metadata before minting.
+- Live `channel: official` publishes require `publish_token_id`, `mint_publish_token`, or an explicit `manual_override_reason`; API v2 still rejects non-admin official submissions unless a trusted publisher token is attached.
 - JSON output and an uploaded `corehub-package-submit.json` artifact for downstream review.
 
 Example caller workflow:
@@ -430,7 +431,7 @@ jobs:
       dry_run: false
       provider: external-url
       artifact_url: https://github.com/coreblow/plugin-lab/releases/download/v0.2.0/plugin-lab-0.2.0.coreblow-plugin.tgz
-      publish_token_id: ${{ needs.mint.outputs.publish_token_id }}
+      mint_publish_token: true
     secrets:
       corehub_token: ${{ secrets.COREHUB_TOKEN }}
 ```

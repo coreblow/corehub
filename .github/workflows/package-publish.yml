@@ -57,6 +57,11 @@ on:
         description: Optional CoreHub publish token id minted for a trusted publisher run.
         required: false
         type: string
+      mint_publish_token:
+        description: Mint a CoreHub publish token from this GitHub Actions OIDC run before publishing.
+        required: false
+        type: boolean
+        default: false
       manual_override_reason:
         description: Optional admin override reason when bypassing trusted publisher policy.
         required: false
@@ -173,6 +178,7 @@ jobs:
           ARTIFACT_URL: ${{ inputs.artifact_url }}
           CHANNEL: ${{ inputs.channel }}
           PUBLISH_TOKEN_ID: ${{ inputs.publish_token_id }}
+          MINT_PUBLISH_TOKEN: ${{ inputs.mint_publish_token }}
           MANUAL_OVERRIDE_REASON: ${{ inputs.manual_override_reason }}
           REF_PROTECTED: ${{ github.ref_protected }}
           COREHUB_TOKEN: ${{ secrets.corehub_token }}
@@ -197,8 +203,8 @@ jobs:
             echo "::error::live publish with provider=$PROVIDER requires artifact_url."
             exit 1
           fi
-          if [[ "$DRY_RUN" != "true" && "$CHANNEL" == "official" && -z "$PUBLISH_TOKEN_ID" && -z "$MANUAL_OVERRIDE_REASON" ]]; then
-            echo "::error::official live publish requires publish_token_id or manual_override_reason."
+          if [[ "$DRY_RUN" != "true" && "$CHANNEL" == "official" && -z "$PUBLISH_TOKEN_ID" && "$MINT_PUBLISH_TOKEN" != "true" && -z "$MANUAL_OVERRIDE_REASON" ]]; then
+            echo "::error::official live publish requires publish_token_id, mint_publish_token, or manual_override_reason."
             exit 1
           fi
 
@@ -216,6 +222,7 @@ jobs:
           INPUT_ARTIFACT_URL: ${{ inputs.artifact_url }}
           INPUT_CHANNEL: ${{ inputs.channel }}
           INPUT_PUBLISH_TOKEN_ID: ${{ inputs.publish_token_id }}
+          INPUT_MINT_PUBLISH_TOKEN: ${{ inputs.mint_publish_token }}
           INPUT_MANUAL_OVERRIDE_REASON: ${{ inputs.manual_override_reason }}
           INPUT_MAX_BYTES: ${{ inputs.max_bytes }}
           SECRET_COREHUB_TOKEN: ${{ secrets.corehub_token }}
@@ -231,6 +238,31 @@ jobs:
           args=("package" "publish" "$source_path" "--registry" "$INPUT_REGISTRY")
           if [[ "$INPUT_DRY_RUN" == "true" ]]; then
             args+=("--dry-run")
+          fi
+          if [[ "$INPUT_DRY_RUN" != "true" && "$INPUT_MINT_PUBLISH_TOKEN" == "true" && -z "$INPUT_PUBLISH_TOKEN_ID" ]]; then
+            preview_path="$RUNNER_TEMP/corehub-package-preview.json"
+            preview_args=("package" "publish" "$source_path" "--registry" "$INPUT_REGISTRY" "--dry-run")
+            if [[ -n "$INPUT_PUBLISHER" ]]; then
+              preview_args+=("--publisher" "$INPUT_PUBLISHER")
+            fi
+            if [[ -n "$INPUT_SOURCE_URL" ]]; then
+              preview_args+=("--source" "$INPUT_SOURCE_URL")
+            fi
+            COREHUB_TOKEN="${SECRET_COREHUB_TOKEN:-corehub-local-dry-run-token}" \
+            COREHUB_USER="github:${GITHUB_ACTOR}" \
+            COREHUB_PUBLISHER="${INPUT_PUBLISHER:-}" \
+              node "$GITHUB_WORKSPACE/$COREHUB_SOURCE_PATH/src/cli.mjs" "${preview_args[@]}" > "$preview_path"
+            package_id="$(node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(p.package.id)' "$preview_path")"
+            package_version="$(node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(p.package.version)' "$preview_path")"
+            mint_path="$RUNNER_TEMP/corehub-publish-token.json"
+            COREHUB_TOKEN="$SECRET_COREHUB_TOKEN" \
+            COREHUB_USER="github:${GITHUB_ACTOR}" \
+            COREHUB_PUBLISHER="${INPUT_PUBLISHER:-}" \
+              node "$GITHUB_WORKSPACE/$COREHUB_SOURCE_PATH/src/cli.mjs" package publish-token mint "$package_id" \
+                --version "$package_version" \
+                --oidc \
+                --registry "$INPUT_REGISTRY" > "$mint_path"
+            INPUT_PUBLISH_TOKEN_ID="$(node -e 'const fs=require("node:fs"); const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(p.publishToken.id)' "$mint_path")"
           fi
           if [[ -n "$INPUT_PUBLISHER" ]]; then
             args+=("--publisher" "$INPUT_PUBLISHER")
