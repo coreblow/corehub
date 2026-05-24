@@ -4,7 +4,13 @@
 name = "corehub-api"
 compatibility_date = "2026-05-22"
 compatibility_flags = ["nodejs_compat"]
-main = "src/worker.mjs"
+main = "../../src/worker.mjs"
+routes = [
+  { pattern = "coreblow.com/corehub/api/*", zone_name = "coreblow.com" },
+  { pattern = "coreblow.com/corehub/admin*", zone_name = "coreblow.com" },
+  { pattern = "coreblow.com/corehub/publisher*", zone_name = "coreblow.com" },
+  { pattern = "coreblow.com/healthz", zone_name = "coreblow.com" },
+]
 
 [vars]
 COREHUB_STATE_STORE = "d1"

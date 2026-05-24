@@ -130,6 +130,8 @@ COREHUB_D1_STATE_TABLE=corehub_state
 
 For Cloudflare Worker deployments, bind the database as `COREHUB_D1` and set `COREHUB_SIGNING_SECRET`. Production deployments use `COREHUB_OBJECT_STORE=external-url`, which stores artifact URL references and redirects downloads to those URLs after CoreHub moderation checks. CoreHub production does not require a paid object-storage bucket.
 
+The committed Worker template routes only `/corehub/api/*`, `/corehub/admin*`, `/corehub/publisher*`, and `/healthz` through `corehub-api`. The static `/corehub/` directory page stays on the existing web surface.
+
 Deploy from the placeholder config:
 
 ```sh
@@ -167,6 +169,7 @@ To materialize a production config from the template:
 ```sh
 npm run deploy:worker:materialize -- --database-id <cloudflare-d1-database-id>
 wrangler secret put COREHUB_SIGNING_SECRET --config ops/cloudflare/wrangler.corehub-api.production.toml
+wrangler secret put COREHUB_SESSION_TOKEN_SHA256 --config ops/cloudflare/wrangler.corehub-api.production.toml
 COREHUB_SIGNING_SECRET=replace-with-operator-managed-secret npm run deploy:worker:check -- --config ops/cloudflare/wrangler.corehub-api.production.toml --require-wrangler
 wrangler deploy --config ops/cloudflare/wrangler.corehub-api.production.toml
 ```
@@ -298,6 +301,7 @@ Required GitHub configuration:
 | `COREHUB_D1_DATABASE_ID` | variable or workflow input | Production Cloudflare D1 database id. |
 | `COREHUB_USER` | variable | Audit actor for admin smoke, for example `github:coreblow-admin`. |
 | `COREHUB_SIGNING_SECRET` | secret | HMAC signing secret for artifact reads. |
+| `COREHUB_SESSION_TOKEN_SHA256` | secret | SHA-256 hash for the shared admin/publisher browser session token. |
 | `COREHUB_TOKEN` | secret | Operator token for admin status/support-bundle smoke. |
 | `CLOUDFLARE_API_TOKEN` | secret | Wrangler authentication. |
 | `CLOUDFLARE_ACCOUNT_ID` | secret | Cloudflare account used by Wrangler. |

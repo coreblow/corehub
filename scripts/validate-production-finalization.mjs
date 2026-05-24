@@ -18,6 +18,9 @@ const texts = Object.fromEntries(
 );
 
 requirePattern("production d1 binding", texts.wrangler, /\[\[d1_databases\]\][\s\S]*binding\s*=\s*"COREHUB_D1"/);
+requirePattern("production corehub api route", texts.wrangler, /coreblow\.com\/corehub\/api\/\*/);
+requirePattern("production corehub admin route", texts.wrangler, /coreblow\.com\/corehub\/admin\*/);
+requirePattern("production corehub publisher route", texts.wrangler, /coreblow\.com\/corehub\/publisher\*/);
 requirePattern("production object store mode", texts.wrangler, /COREHUB_OBJECT_STORE\s*=\s*"external-url"/);
 requirePattern("production signing secret", texts.wrangler, /wrangler secret put COREHUB_SIGNING_SECRET/);
 requirePattern("production session token hashes", texts.wrangler, /COREHUB_REQUIRE_SESSION_TOKEN_HASHES\s*=\s*"1"[\s\S]*COREHUB_SESSION_TOKEN_SHA256/);

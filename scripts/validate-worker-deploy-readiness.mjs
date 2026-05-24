@@ -31,9 +31,15 @@ function requirePresent(name, value) {
   else fail(name, "missing");
 }
 
-requireEqual("worker main", config.root.main, "src/worker.mjs");
+requireEqual("worker main", config.root.main, "../../src/worker.mjs");
 if ((config.root.compatibility_flags ?? "").includes("nodejs_compat")) pass("nodejs_compat", config.root.compatibility_flags);
 else fail("nodejs_compat", "compatibility_flags must include nodejs_compat");
+if (/coreblow\.com\/corehub\/api\/\*/.test(text)) pass("CoreHub API route", "coreblow.com/corehub/api/*");
+else fail("CoreHub API route", "missing coreblow.com/corehub/api/* route");
+if (/coreblow\.com\/corehub\/admin\*/.test(text)) pass("CoreHub admin route", "coreblow.com/corehub/admin*");
+else fail("CoreHub admin route", "missing coreblow.com/corehub/admin* route");
+if (/coreblow\.com\/corehub\/publisher\*/.test(text)) pass("CoreHub publisher route", "coreblow.com/corehub/publisher*");
+else fail("CoreHub publisher route", "missing coreblow.com/corehub/publisher* route");
 
 requireEqual("state store", config.vars.COREHUB_STATE_STORE, "d1");
 requirePresent("public base URL", config.vars.COREHUB_PUBLIC_BASE_URL);

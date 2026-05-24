@@ -83,6 +83,7 @@ jobs:
       COREHUB_SMOKE_PACKAGE: ${{ inputs.package }}
       COREHUB_D1_DATABASE_ID: ${{ inputs.d1_database_id || vars.COREHUB_D1_DATABASE_ID }}
       COREHUB_SIGNING_SECRET: ${{ secrets.COREHUB_SIGNING_SECRET }}
+      COREHUB_SESSION_TOKEN_SHA256: ${{ secrets.COREHUB_SESSION_TOKEN_SHA256 }}
       COREHUB_TOKEN: ${{ secrets.COREHUB_TOKEN }}
       COREHUB_USER: ${{ vars.COREHUB_USER || 'github:coreblow-admin' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -98,6 +99,9 @@ jobs:
           fi
           if [[ -z "$COREHUB_SIGNING_SECRET" ]]; then
             missing+=("COREHUB_SIGNING_SECRET")
+          fi
+          if [[ -z "$COREHUB_SESSION_TOKEN_SHA256" ]]; then
+            missing+=("COREHUB_SESSION_TOKEN_SHA256")
           fi
           if [[ -z "$COREHUB_TOKEN" ]]; then
             missing+=("COREHUB_TOKEN")
@@ -129,24 +133,27 @@ jobs:
       - name: Materialize production Wrangler config
         run: |
           set -euo pipefail
-          WRANGLER_CONFIG="$RUNNER_TEMP/wrangler.corehub-api.production.toml"
+          WRANGLER_CONFIG="ops/cloudflare/wrangler.corehub-api.production.toml"
           node scripts/materialize-worker-config.mjs \
             --database-id "$COREHUB_D1_DATABASE_ID" \
             --output "$WRANGLER_CONFIG" \
             --force
 
       - name: Run production deploy preflight
-        run: npm run deploy:worker:check -- --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml" --require-wrangler
+        run: npm run deploy:worker:check -- --config ops/cloudflare/wrangler.corehub-api.production.toml --require-wrangler
 
       - name: Plan D1 migration
-        run: npm run persistence:d1 -- apply --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml" --dry-run
+        run: npm run persistence:d1 -- apply --config ops/cloudflare/wrangler.corehub-api.production.toml --dry-run
 
       - name: Deploy Worker
         if: needs.validate-deploy-request.outputs.run_deploy == 'true'
         run: |
           set -euo pipefail
-          npm run persistence:d1 -- apply --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml" --apply
-          wrangler deploy --config "$RUNNER_TEMP/wrangler.corehub-api.production.toml"
+          npm run persistence:d1 -- apply --config ops/cloudflare/wrangler.corehub-api.production.toml --apply
+          wrangler deploy --config ops/cloudflare/wrangler.corehub-api.production.toml
+          printf '%s' "$COREHUB_SIGNING_SECRET" | wrangler secret put COREHUB_SIGNING_SECRET --config ops/cloudflare/wrangler.corehub-api.production.toml
+          printf '%s' "$COREHUB_SESSION_TOKEN_SHA256" | wrangler secret put COREHUB_SESSION_TOKEN_SHA256 --config ops/cloudflare/wrangler.corehub-api.production.toml
+          wrangler deploy --config ops/cloudflare/wrangler.corehub-api.production.toml
 
       - name: Run post-deploy smoke
         run: |
@@ -172,5 +179,5 @@ jobs:
           path: |
             ${{ runner.temp }}/corehub-deploy/post-deploy-smoke.log
             ${{ runner.temp }}/corehub-deploy/corehub-support-bundle.json
-            ${{ runner.temp }}/wrangler.corehub-api.production.toml
+            ops/cloudflare/wrangler.corehub-api.production.toml
           if-no-files-found: ignore
