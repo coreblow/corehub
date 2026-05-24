@@ -144,6 +144,7 @@ The v1 API is static-catalog backed. It is intentionally read-only until publish
 | `GET` | `/corehub/api/v1/packages/:id/versions` | Return publisher-owned version metadata. |
 | `GET` | `/corehub/api/v1/packages/:id/versions/:version/security` | Return the version-exact public security and trust summary used by install clients. |
 | `GET` | `/corehub/api/v1/packages/:id/files` | Return file metadata from the artifact manifest. |
+| `GET` | `/corehub/api/v1/packages/:id/file?path=<path>` | Return raw UTF-8 text content for a verified package file. Supports optional `version` or `tag`. |
 | `GET` | `/corehub/api/v1/packages/:id/artifact` | Return artifact manifest metadata, checksum, provenance, storage locator, and download policy. |
 | `GET` | `/corehub/api/v1/packages/:id/download` | Return a signed storage redirect, or signed download metadata with `redirect=false`. |
 | `GET` | `/corehub/api/v1/packages/:id/moderation` | Return package review state, latest-version download block state, and moderation reasons. |
@@ -187,6 +188,8 @@ When edge rate limiting is enabled, responses include standard limit headers:
 The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
 
 Download endpoints support storage-backed signed redirects. The default response is a `302` to the artifact storage URL; CLI clients use `redirect=false` to inspect the signed contract before fetching bytes.
+
+Package file reads are limited to files listed in the artifact manifest, or files derived from a managed `.tgz` artifact when the manifest is not stored yet. File reads reject absolute or parent-relative paths, return only UTF-8 text files, and enforce a 200KB public read limit. External artifact URL mode can list manifest files, but raw file reads require managed artifact bytes.
 
 The npm mirror is intentionally minimal. It lists only available `.tgz` package versions and emits npm-compatible `dist.tarball`, `dist.integrity`, and `dist.shasum` fields. When a SHA-1 npm shasum is not available in package metadata, `dist.shasum` is `null` and clients should verify with `dist.integrity` plus CoreHub's `dist.corehubSha256`.
 

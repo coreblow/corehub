@@ -63,6 +63,8 @@ Implemented v1 read endpoints:
 - `GET /corehub/api/v1/packages/:id`
 - `GET /corehub/api/v1/packages/:id/versions`
 - `GET /corehub/api/v1/packages/:id/versions/:version/security`
+- `GET /corehub/api/v1/packages/:id/files`
+- `GET /corehub/api/v1/packages/:id/file?path=<path>`
 - `GET /corehub/api/npm/:package`
 - `GET /corehub/api/npm/:package/-/:tarball.tgz`
 
@@ -73,7 +75,6 @@ Implemented ClawHub-style public API compatibility starters:
 
 Still pending or deferred for full ClawHub product parity:
 
-- package file route
 - real browser OAuth and fuller user/org account management
 - deep hosted scanner pipeline and rescan/backfill operations
 - normalized package persistence/search digest tables for scale

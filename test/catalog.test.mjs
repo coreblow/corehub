@@ -2186,6 +2186,24 @@ try {
     assert.equal(projectedPackagePayload.data.publisher.handle, "coreblow");
     assert.equal(projectedPackagePayload.data.versions[0].artifact.storage.provider, "managed");
 
+    const projectedPackageFilesResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/files`);
+    assert.equal(projectedPackageFilesResponse.status, 200);
+    const projectedPackageFilesPayload = await projectedPackageFilesResponse.json();
+    assert.equal(projectedPackageFilesPayload.data.files.some((file) => file.path === "README.md"), true);
+
+    const projectedPackageFileResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/file?path=README.md`);
+    assert.equal(projectedPackageFileResponse.status, 200);
+    assert.match(projectedPackageFileResponse.headers.get("content-type"), /text\/plain/);
+    assert.equal(
+      projectedPackageFileResponse.headers.get("x-corehub-file-sha256"),
+      entries[2].versions[0].artifact.files.find((file) => file.path === "README.md").sha256,
+    );
+    assert.match(await projectedPackageFileResponse.text(), /Plugin Lab Basic Plugin/);
+
+    const invalidPackageFileResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/file?path=../package.json`);
+    assert.equal(invalidPackageFileResponse.status, 400);
+    assert.match(await invalidPackageFileResponse.text(), /relative package file path/);
+
     const projectedVersionsResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/versions`);
     assert.equal(projectedVersionsResponse.status, 200);
     const projectedVersionsPayload = await projectedVersionsResponse.json();

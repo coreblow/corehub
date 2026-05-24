@@ -45,7 +45,7 @@ ClawHub sources audited from `/Users/febrinanda/openclaw-refs/clawhub`:
 
 CoreHub is accepted for v1 package marketplace parity. Full ClawHub parity is not complete.
 
-The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth: package file reads, deep hosted scanner pipeline, normalized persistence/indexing, full account/org/auth model, richer moderator tooling, and full skill/community marketplace surfaces.
+The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth: deep hosted scanner pipeline, normalized persistence/indexing, full account/org/auth model, richer moderator tooling, and full skill/community marketplace surfaces.
 
 ## Matrix Lock
 
@@ -66,7 +66,7 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Exact package security endpoint | v1 accepted | `GET /api/v1/packages/{name}/versions/{version}/security` returns exact release security and trust summary. | CoreHub now exposes version-exact public security and trust summary for install clients. | Keep covered by route tests. |
 | npm packument endpoint | v1 accepted | `GET /api/npm/{package}` supports npm-compatible packument, including scoped package paths. | CoreHub now emits minimal npm-compatible packuments for available `.tgz` versions, with tarball, integrity, shasum, and CoreHub SHA-256 metadata. | Keep covered by route tests. |
 | npm tarball endpoint | v1 accepted | `GET /api/npm/{package}/-/{tarball}.tgz` redirects/serves package tarballs. | CoreHub now redirects npm tarball requests to the exact signed or external artifact URL and preserves integrity headers. | Keep covered by route tests. |
-| Package file route | full parity missing | `GET /api/v1/packages/{name}/file?path=...` reads package file content. | CoreHub has artifact metadata/read path, but not ClawHub-style package file read. | Implement P0/P1 if CLI/UI needs file previews. |
+| Package file route | v1 accepted | `GET /api/v1/packages/{name}/file?path=...` reads package file content. | CoreHub now exposes package file manifests and raw UTF-8 text reads for managed verified artifact files, with path, size, checksum, and moderation checks. | Keep covered by route tests. |
 | Cursor pagination | v1 accepted | ClawHub list/search supports cursor pagination and merged source cursors. | CoreHub list/search/version routes now return cursor-aware metadata with backward-compatible offset reads. | Keep covered by route tests. |
 | Standard rate limit headers | v1 accepted | ClawHub documents read/write/download buckets with `X-RateLimit-*` and `RateLimit-*` headers. | CoreHub fixed-window limiter now emits `X-RateLimit-*`, `RateLimit-*`, and `Retry-After` on limited responses. | Add separate policy buckets later if needed. |
 | Error envelope compatibility | full parity missing | ClawHub public API has documented auth, permission, rate-limit, and blocked-download failure semantics. | CoreHub has JSON errors, but not a locked ClawHub-compatible public error contract. | Lock and test error response schema. |
@@ -86,10 +86,7 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 
 The next work should not start another broad phase. Implement these rows one at a time:
 
-1. Add package file route:
-   - `GET /corehub/api/v1/packages/:name/file?path=...`
-   - only expose files from verified/readable artifact manifests.
-2. Lock the public error envelope for auth, permission, rate limit, not found, and blocked download.
+1. Lock the public error envelope for auth, permission, rate limit, not found, and blocked download.
 
 ## P1 Implementation Order
 

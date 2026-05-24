@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { createHash, createHmac, createPublicKey, createVerify, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { listCatalogRecords, parseMarketplaceFiltersFromUrl, searchCatalogRecords } from "./corehub.mjs";
 
 const defaultApiBasePath = "/corehub/api/v2";
@@ -2841,6 +2842,19 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
       const version = findProjectedVersion(entry, segments[3]);
       return version ? dataResponse(createPackageSecuritySummary(entry, version)) : dataResponse(null, 0, 404);
     }
+    if (segments[2] === "files" && segments.length === 3) {
+      const version = selectPackageVersionForRead(entry, url);
+      if (!version) return dataResponse(null, 0, 404);
+      const files = await packageArtifactFiles(storage, version.artifact);
+      return dataResponse({
+        package: { id: entry.id, kind: entry.kind, name: entry.name },
+        version: version.version,
+        files,
+      });
+    }
+    if (segments[2] === "file" && segments.length === 3) {
+      return packageFileResponse(storage, entry, url);
+    }
     if (segments[2] === "moderation" && segments.length === 3) return dataResponse(createPackageModerationStatus(entry));
     if (segments[2] === "readiness" && segments.length === 3) return dataResponse(createPackageReadiness(entry));
     if (segments[2] === "artifact" && segments.length === 3) {
@@ -2938,6 +2952,119 @@ async function projectedDownloadResponse(storage, request, url, entry, { actor, 
     artifact: version.artifact,
     download,
   });
+}
+
+async function packageFileResponse(storage, entry, url) {
+  const version = selectPackageVersionForRead(entry, url);
+  if (!version) return textResponse("Package version not found", 404);
+  const artifact = version.artifact;
+  if (artifact?.downloadEnabled === false || artifact?.trust?.blockedFromDownload) {
+    return textResponse(artifact?.trust?.moderationReason ?? "Package release is blocked by moderation.", 403);
+  }
+  const requestedPath = normalizePackageFilePath(url.searchParams.get("path"));
+  if (isExternalArtifactProvider(artifact?.storage?.provider)) {
+    return textResponse("Package file reads require managed artifact bytes", 409);
+  }
+  const files = await packageArtifactFiles(storage, artifact);
+  const manifestFile = files.find((file) => normalizePackageFilePath(file.path) === requestedPath);
+  if (!manifestFile) return textResponse("Package file not found", 404);
+  if (!Number.isSafeInteger(manifestFile.size) || manifestFile.size > 200 * 1024) {
+    return textResponse("Package file is too large to read through the public file endpoint", 413);
+  }
+  const key = artifact?.storage?.key;
+  if (!key) return textResponse("Package artifact storage key is missing", 404);
+  const archive = await storage.objectStore.get(key);
+  if (!archive) return textResponse("Package artifact object not found", 404);
+  const content = readTarGzTextFile(archive, requestedPath, manifestFile);
+  return {
+    statusCode: 200,
+    headers: {
+      "Content-Type": "text/plain;charset=UTF-8",
+      "Cache-Control": "public, max-age=60",
+      "X-CoreHub-Package-File": requestedPath,
+      "X-CoreHub-Package-Version": version.version,
+      "X-CoreHub-File-SHA256": manifestFile.sha256,
+    },
+    body: content,
+  };
+}
+
+async function packageArtifactFiles(storage, artifact) {
+  if (Array.isArray(artifact?.files) && artifact.files.length > 0) return artifact.files;
+  if (isExternalArtifactProvider(artifact?.storage?.provider)) return [];
+  const key = artifact?.storage?.key;
+  if (!key) return [];
+  const archive = await storage.objectStore.get(key);
+  if (!archive) return [];
+  return listTarGzFiles(archive);
+}
+
+function listTarGzFiles(archive) {
+  const tar = gunzipSync(archive);
+  const files = [];
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const path = normalizePackageFilePath(prefix ? `${prefix}/${name}` : name);
+    const size = Number.parseInt(readTarString(header, 124, 12).trim() || "0", 8);
+    const typeflag = readTarString(header, 156, 1);
+    const dataStart = offset + 512;
+    const dataEnd = dataStart + size;
+    if (typeflag === "" || typeflag === "0") {
+      const bytes = tar.subarray(dataStart, dataEnd);
+      files.push({
+        path,
+        size,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      });
+    }
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+  return files;
+}
+
+function readTarGzTextFile(archive, requestedPath, manifestFile) {
+  const tar = gunzipSync(archive);
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const path = normalizePackageFilePath(prefix ? `${prefix}/${name}` : name);
+    const size = Number.parseInt(readTarString(header, 124, 12).trim() || "0", 8);
+    const typeflag = readTarString(header, 156, 1);
+    const dataStart = offset + 512;
+    const dataEnd = dataStart + size;
+    if (path === requestedPath && (typeflag === "" || typeflag === "0")) {
+      const bytes = tar.subarray(dataStart, dataEnd);
+      if (bytes.length !== manifestFile.size) throw httpError(409, "Package file size does not match artifact manifest");
+      const digest = createHash("sha256").update(bytes).digest("hex");
+      if (digest !== manifestFile.sha256) throw httpError(409, "Package file checksum does not match artifact manifest");
+      const text = bytes.toString("utf8");
+      if (text.includes("\uFFFD") || bytes.includes(0)) throw httpError(415, "Package file is not UTF-8 text");
+      return text;
+    }
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+  throw httpError(404, "Package file not found in artifact");
+}
+
+function readTarString(buffer, offset, length) {
+  const raw = buffer.subarray(offset, offset + length);
+  const nul = raw.indexOf(0);
+  return raw.subarray(0, nul === -1 ? raw.length : nul).toString("utf8").trim();
+}
+
+function normalizePackageFilePath(value) {
+  const path = normalizeRequiredString(value, "path").replace(/\\/g, "/").replace(/^\.\/+/, "");
+  if (path.startsWith("/") || path.split("/").some((part) => part === "" || part === "." || part === "..")) {
+    throw httpError(400, "path must be a relative package file path");
+  }
+  return path;
 }
 
 function findProjectedEntry(entries, id) {
@@ -3090,6 +3217,14 @@ function selectLatestPackageVersion(entry) {
     entry.versions?.toSorted((left, right) => String(right.publishedAt ?? "").localeCompare(String(left.publishedAt ?? ""))).at(0) ??
     null
   );
+}
+
+function selectPackageVersionForRead(entry, url) {
+  const version = url.searchParams.get("version");
+  if (version) return findProjectedVersion(entry, version);
+  const tag = url.searchParams.get("tag");
+  if (tag) return entry.versions?.find((item) => item.tag === tag) ?? null;
+  return selectLatestPackageVersion(entry);
 }
 
 function createPackageSecuritySummary(entry, version) {
@@ -3339,6 +3474,17 @@ function redirectResponse(location, statusCode = 302) {
 
 function binaryResponse(body, headers = {}, statusCode = 200) {
   return { statusCode, headers, body };
+}
+
+function textResponse(body, statusCode = 200, headers = {}) {
+  return {
+    statusCode,
+    headers: {
+      "Content-Type": "text/plain;charset=UTF-8",
+      ...headers,
+    },
+    body,
+  };
 }
 
 function sendApiResult(response, result) {
