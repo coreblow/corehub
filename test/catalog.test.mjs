@@ -1384,7 +1384,11 @@ try {
     }),
   });
   assert.equal(pendingUploadResponse.status, 403);
-  assert.match((await pendingUploadResponse.json()).error, /is not verified for artifact\.upload\.request/);
+  const pendingUploadError = await pendingUploadResponse.json();
+  assert.match(pendingUploadError.error, /is not verified for artifact\.upload\.request/);
+  assert.equal(pendingUploadError.errorCode, "forbidden");
+  assert.equal(pendingUploadError.status, 403);
+  assert.equal(pendingUploadError.message, pendingUploadError.error);
 
   // Admin verifies publisher
   const verifyResponse = await fetch(`${apiBaseUrl}/publishers/new-org/verify`, {
@@ -1438,7 +1442,10 @@ try {
     }),
   });
   assert.equal(unauthorizedUploadResponse.status, 403);
-  assert.match((await unauthorizedUploadResponse.json()).error, /cannot artifact\.upload\.request/);
+  const unauthorizedUploadError = await unauthorizedUploadResponse.json();
+  assert.match(unauthorizedUploadError.error, /cannot artifact\.upload\.request/);
+  assert.equal(unauthorizedUploadError.errorCode, "forbidden");
+  assert.equal(unauthorizedUploadError.status, 403);
 
   const uploadRequestResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
     method: "POST",
@@ -2194,6 +2201,31 @@ try {
     assert.equal(projectedPackagePayload.data.publisher.handle, "coreblow");
     assert.equal(projectedPackagePayload.data.versions[0].artifact.storage.provider, "managed");
 
+    const missingProjectedPackageResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/missing-package`);
+    assert.equal(missingProjectedPackageResponse.status, 404);
+    assert.match(missingProjectedPackageResponse.headers.get("content-type"), /text\/plain/);
+    assert.equal(await missingProjectedPackageResponse.text(), "Not found");
+
+    const missingV2Response = await fetch(`${apiBaseUrl}/missing-route`);
+    assert.equal(missingV2Response.status, 404);
+    const missingV2Payload = await missingV2Response.json();
+    assert.equal(missingV2Payload.error, "Not found");
+    assert.equal(missingV2Payload.errorCode, "not_found");
+    assert.equal(missingV2Payload.status, 404);
+
+    const missingSessionTokenResponse = await fetch(`${apiBaseUrl}/session/validate?role=admin`);
+    assert.equal(missingSessionTokenResponse.status, 401);
+    const missingSessionTokenPayload = await missingSessionTokenResponse.json();
+    assert.equal(missingSessionTokenPayload.errorCode, "unauthorized");
+    assert.equal(missingSessionTokenPayload.status, 401);
+    assert.match(missingSessionTokenPayload.error, /Session token is required/);
+
+    const forbiddenAdminStatusResponse = await fetch(`${apiBaseUrl}/admin/status`);
+    assert.equal(forbiddenAdminStatusResponse.status, 403);
+    const forbiddenAdminStatusPayload = await forbiddenAdminStatusResponse.json();
+    assert.equal(forbiddenAdminStatusPayload.errorCode, "forbidden");
+    assert.equal(forbiddenAdminStatusPayload.status, 403);
+
     const projectedPackageFilesResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/files`);
     assert.equal(projectedPackageFilesResponse.status, 200);
     const projectedPackageFilesPayload = await projectedPackageFilesResponse.json();
@@ -2324,7 +2356,8 @@ try {
 
     const invalidCursorResponse = await fetch(`${apiRegistryUrl}/api/v1/packages?cursor=not-a-cursor`);
     assert.equal(invalidCursorResponse.status, 400);
-    assert.match((await invalidCursorResponse.json()).error, /cursor/);
+    assert.match(invalidCursorResponse.headers.get("content-type"), /text\/plain/);
+    assert.match(await invalidCursorResponse.text(), /cursor/);
 
     const projectedPackageFilterResponse = await fetch(`${apiRegistryUrl}/api/v1/packages?family=code-plugin&capabilityTag=published`);
     assert.equal(projectedPackageFilterResponse.status, 200);
@@ -2532,8 +2565,8 @@ try {
 
     const quarantinedDownloadResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/download?redirect=false`);
     assert.equal(quarantinedDownloadResponse.status, 403);
-    const quarantinedDownloadPayload = await quarantinedDownloadResponse.json();
-    assert.equal(quarantinedDownloadPayload.data.download.blocked, true);
+    assert.match(quarantinedDownloadResponse.headers.get("content-type"), /text\/plain/);
+    assert.match(await quarantinedDownloadResponse.text(), /Confirmed report fixture|quarantined|blocked|moderation/i);
 
     const packageAppeal = await execFileAsync(
       process.execPath,
@@ -2881,13 +2914,14 @@ try {
   assert.equal(firstRateLimited.headers.get("ratelimit-remaining"), "0");
   const secondRateLimited = await fetch(rateLimitUrl, { headers: { "x-corehub-client-id": "rate-limit-test" } });
   assert.equal(secondRateLimited.status, 429);
+  assert.match(secondRateLimited.headers.get("content-type"), /text\/plain/);
   assert.equal(secondRateLimited.headers.get("retry-after"), "60");
   assert.equal(secondRateLimited.headers.get("x-ratelimit-limit"), "1");
   assert.equal(secondRateLimited.headers.get("x-ratelimit-remaining"), "0");
   assert.equal(secondRateLimited.headers.get("ratelimit-limit"), "1");
   assert.equal(secondRateLimited.headers.get("ratelimit-remaining"), "0");
   assert.equal(secondRateLimited.headers.get("ratelimit-reset"), "60");
-  assert.equal((await secondRateLimited.json()).error, "Rate limit exceeded");
+  assert.equal(await secondRateLimited.text(), "Rate limit exceeded");
 } finally {
   await new Promise((resolve) => rateLimitServer.close(resolve));
   await rm(rateLimitStorageDir, { recursive: true, force: true });

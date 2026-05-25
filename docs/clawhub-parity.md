@@ -72,6 +72,7 @@ Implemented ClawHub-style public API compatibility starters:
 
 - List, search, and versions routes return cursor-aware `meta` with `limit`, `offset`, `cursor`, `nextCursor`, and `hasMore`.
 - Rate-limited responses include `X-RateLimit-*`, `RateLimit-*`, and `Retry-After` headers.
+- Public v1 and npm mirror errors use ClawHub-compatible plain text bodies; authenticated v2 errors use a stable JSON envelope with `errorCode`, `status`, and legacy `error` string compatibility.
 
 Still pending or deferred for full ClawHub product parity:
 

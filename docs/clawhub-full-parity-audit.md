@@ -69,7 +69,7 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Package file route | v1 accepted | `GET /api/v1/packages/{name}/file?path=...` reads package file content. | CoreHub now exposes package file manifests and raw UTF-8 text reads for managed verified artifact files, with path, size, checksum, and moderation checks. | Keep covered by route tests. |
 | Cursor pagination | v1 accepted | ClawHub list/search supports cursor pagination and merged source cursors. | CoreHub list/search/version routes now return cursor-aware metadata with backward-compatible offset reads. | Keep covered by route tests. |
 | Standard rate limit headers | v1 accepted | ClawHub documents read/write/download buckets with `X-RateLimit-*` and `RateLimit-*` headers. | CoreHub fixed-window limiter now emits `X-RateLimit-*`, `RateLimit-*`, and `Retry-After` on limited responses. | Add separate policy buckets later if needed. |
-| Error envelope compatibility | full parity missing | ClawHub public API has documented auth, permission, rate-limit, and blocked-download failure semantics. | CoreHub has JSON errors, but not a locked ClawHub-compatible public error contract. | Lock and test error response schema. |
+| Error response compatibility | v1 accepted | ClawHub public API uses plain text errors for validation, auth, permission, rate-limit, not found, and blocked-download failures. | CoreHub public v1/npm errors now use ClawHub-compatible plain text, while authenticated v2 errors have a stable JSON envelope with legacy `error` string compatibility. | Keep covered by public and v2 error route tests. |
 | Static scanner pipeline | v1 accepted | Static scan job model, scan status, rescan/backfill operations, and scanner evidence. | CoreHub now stores static scan jobs, emits public scan status, exposes admin rescan/backfill routes, and includes scan counts/evidence in support bundles. | Keep covered by route tests. |
 | Deep hosted scanner parity | intentionally deferred | VirusTotal-style scanner state, LLM/ClawScan review, hosted queues, external scanner callbacks, and rich rescan policy. | CoreHub has the scanner boundary and static evidence model, but does not implement ClawHub scanner internals. | Post-v1 major phase. |
 | Normalized package persistence | v1 accepted | ClawHub has normalized `packages`, `packageReleases`, stats, reports, appeals, scan jobs, search digests, trusted publishers, token tables. | CoreHub now uses D1 normalized meta/row/index tables while preserving the logical state-store boundary and legacy snapshot fallback. | Keep covered by D1 migration and Worker smoke tests. |
@@ -85,9 +85,7 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 
 ## P0 Implementation Order
 
-The next work should not start another broad phase. Implement these rows one at a time:
-
-1. Lock the public error envelope for auth, permission, rate limit, not found, and blocked download.
+No P0 compatibility rows remain for CoreHub v1 package marketplace acceptance.
 
 ## P1 Implementation Order
 

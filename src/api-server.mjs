@@ -2513,16 +2513,15 @@ export function createCoreHubApiHandler({
   const limiter = createRateLimiter(rateLimit);
   const sessionAuth = createSessionAuth(sessionTokens);
   return async function coreHubApiHandler(request, response) {
+    let errorMode = "v2";
     try {
       const url = new URL(request.url, "http://127.0.0.1");
+      errorMode = errorModeForPath(url.pathname, basePath);
       const rateLimitResult = limiter?.check(request, now());
       if (rateLimitResult) applyRateLimitHeaders(response, rateLimitResult);
       if (rateLimitResult?.limited) {
         response.setHeader("Retry-After", String(rateLimitResult.retryAfterSeconds));
-        return json(response, 429, {
-          error: "Rate limit exceeded",
-          retryAfterSeconds: rateLimitResult.retryAfterSeconds,
-        });
+        return sendError(response, 429, "Rate limit exceeded", { mode: errorMode, retryAfterSeconds: rateLimitResult.retryAfterSeconds });
       }
       if (request.method === "GET" && ["/corehub/admin", "/corehub/admin/"].includes(url.pathname)) {
         response.statusCode = 200;
@@ -2559,7 +2558,7 @@ export function createCoreHubApiHandler({
       }
 
       const segments = trimBasePath(url.pathname, basePath);
-      if (!segments) return json(response, 404, { error: "Not found" });
+      if (!segments) return sendError(response, 404, "Not found", { mode: errorMode });
 
       if (request.method === "GET" && segments[0] === "session" && segments[1] === "validate" && segments.length === 2) {
         const result = validateSessionRequest(storage, request, url.searchParams.get("role") ?? "publisher", sessionAuth);
@@ -3130,13 +3129,21 @@ export function createCoreHubApiHandler({
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
-      return json(response, 404, { error: "Not found" });
+      return sendError(response, 404, "Not found", { mode: errorMode });
     } catch (error) {
-      return json(response, error.statusCode ?? 500, {
-        error: error instanceof Error ? error.message : "CoreHub API error",
+      return sendError(response, error.statusCode ?? 500, error instanceof Error ? error.message : "CoreHub API error", {
+        mode: errorMode,
+        code: error.code,
+        details: error.details,
       });
     }
   };
+}
+
+function errorModeForPath(pathname, basePath) {
+  if (trimBasePath(pathname, "/corehub/api/v1") || trimBasePath(pathname, "/corehub/api/npm")) return "public-v1";
+  if (trimBasePath(pathname, basePath)) return "v2";
+  return "v2";
 }
 
 async function handleProjectedRegistryV1(storage, request, url, segments, { actor = defaultActor(), now = new Date() } = {}) {
@@ -3306,22 +3313,7 @@ async function handleNpmMirror(storage, request, url, segments, { actor = defaul
 async function projectedDownloadResponse(storage, request, url, entry, { actor, baseUrl, now }) {
   const version = entry.versions.find((item) => item.tag === "latest") ?? entry.versions[0];
   if (version.artifact?.downloadEnabled === false || version.artifact?.trust?.blockedFromDownload) {
-    return dataResponse(
-      {
-        package: { id: entry.id, kind: entry.kind, name: entry.name },
-        version: version.version,
-        publisher: entry.publisher,
-        artifact: version.artifact,
-        download: {
-          available: false,
-          blocked: true,
-          reason: version.artifact?.trust?.moderationReason ?? "Package release is blocked by moderation.",
-          trust: version.artifact?.trust ?? null,
-        },
-      },
-      1,
-      403,
-    );
+    return textResponse(version.artifact?.trust?.moderationReason ?? "Package release is blocked by moderation.", 403);
   }
   const download = await storage.createArtifactDownload(version.artifact, { actor, baseUrl, now });
   if (download.available && url.searchParams.get("redirect") !== "false") {
@@ -3821,7 +3813,11 @@ function npmShasum(artifact) {
 function npmErrorResponse(error, statusCode) {
   return {
     statusCode,
-    payload: { error },
+    headers: {
+      "Content-Type": "text/plain;charset=UTF-8",
+      "Cache-Control": "no-store",
+    },
+    body: error,
   };
 }
 
@@ -3881,6 +3877,9 @@ function parseV1PositiveInteger(value, name, fallback) {
 }
 
 function dataResponse(data, count = data === null ? 0 : 1, statusCode = data === null ? 404 : 200, meta = undefined) {
+  if (statusCode >= 400) {
+    return textResponse(typeof data?.error === "string" ? data.error : "Not found", statusCode);
+  }
   return {
     statusCode,
     payload: {
@@ -3924,6 +3923,50 @@ function sendApiResult(response, result) {
     return;
   }
   return json(response, result.statusCode, result.payload);
+}
+
+function sendError(response, statusCode, message, { mode = "v2", code, details, retryAfterSeconds } = {}) {
+  const text = String(message || "CoreHub API error");
+  if (mode === "public-v1") {
+    response.statusCode = statusCode;
+    response.setHeader("Content-Type", "text/plain;charset=UTF-8");
+    response.setHeader("Cache-Control", "no-store");
+    response.end(text);
+    return;
+  }
+  return json(response, statusCode, createErrorEnvelope(statusCode, text, { code, details, retryAfterSeconds }));
+}
+
+function createErrorEnvelope(statusCode, message, { code, details, retryAfterSeconds } = {}) {
+  const envelope = {
+    apiVersion: "v2",
+    error: message,
+    errorCode: code ?? errorCodeForStatus(statusCode, message),
+    status: statusCode,
+    message,
+  };
+  if (retryAfterSeconds !== undefined) envelope.retryAfterSeconds = retryAfterSeconds;
+  if (details !== undefined) envelope.details = details;
+  return envelope;
+}
+
+function errorCodeForStatus(statusCode, message = "") {
+  const normalized = String(message).toLowerCase();
+  if (statusCode === 400) return normalized.includes("cursor") ? "invalid_cursor" : "bad_request";
+  if (statusCode === 401) return "unauthorized";
+  if (statusCode === 403) {
+    if (normalized.includes("blocked") || normalized.includes("moderation") || normalized.includes("quarantined") || normalized.includes("revoked")) {
+      return "blocked_download";
+    }
+    return "forbidden";
+  }
+  if (statusCode === 404) return "not_found";
+  if (statusCode === 409) return "conflict";
+  if (statusCode === 413) return "payload_too_large";
+  if (statusCode === 415) return "unsupported_media_type";
+  if (statusCode === 429) return "rate_limited";
+  if (statusCode === 503) return "unavailable";
+  return statusCode >= 500 ? "internal_error" : "request_failed";
 }
 
 function requestBaseUrl(request, url) {
@@ -4809,6 +4852,7 @@ function titleizeHandle(handle) {
 function json(response, statusCode, payload) {
   response.statusCode = statusCode;
   response.setHeader("Content-Type", "application/json;charset=UTF-8");
+  if (statusCode >= 400) response.setHeader("Cache-Control", "no-store");
   response.end(JSON.stringify(payload));
 }
 
@@ -5875,9 +5919,11 @@ function renderCoreHubPublisherHtml() {
 </html>`;
 }
 
-function httpError(statusCode, message) {
+function httpError(statusCode, message, options = {}) {
   const error = new Error(message);
   error.statusCode = statusCode;
+  if (options.code) error.code = options.code;
+  if (options.details !== undefined) error.details = options.details;
   return error;
 }
 

@@ -115,6 +115,24 @@ The future authenticated API should expose these resources under a new versioned
 | `GET /corehub/api/v2/admin/status` | Return one operator status document for state store, object store, queue counts, transfer counts, install analytics, audit integrity, and readiness. |
 | `GET /corehub/api/v2/admin/support-bundle` | Return the same status plus redacted recent queue and audit samples for support escalation. |
 
+## Error Contracts
+
+Public Registry API v1 and npm mirror errors are ClawHub-compatible plain text responses. `400`, `401`, `403`, `404`, `429`, and blocked downloads use `content-type: text/plain; charset=utf-8`; clients should read the body as a human-readable reason. Rate-limited public responses include `Retry-After` and the `X-RateLimit-*` plus `RateLimit-*` headers.
+
+Authenticated API v2 errors use a stable JSON envelope while preserving the legacy `error` string for existing UI and CLI callers:
+
+```json
+{
+  "apiVersion": "v2",
+  "error": "Not found",
+  "errorCode": "not_found",
+  "status": 404,
+  "message": "Not found"
+}
+```
+
+Known `errorCode` values include `bad_request`, `invalid_cursor`, `unauthorized`, `forbidden`, `blocked_download`, `not_found`, `conflict`, `payload_too_large`, `unsupported_media_type`, `rate_limited`, `unavailable`, and `internal_error`.
+
 ## CLI Contract Draft
 
 Future CLI commands should keep the ClawHub-style dry-run habit:

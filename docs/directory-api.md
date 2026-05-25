@@ -176,6 +176,8 @@ List and search v1 responses return:
 
 List and search routes support `limit` and `cursor`. Clients should pass the returned `meta.nextCursor` to continue. Existing `offset` reads remain accepted for local tooling, but cursor reads are the public compatibility path.
 
+Public API v1 error responses follow the ClawHub-compatible plain text contract. Validation failures, missing resources, rate limits, and blocked downloads return `content-type: text/plain; charset=utf-8` with a human-readable body. For example, an invalid cursor returns `400` with `cursor must be a valid CoreHub pagination cursor`, and a moderation-blocked package download returns `403` with the moderation reason.
+
 When edge rate limiting is enabled, responses include standard limit headers:
 
 - `X-RateLimit-Limit`
@@ -185,6 +187,8 @@ When edge rate limiting is enabled, responses include standard limit headers:
 - `RateLimit-Remaining`
 - `RateLimit-Reset`
 - `Retry-After` on `429` responses
+
+Rate-limited public responses return `429` and the plain text body `Rate limit exceeded`.
 
 The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
 
