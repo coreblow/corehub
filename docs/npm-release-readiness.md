@@ -66,6 +66,7 @@ Real publication requires all of these conditions:
 4. The protected `npm-release` environment approval is granted.
 5. The workflow input `release_approved` is set to `true`.
 6. `scripts/corehub-cli-npm-publish.sh` receives `COREHUB_NPM_RELEASE_APPROVED=1`.
+7. The workflow uses Node `22.14.0` or newer and npm `11.5.1` or newer for trusted publishing.
 
 If any condition is missing, the publish path exits before calling `npm publish`.
 

@@ -29,7 +29,8 @@ concurrency:
 permissions: {}
 
 env:
-  NODE_VERSION: "22"
+  NODE_VERSION: "22.14.0"
+  NPM_VERSION: "11.15.0"
 
 jobs:
   preflight_corehub_cli_npm:
@@ -55,6 +56,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Setup npm trusted publishing runtime
+        run: |
+          set -euo pipefail
+          npm install -g npm@${{ env.NPM_VERSION }}
+          node --version
+          npm --version
 
       - name: Ensure version is not already published
         env:
@@ -193,6 +202,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Setup npm trusted publishing runtime
+        run: |
+          set -euo pipefail
+          npm install -g npm@${{ env.NPM_VERSION }}
+          node --version
+          npm --version
 
       - name: Ensure version is not already published
         run: |
