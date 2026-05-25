@@ -1582,6 +1582,95 @@ export class CoreHubLocalStorageAdapter {
     return { status: report.status, report };
   }
 
+  listPackageModerationQueue(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "package.moderation.queue");
+    const status = options.status ?? "open";
+    if (!["open", "blocked", "manual", "all"].includes(status)) {
+      throw httpError(400, "package moderation queue status must be open, blocked, manual, or all");
+    }
+    const records = [...this.packageVersions.values()]
+      .filter((version) => version.status === "available" && !version.softDeletedAt)
+      .map((version) => this.packageModerationQueueItem(version))
+      .filter((item) => {
+        if (status === "all") return true;
+        if (status === "manual") return Boolean(item.manualModeration);
+        if (status === "blocked") return item.blockedFromDownload || item.scanStatus === "malicious";
+        return item.reasons.length > 0 || item.scanStatus === "suspicious" || item.scanStatus === "malicious";
+      })
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.packageId.localeCompare(right.packageId));
+    return paginate(records, options);
+  }
+
+  packageModerationQueueItem(version) {
+    const trust = packageReleaseTrust(version);
+    const scan = this.latestPackageScanSummary(version.packageId, version.version);
+    const reports = this.packageReports.filter(
+      (report) => report.packageId === version.packageId && report.version === version.version && report.status === "open",
+    );
+    const submission = this.submissions.get(version.submissionId)?.submission;
+    const reasons = [...trust.reasons];
+    if (scan.scanStatus === "malicious") reasons.push("scan:malicious");
+    if (scan.scanStatus === "suspicious") reasons.push("scan:suspicious");
+    if (reports.length > 0) reasons.push(`reports:${reports.length}`);
+    return {
+      packageId: version.packageId,
+      name: version.packageId,
+      version: version.version,
+      publisherHandle: version.publisherHandle,
+      family: submission?.kind === "skill" ? "skill" : "code-plugin",
+      channel: submission?.channel ?? version.channel ?? "community",
+      isOfficial: (submission?.channel ?? version.channel) === "official",
+      scanStatus: scan.scanStatus,
+      scan,
+      moderationState: trust.moderationState,
+      moderationReason: trust.moderationReason,
+      blockedFromDownload: trust.blockedFromDownload,
+      manualModeration: trust.manualModeration,
+      reportCount: reports.length,
+      reasons,
+      updatedAt: version.manualModeration?.moderatedAt ?? version.publishedAt ?? version.createdAt,
+    };
+  }
+
+  async moderatePackageRelease(packageId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "package.release.moderate");
+    const request = normalizePackageReleaseModerationRequest(input);
+    const version = this.projectedVersionForPackage(packageId, request.version);
+    if (!version) throw httpError(404, "Package version not found for release moderation");
+    const moderatedAt = now.toISOString();
+    version.manualModeration = {
+      state: request.state,
+      reason: request.reason,
+      moderatedBy: actor,
+      moderatedAt,
+    };
+    version.moderationStatus = request.state;
+    version.artifact = version.artifact
+      ? { ...version.artifact, downloadEnabled: request.state === "approved" }
+      : version.artifact;
+    this.recordAuditEvent({
+      actor,
+      action: "package.release.moderate",
+      targetType: "packageVersion",
+      targetId: version.id,
+      metadata: {
+        packageId: version.packageId,
+        version: version.version,
+        state: request.state,
+        direct: true,
+      },
+      createdAt: moderatedAt,
+    });
+    await this.persistState();
+    return {
+      status: "moderated",
+      state: request.state,
+      scanStatus: this.latestPackageScanSummary(version.packageId, version.version).scanStatus,
+      packageVersion: version,
+      blockedFromDownload: request.state === "quarantined" || request.state === "revoked",
+    };
+  }
+
   applyReleaseModerationForReport(report, triage, { actor, now }) {
     const version = this.packageVersions.get(`version-${report.packageId}-${slugVersion(report.version)}`);
     if (!version || version.status !== "available" || version.softDeletedAt) {
@@ -2756,6 +2845,40 @@ export function createCoreHubApiHandler({
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
+      if (request.method === "GET" && segments[0] === "package-moderation" && segments[1] === "queue" && segments.length === 2) {
+        const options = readListOptions(url);
+        const actor = actorFromRequest(request, storage);
+        options.authActor = actor;
+        options.status = url.searchParams.get("status") ?? "open";
+        const result = storage.listPackageModerationQueue(options);
+        await storage.auditRead({
+          actor,
+          action: "package.moderation.queue",
+          targetType: "packageVersion",
+          targetId: options.status,
+          metadata: { total: result.meta.total },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "packages" &&
+        segments[2] === "versions" &&
+        segments[4] === "moderation" &&
+        segments.length === 5
+      ) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.moderatePackageRelease(
+          decodeURIComponent(segments[1]),
+          { ...body, version: decodeURIComponent(segments[3]) },
+          { actor, now: now() },
+        );
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (request.method === "POST" && segments[0] === "package-appeals" && segments.length === 1) {
         const body = await readJsonBody(request);
         const actor = actorFromRequest(request, storage);
@@ -3497,7 +3620,7 @@ function packageReleaseTrust(version) {
   const moderationState = manualState ?? version.moderationStatus ?? "approved";
   const blockedFromDownload = manualState === "quarantined" || manualState === "revoked";
   const reasons = [];
-  if (manualState) reasons.push(`manual:${manualState}`);
+  if (manualState && manualState !== "approved") reasons.push(`manual:${manualState}`);
   return {
     moderationState,
     blockedFromDownload,
@@ -4280,6 +4403,16 @@ function normalizePackageReportTriageRequest(input) {
     throw httpError(400, "package report finalAction must be none, quarantine, or revoke");
   }
   return { status, note, finalAction };
+}
+
+function normalizePackageReleaseModerationRequest(input) {
+  const version = normalizeRequiredString(input?.version, "version");
+  const state = normalizeRequiredString(input?.state, "state");
+  if (!["approved", "quarantined", "revoked"].includes(state)) {
+    throw httpError(400, "package release moderation state must be approved, quarantined, or revoked");
+  }
+  const reason = normalizeRequiredString(input?.reason, "reason");
+  return { version, state, reason };
 }
 
 function normalizePackageAppealRequest(input) {

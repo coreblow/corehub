@@ -22,6 +22,11 @@ npm run corehub -- package files plugin-lab
 npm run corehub -- package artifact plugin-lab
 npm run corehub -- package download plugin-lab
 npm run corehub -- package download plugin-lab --output plugin-lab.coreblow-plugin.tgz
+npm run corehub -- package moderate plugin-lab --version 0.1.0 --state approved --reason "operator review" --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package moderation-queue --status open --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package scans list --package plugin-lab --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package scans rescan plugin-lab --version 0.1.0 --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package scans backfill --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package install plugin-lab
 npm run corehub -- package install plugin-lab --output plugin-lab.coreblow-plugin.tgz
 npm run corehub -- review approve review-plugin-lab-0-1-0 --registry http://127.0.0.1:8787/corehub

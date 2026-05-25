@@ -2631,6 +2631,89 @@ try {
     assert.equal(packageAppealResolvePayload.status, "accepted");
     assert.equal(packageAppealResolvePayload.appeal.resolutionNote, "Accepted appeal fixture.");
 
+    const packageModerationQueue = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "moderation-queue", "--status", "manual", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    const packageModerationQueuePayload = JSON.parse(packageModerationQueue.stdout);
+    assert.equal(packageModerationQueuePayload.releases[0].packageId, "plugin-lab");
+    assert.equal(packageModerationQueuePayload.releases[0].moderationState, "quarantined");
+
+    const packageDirectModeration = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "moderate",
+        "plugin-lab",
+        "--version",
+        "0.1.0",
+        "--state",
+        "approved",
+        "--reason",
+        "Accepted appeal fixture restored release.",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageDirectModerationPayload = JSON.parse(packageDirectModeration.stdout);
+    assert.equal(packageDirectModerationPayload.state, "approved");
+    assert.equal(packageDirectModerationPayload.blockedFromDownload, false);
+
+    const restoredModerationStatus = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "moderation-status", "plugin-lab", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    assert.equal(JSON.parse(restoredModerationStatus.stdout).latestVersion.blockedFromDownload, false);
+
+    const packageScansList = await execFileAsync(
+      process.execPath,
+      [cliPath, "package", "scans", "list", "--package", "plugin-lab", "--registry", apiRegistryUrl],
+      { env: apiAuthEnv },
+    );
+    assert.equal(JSON.parse(packageScansList.stdout).scans[0].packageId, "plugin-lab");
+
+    const packageScanRescan = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "scans",
+        "rescan",
+        "plugin-lab",
+        "--version",
+        "0.1.0",
+        "--reason",
+        "Operator rescan fixture.",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    const packageScanRescanPayload = JSON.parse(packageScanRescan.stdout);
+    assert.equal(packageScanRescanPayload.status, "completed");
+    assert.equal(packageScanRescanPayload.job.source, "manual");
+
+    const packageScanBackfill = await execFileAsync(
+      process.execPath,
+      [
+        cliPath,
+        "package",
+        "scans",
+        "backfill",
+        "--package",
+        "plugin-lab",
+        "--include-existing",
+        "--registry",
+        apiRegistryUrl,
+      ],
+      { env: apiAuthEnv },
+    );
+    assert.equal(JSON.parse(packageScanBackfill.stdout).status, "backfilled");
+
     const analyticsRecord = await execFileAsync(
       process.execPath,
       [
@@ -2726,15 +2809,15 @@ try {
     assert.equal(adminStatusPayload.counts.activePublishTokens, 0);
     assert.equal(adminStatusPayload.counts.packageReports, 1);
     assert.equal(adminStatusPayload.counts.packageAppeals, 1);
-    assert.equal(adminStatusPayload.counts.packageScanJobs, 2);
+    assert.equal(adminStatusPayload.counts.packageScanJobs, 4);
     assert.equal(adminStatusPayload.queues.reviews.approved, 1);
     assert.equal(adminStatusPayload.queues.packageLifecycle.active, 1);
-    assert.equal(adminStatusPayload.queues.packageReleaseModeration.quarantined, 1);
+    assert.equal(adminStatusPayload.queues.packageReleaseModeration.approved, 1);
     assert.equal(adminStatusPayload.queues.publishTokens.revoked, 1);
     assert.equal(adminStatusPayload.queues.packageReports.confirmed, 1);
     assert.equal(adminStatusPayload.queues.packageAppeals.accepted, 1);
-    assert.equal(adminStatusPayload.queues.packageScans.completed, 2);
-    assert.equal(adminStatusPayload.queues.packageScanResults.clean, 2);
+    assert.equal(adminStatusPayload.queues.packageScans.completed, 4);
+    assert.equal(adminStatusPayload.queues.packageScanResults.clean, 4);
     assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
     assert.equal(adminStatusPayload.analytics.uniqueClients, 1);
     assert.equal(adminStatusPayload.audit.valid, true);
@@ -2756,7 +2839,7 @@ try {
     assert.equal(supportBundle.counts.trustedPublishers, 1);
     assert.equal(supportBundle.recent.packageLifecycle[0].packageId, "plugin-lab");
     assert.equal(typeof supportBundle.recent.packageLifecycle[0].restoredAt, "string");
-    assert.equal(supportBundle.recent.packageReleaseModeration[0].manualModeration.state, "quarantined");
+    assert.equal(supportBundle.recent.packageReleaseModeration[0].manualModeration.state, "approved");
     assert.equal(supportBundle.recent.trustedPublishers[0].repository, "coreblow/plugin-lab");
     assert.equal(supportBundle.recent.publishTokens[0].revokedBy.id, "github:coreblow-admin");
     assert.equal(supportBundle.recent.packageReports[0].status, "confirmed");
@@ -2776,13 +2859,13 @@ try {
     assert.equal(persistedState.packageSearchDigests[0].entry.id, "plugin-lab");
     assert.equal("softDeletedAt" in persistedState.packageVersions[0], false);
     assert.equal(typeof persistedState.packageVersions[0].restoredAt, "string");
-    assert.equal(persistedState.packageVersions[0].manualModeration.state, "quarantined");
+    assert.equal(persistedState.packageVersions[0].manualModeration.state, "approved");
     assert.equal(persistedState.trustedPublishers[0].repository, "coreblow/plugin-lab");
     assert.equal(persistedState.publishTokens[0].revokedAt.length > 0, true);
     assert.equal(persistedState.installEvents.length, 2);
     assert.equal(persistedState.packageReports[0].status, "confirmed");
     assert.equal(persistedState.packageAppeals[0].status, "accepted");
-    assert.equal(persistedState.packageScanJobs.length, 2);
+    assert.equal(persistedState.packageScanJobs.length, 4);
     assert.equal(persistedState.packageScanJobs[0].evidence.some((event) => event.type === "artifact_metadata"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.scan.complete"), true);

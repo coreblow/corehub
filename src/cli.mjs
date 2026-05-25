@@ -328,6 +328,21 @@ async function runPackageCommand(values) {
     return;
   }
 
+  if (subcommand === "moderate") {
+    await runPackageModerateCommand(args, registry);
+    return;
+  }
+
+  if (subcommand === "queue" || subcommand === "moderation-queue") {
+    await runPackageModerationQueueCommand(args, registry);
+    return;
+  }
+
+  if (subcommand === "scans" || subcommand === "scan") {
+    await runPackageScansCommand(args, registry);
+    return;
+  }
+
   if (subcommand === "appeals") {
     await runPackageAppealsCommand(args, registry);
     return;
@@ -2090,6 +2105,108 @@ async function runPackageReportsCommand(values, registry) {
   printPackageHelp();
 }
 
+async function runPackageModerateCommand(values, registry) {
+  const id = positionalArgs(values)[0];
+  if (!id) throw new Error("package moderate requires an entry id");
+  if (!registry) throw new Error("package moderate requires --registry or COREHUB_REGISTRY");
+  const version = readOption(values, "--version");
+  if (!version) throw new Error("package moderate requires --version <version>");
+  const state = readOption(values, "--state");
+  if (!state) throw new Error("package moderate requires --state approved|quarantined|revoked");
+  const reason = readOption(values, "--reason");
+  if (!reason) throw new Error("package moderate requires --reason <text>");
+  const auth = await requireAuthState();
+  const result = await new CoreHubRegistryClient(registry).moderatePackageRelease(
+    id,
+    version,
+    { state, reason },
+    { auth },
+  );
+  console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+}
+
+async function runPackageModerationQueueCommand(values, registry) {
+  if (!registry) throw new Error("package moderation-queue requires --registry or COREHUB_REGISTRY");
+  const auth = await requireAuthState();
+  const result = await new CoreHubRegistryClient(registry).packageModerationQueue(
+    {
+      ...readQueueListOptions(values),
+      status: readOption(values, "--status") ?? "open",
+    },
+    { auth },
+  );
+  console.log(
+    JSON.stringify(
+      {
+        status: "ok",
+        registry: normalizeRegistry(registry),
+        ...result.meta,
+        releases: result.data,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+async function runPackageScansCommand(values, registry) {
+  const subcommand = values[0] ?? "list";
+  const args = values.slice(1);
+  if (!registry) throw new Error("package scans requires --registry or COREHUB_REGISTRY");
+  const auth = await requireAuthState();
+  const client = new CoreHubRegistryClient(registry);
+
+  if (subcommand === "list") {
+    const result = await client.packageScans(
+      {
+        ...readQueueListOptions(args),
+        status: readOption(args, "--status") ?? "all",
+        packageId: readOption(args, "--package"),
+        version: readOption(args, "--version"),
+      },
+      { auth },
+    );
+    console.log(
+      JSON.stringify(
+        {
+          status: "ok",
+          registry: normalizeRegistry(registry),
+          ...result.meta,
+          scans: result.data,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (subcommand === "rescan") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package scans rescan requires an entry id");
+    const version = readOption(args, "--version");
+    if (!version) throw new Error("package scans rescan requires --version <version>");
+    const result = await client.rescanPackage(id, { version, reason: readOption(args, "--reason") }, { auth });
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  if (subcommand === "backfill") {
+    const result = await client.backfillPackageScans(
+      {
+        packageId: readOption(args, "--package"),
+        includeExisting: hasFlag(args, "--include-existing"),
+        reason: readOption(args, "--reason"),
+      },
+      { auth },
+    );
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  printPackageHelp();
+}
+
 async function runPackageAppealsCommand(values, registry) {
   const subcommand = values[0] ?? "list";
   const args = values.slice(1);
@@ -3496,6 +3613,54 @@ class CoreHubRegistryClient {
     });
   }
 
+  async packageModerationQueue(options = {}, requestOptions = {}) {
+    const url = this.apiV2Url("/package-moderation/queue");
+    if (options.status) url.searchParams.set("status", options.status);
+    if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+    if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
+    return this.readV2Envelope(url, { auth: requestOptions.auth });
+  }
+
+  async moderatePackageRelease(packageId, version, payload, options = {}) {
+    return this.writeData(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}/versions/${encodeURIComponent(version)}/moderation`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async packageScans(options = {}, requestOptions = {}) {
+    const url = this.apiV2Url("/package-scans");
+    if (options.status) url.searchParams.set("status", options.status);
+    if (options.packageId) url.searchParams.set("package", options.packageId);
+    if (options.version) url.searchParams.set("version", options.version);
+    if (options.limit !== undefined) url.searchParams.set("limit", String(options.limit));
+    if (options.offset !== undefined) url.searchParams.set("offset", String(options.offset));
+    return this.readV2Envelope(url, { auth: requestOptions.auth });
+  }
+
+  async rescanPackage(packageId, payload, options = {}) {
+    return this.writeData(this.apiV2Url(`/packages/${encodeURIComponent(packageId)}/scans/rescan`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async backfillPackageScans(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/package-scans/backfill"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
   async createPackageAppeal(payload, options = {}) {
     return this.writeData(this.apiV2Url("/package-appeals"), {
       auth: options.auth,
@@ -3812,6 +3977,11 @@ Usage:
   corehub package report <entry-id> --reason text [--version version] --registry https://coreblow.com/corehub
   corehub package reports list [--status open|confirmed|dismissed|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package reports triage <report-id> --status confirmed|dismissed|open [--note text] [--action none|quarantine|revoke] --registry https://coreblow.com/corehub
+  corehub package moderate <entry-id> --version version --state approved|quarantined|revoked --reason text --registry https://coreblow.com/corehub
+  corehub package moderation-queue [--status open|blocked|manual|all] --registry https://coreblow.com/corehub
+  corehub package scans list [--status all|completed|queued|failed] [--package entry-id] [--version version] --registry https://coreblow.com/corehub
+  corehub package scans rescan <entry-id> --version version [--reason text] --registry https://coreblow.com/corehub
+  corehub package scans backfill [--package entry-id] [--include-existing] [--reason text] --registry https://coreblow.com/corehub
   corehub package appeal <entry-id> --version version --message text --registry https://coreblow.com/corehub
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package appeals resolve <appeal-id> --status accepted|rejected|open [--note text] [--action none|approve] --registry https://coreblow.com/corehub
@@ -3851,6 +4021,11 @@ Usage:
   corehub package report <entry-id> --reason text [--version version] --registry https://coreblow.com/corehub
   corehub package reports list [--status open|confirmed|dismissed|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package reports triage <report-id> --status confirmed|dismissed|open [--note text] [--action none|quarantine|revoke] --registry https://coreblow.com/corehub
+  corehub package moderate <entry-id> --version version --state approved|quarantined|revoked --reason text --registry https://coreblow.com/corehub
+  corehub package moderation-queue [--status open|blocked|manual|all] --registry https://coreblow.com/corehub
+  corehub package scans list [--status all|completed|queued|failed] [--package entry-id] [--version version] --registry https://coreblow.com/corehub
+  corehub package scans rescan <entry-id> --version version [--reason text] --registry https://coreblow.com/corehub
+  corehub package scans backfill [--package entry-id] [--include-existing] [--reason text] --registry https://coreblow.com/corehub
   corehub package appeal <entry-id> --version version --message text --registry https://coreblow.com/corehub
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
   corehub package appeals resolve <appeal-id> --status accepted|rejected|open [--note text] [--action none|approve] --registry https://coreblow.com/corehub

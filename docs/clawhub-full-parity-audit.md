@@ -76,7 +76,7 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Search digest/index depth | v1 accepted | ClawHub stores package/skill search digest tables and indexed query paths. | CoreHub now persists `packageSearchDigests`, rebuilds them from the write-side projection, stores normalized D1 row/index entries for filter/search tokens, and serves public list/search from digest-backed entries. | Keep covered by persistence migration and public route tests. |
 | Real browser OAuth | intentionally deferred | ClawHub has GitHub-backed browser auth/account model. | CoreHub v1 accepts token-backed browser sessions plus token-hash enforcement. | Implement with CoreBlow app auth boundary. |
 | User/org management | intentionally deferred | ClawHub includes user, organization, publisher-admin, settings, memberships, and org ownership semantics. | CoreHub has publisher identity and memberships sufficient for v1 package ownership. | Post-v1 account/org phase. |
-| Moderator CLI depth | full parity missing | `clawhub-mod` has richer moderation, migration, repair, and backfill operator commands. | CoreHub admin CLI/API covers v1 review/status/support but not all mod tooling. | Add after public API compatibility. |
+| Moderator CLI depth | v1 accepted | `clawhub-mod` has richer moderation, migration, repair, and backfill operator commands. | CoreHub CLI now covers review/status/support plus package reports, report triage, release moderation, moderation queue, scanner list/rescan/backfill, appeals, trusted publishers, publish tokens, and delete/undelete in CoreHub-native API v2 form. | Keep migrations/repair-name deferred unless CoreHub needs ClawHub internal migration repair tooling. |
 | Skill marketplace parity | full parity missing | ClawHub supports skills, `SKILL.md` rendering, skill publish, skill file/security routes, rename/merge/transfer, skill search. | CoreHub v1 acceptance is package marketplace focused; static skill catalog exists, but full hosted skill lifecycle is not parity-complete. | Separate full skill marketplace phase. |
 | Community signals | full parity missing | ClawHub has comments, stars, leaderboards, public profiles, and community-oriented surfaces. | CoreHub has marketplace/package lifecycle, not community surfaces. | Defer unless CoreHub product scope expands. |
 | Artifact schema richness | full parity missing | ClawHub release records include artifact kind, npm integrity/shasum/tarball, unpacked size, file count, manifests, capabilities, scan fields. | CoreHub schema is smaller and CoreBlow-native. | Add fields needed for npm/tarball and scanner phases. |
@@ -91,9 +91,9 @@ No P0 compatibility rows remain for CoreHub v1 package marketplace acceptance.
 
 After P0:
 
-1. Expand moderator CLI around scanner/backfill operations.
-2. Add publisher portal report/appeal visibility and transfer accept/reject controls.
-3. Broaden hosted skill lifecycle parity if CoreHub scope expands beyond package marketplace v1.
+1. Add publisher portal report/appeal visibility and transfer accept/reject controls.
+2. Broaden hosted skill lifecycle parity if CoreHub scope expands beyond package marketplace v1.
+3. Add ClawHub-style migration repair tooling only if CoreHub needs package rename/migration operations.
 
 ## P2 Product Scope Decisions
 
