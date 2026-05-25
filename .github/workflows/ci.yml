@@ -7,18 +7,63 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  test-surface:
+    name: test:${{ matrix.surface }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - surface: public-api
+            command: npm run test:public-api
+          - surface: cli
+            command: npm run test:cli
+          - surface: scanner
+            command: npm run test:scanner
+          - surface: skill
+            command: npm run test:skill
+          - surface: community
+            command: npm run test:community
+          - surface: worker
+            command: npm run test:worker
+          - surface: persistence
+            command: npm run test:persistence
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: ${{ matrix.command }}
+
+  compatibility:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - run: npm test
+      - run: npm run test:legacy
+      - run: npm run test:accounts
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - run: npm run smoke:local-publish
-      - run: npm run smoke:worker-local
       - run: npm run smoke:admin-ui
+      - run: npm run smoke:publisher-ui
       - run: npm run smoke:audit-alert-pipeline
+
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
       - run: npm run validate:ops
       - run: npm run validate:deploy-template
       - run: npm run deploy:worker:check -- --template --skip-wrangler

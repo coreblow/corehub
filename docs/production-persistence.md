@@ -326,6 +326,18 @@ The admin web surface at `/corehub/admin` also includes community moderation har
 - Hide/unhide/close actions through `POST /corehub/api/v2/community/comment-reports/<report-id>/resolve`.
 - Community signals from `GET /corehub/api/v2/community/signals`, including profile summaries and package/skill leaderboard signals.
 
+CI splits CoreHub verification into focused surface jobs:
+
+- `npm run test:public-api`
+- `npm run test:cli`
+- `npm run test:scanner`
+- `npm run test:skill`
+- `npm run test:community`
+- `npm run test:worker`
+- `npm run test:persistence`
+
+The legacy catalog integration test remains available as `npm run test:legacy`, account/session compatibility as `npm run test:accounts`, and the full local aggregate remains `npm test`.
+
 ## Operator Smoke Workflow
 
 CoreHub also has a scheduled/manual operator smoke workflow at `.github/workflows/operator-smoke.yml`.

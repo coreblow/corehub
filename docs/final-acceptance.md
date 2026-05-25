@@ -129,6 +129,7 @@ The final acceptance lock also includes focused ClawHub parity test surfaces:
 - Scanner route parity: static backfill, hosted scan enqueue/result, and security trust enforcement.
 - Community and skill route parity: hosted skill read/security plus stars, comments, reports, deletion, comment moderation UI, profile signals, and leaderboard scoring.
 - Moderator CLI surface: scanner enqueue, completion, and list flow through the CoreHub registry client.
+- CI matrix split: public API, CLI, scanner, skill, community, worker, and persistence surfaces run as separate jobs; legacy catalog and account/publisher compatibility remain separate jobs.
 
 ## Final Gate
 
