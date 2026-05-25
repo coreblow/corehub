@@ -132,6 +132,8 @@ The final acceptance lock also includes focused ClawHub parity test surfaces:
 - CI matrix split: public API, CLI, scanner, skill, community, worker, and persistence surfaces run as separate jobs; legacy catalog and account/publisher compatibility remain separate jobs.
 - npm release readiness: local preflight, safe temporary-manifest publish dry-run, protected workflow preflight, and explicit live-publish approval gates are present while `private: true` remains in the repository.
 
+Post-v1 production release lock evidence is tracked in `docs/release-lock-2026-05-25.md`.
+
 ## Final Gate
 
 Before changing acceptance status, run:
