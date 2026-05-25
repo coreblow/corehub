@@ -105,6 +105,9 @@ try {
   await assertVisibleText(page, "Support Bundle Summary");
   await assertVisibleText(page, "Pending Submissions");
   await assertVisibleText(page, "Open Reviews");
+  await assertVisibleText(page, "Comment Reports Queue");
+  await assertVisibleText(page, "Community Signals");
+  await assertVisibleText(page, "Profile Signals");
   await assertVisibleText(page, "ready");
 
   const loginError = page.locator("#loginError");

@@ -118,6 +118,7 @@ The final acceptance lock includes API-level community signals for full ClawHub 
 - Package and hosted skill stars.
 - Package and hosted skill comments.
 - Comment reports with soft-hide thresholding.
+- Admin comment report queue with hide/unhide/close moderation actions.
 - Public publisher profiles.
 - Package and hosted skill leaderboards.
 
@@ -126,7 +127,7 @@ The final acceptance lock also includes focused ClawHub parity test surfaces:
 - Public API compatibility: cursor pagination, exact security endpoint shape, v1 text errors, v2 error envelopes, and rate-limit headers.
 - npm and artifact route parity: packument, tarball redirect, file manifest, raw file read, and path validation.
 - Scanner route parity: static backfill, hosted scan enqueue/result, and security trust enforcement.
-- Community and skill route parity: hosted skill read/security plus stars, comments, reports, deletion, and leaderboard scoring.
+- Community and skill route parity: hosted skill read/security plus stars, comments, reports, deletion, comment moderation UI, profile signals, and leaderboard scoring.
 - Moderator CLI surface: scanner enqueue, completion, and list flow through the CoreHub registry client.
 
 ## Final Gate

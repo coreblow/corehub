@@ -229,6 +229,11 @@ Authenticated community writes use API v2:
 - `POST /corehub/api/v2/community/comments`
 - `DELETE /corehub/api/v2/community/comments/<comment-id>`
 - `POST /corehub/api/v2/community/comments/<comment-id>/report`
+- `GET /corehub/api/v2/community/comment-reports`
+- `POST /corehub/api/v2/community/comment-reports/<report-id>/resolve`
+- `GET /corehub/api/v2/community/signals`
+
+Community moderation routes are admin-only. The comment report queue includes the reported comment, reporter profile, target stats, and report status. Resolve actions can close a report without changing the comment, hide a visible comment, or unhide a hidden comment while preserving audit history.
 
 GitHub browser OAuth uses API v2 and is enabled only when the Worker has a GitHub OAuth client id and secret configured:
 

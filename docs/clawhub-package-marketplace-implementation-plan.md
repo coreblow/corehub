@@ -59,6 +59,7 @@ Already implemented:
 | Submission/review status UI | done | Publisher portal lists owned submissions and review ids/statuses. |
 | Transfer UI | done | Publisher portal can request ownership transfers, list transfer statuses, and accept/reject/cancel pending transfers where permitted. |
 | Publisher moderation visibility | done | Publisher portal lists owner-facing reports, appeals, and package moderation status for owned releases. |
+| Community moderation UI | done | Admin UI lists comment reports, exposes hide/unhide/close actions, and shows profile/community signal summaries. |
 | Install pin/unpin/uninstall/list/update/sync | done | CLI stores CoreHub-local install state and skips pinned updates/syncs. |
 | Telemetry opt-out | done | `COREHUB_DISABLE_TELEMETRY=1` skips CLI analytics record writes. |
 | Production auth/rate limit/private visibility | done | Private v1 visibility, session token hash verification, and API rate-limit boundary are wired; real OAuth is intentionally deferred. |

@@ -320,6 +320,12 @@ npm run smoke:publisher-ui
 
 The smoke starts a local CoreHub server, opens `/corehub/publisher` with Playwright, connects as `github:coreblow-admin`, verifies the publisher dashboard sections, validates the publisher browser session, and checks `GET /corehub/api/v2/publisher/dashboard` through the browser context.
 
+The admin web surface at `/corehub/admin` also includes community moderation hardening:
+
+- Comment reports queue from `GET /corehub/api/v2/community/comment-reports`.
+- Hide/unhide/close actions through `POST /corehub/api/v2/community/comment-reports/<report-id>/resolve`.
+- Community signals from `GET /corehub/api/v2/community/signals`, including profile summaries and package/skill leaderboard signals.
+
 ## Operator Smoke Workflow
 
 CoreHub also has a scheduled/manual operator smoke workflow at `.github/workflows/operator-smoke.yml`.

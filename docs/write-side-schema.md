@@ -393,6 +393,8 @@ The local storage adapter preserves one logical `corehub.local-state.v1` model a
 
 The D1 normalized store indexes package/version, skill slug, community targets, comment ids, status, publisher, scan result, repository, audit sequence, target, day, install event, marketplace filter fields, capability tags, and search tokens. This gives CoreHub a ClawHub-like table/index persistence shape without leaking D1 storage details into the HTTP API or CLI.
 
+Community moderation is an admin-facing API v2 surface. `GET /corehub/api/v2/community/comment-reports` lists comment report queue entries with the comment snapshot, target stats, and reporter profile. `POST /corehub/api/v2/community/comment-reports/:id/resolve` records a reviewed/closed resolution and can apply `hide`, `unhide`, or `none` action to the comment. `GET /corehub/api/v2/community/signals` summarizes publisher profile signals and package/skill leaderboards for the admin UI.
+
 ## Audit Trail Boundary
 
 CoreHub records audit events in the same spirit as ClawHub's general `auditLogs` and moderation event logs. Each event includes `id`, `sequence`, `actor`, `action`, `targetType`, `targetId`, `metadata`, `createdAt`, `previousHash`, and `eventHash`.

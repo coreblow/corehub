@@ -1268,6 +1268,8 @@ export class CoreHubLocalStorageAdapter {
       moderatedPackageVersions: this.moderatedPackageVersionCount(),
       packageReports: this.packageReports.length,
       packageAppeals: this.packageAppeals.length,
+      communityComments: this.communityComments.size,
+      communityCommentReports: this.communityCommentReports.size,
       packageScanJobs: this.packageScanJobs.length,
       trustedPublishers: this.trustedPublishers.size,
       activePublishTokens: [...this.publishTokens.values()].filter((token) => !token.revokedAt && new Date(token.expiresAt).getTime() > now.getTime()).length,
@@ -1314,6 +1316,8 @@ export class CoreHubLocalStorageAdapter {
         publishTokens: countByStatus([...this.publishTokens.values()].map((token) => token.revokedAt ? "revoked" : "active")),
         packageReports: countByStatus(this.packageReports.map((report) => report.status)),
         packageAppeals: countByStatus(this.packageAppeals.map((appeal) => appeal.status)),
+        communityComments: countByStatus([...this.communityComments.values()].map((comment) => comment.status)),
+        communityCommentReports: countByStatus([...this.communityCommentReports.values()].map((report) => report.status)),
         packageScans: countByStatus(this.packageScanJobs.map((job) => job.status)),
         packageScanResults: countByStatus(this.packageScanJobs.map((job) => job.scanStatus)),
         ownershipTransfers: countByStatus([...this.ownershipTransfers.values()].map((transfer) => transfer.status)),
@@ -1371,6 +1375,8 @@ export class CoreHubLocalStorageAdapter {
         publishTokens: latestItems([...this.publishTokens.values()], limit),
         packageReports: latestItems(this.packageReports, limit),
         packageAppeals: latestItems(this.packageAppeals, limit),
+        communityComments: latestItems([...this.communityComments.values()], limit),
+        communityCommentReports: latestItems([...this.communityCommentReports.values()], limit),
         packageScanJobs: latestItems(this.packageScanJobs, limit),
         ownershipTransfers: latestItems([...this.ownershipTransfers.values()], limit),
         auditEvents: recentAudit.items,
@@ -3297,6 +3303,111 @@ export class CoreHubLocalStorageAdapter {
     return { ok: true, reported: true, alreadyReported: false, report, comment };
   }
 
+  listCommunityCommentReports(options = {}) {
+    this.requireAdminPermission(options.authActor ?? defaultActor(), "community.comment_report.list");
+    const status = options.status ?? "open";
+    const reports = [...this.communityCommentReports.values()]
+      .filter((report) => status === "all" || report.status === status)
+      .filter((report) => !options.targetType || report.targetType === options.targetType)
+      .filter((report) => !options.targetId || report.targetId === options.targetId)
+      .map((report) => this.communityCommentReportInspection(report))
+      .sort((left, right) => right.report.reportedAt.localeCompare(left.report.reportedAt));
+    return paginate(reports, options);
+  }
+
+  async resolveCommunityCommentReport(reportId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "community.comment_report.resolve");
+    const id = normalizeRequiredString(reportId, "reportId");
+    const report = this.communityCommentReports.get(id);
+    if (!report) throw httpError(404, "Community comment report not found");
+    const comment = this.communityComments.get(report.commentId);
+    if (!comment) throw httpError(404, "Community comment not found");
+    const resolution = normalizeCommunityCommentReportResolution(input);
+    const resolvedAt = now.toISOString();
+    if (resolution.action === "hide") {
+      comment.status = "hidden";
+      comment.hiddenAt = resolvedAt;
+      comment.hiddenBy = actor;
+      comment.hiddenReason = resolution.note ?? `Resolved report ${report.id}`;
+    } else if (resolution.action === "unhide") {
+      comment.status = "visible";
+      comment.unhiddenAt = resolvedAt;
+      comment.unhiddenBy = actor;
+      comment.unhiddenReason = resolution.note ?? `Resolved report ${report.id}`;
+      delete comment.hiddenReason;
+    }
+    report.status = resolution.status;
+    report.resolvedBy = actor;
+    report.resolvedAt = resolvedAt;
+    report.resolutionAction = resolution.action;
+    if (resolution.note) report.resolutionNote = resolution.note;
+    for (const sibling of this.communityCommentReports.values()) {
+      if (sibling.commentId === comment.id && sibling.status === "open" && sibling.id !== report.id && resolution.status !== "open") {
+        sibling.status = "reviewed";
+        sibling.resolvedBy = actor;
+        sibling.resolvedAt = resolvedAt;
+        sibling.resolutionAction = "linked";
+      }
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "community.comment_report.resolve",
+      targetType: "communityCommentReport",
+      targetId: report.id,
+      metadata: { commentId: comment.id, status: report.status, action: resolution.action },
+      createdAt: resolvedAt,
+    });
+    if (resolution.action === "hide" || resolution.action === "unhide") {
+      this.recordAuditEvent({
+        actor,
+        action: `community.comment.${resolution.action}`,
+        targetType: "communityComment",
+        targetId: comment.id,
+        metadata: { reportId: report.id, targetType: comment.targetType, targetId: comment.targetId },
+        createdAt: resolvedAt,
+      });
+    }
+    await this.persistState();
+    return { status: report.status, action: resolution.action, report, comment: this.publicCommunityComment(comment, { includeHidden: true }) };
+  }
+
+  communityCommentReportInspection(report) {
+    const comment = this.communityComments.get(report.commentId) ?? null;
+    return {
+      report,
+      comment: comment ? this.publicCommunityComment(comment, { includeHidden: true }) : null,
+      targetStats: this.communityStatsForTarget({ targetType: report.targetType, targetId: report.targetId }),
+      reporter: this.publicActorProfile(report.actorId),
+    };
+  }
+
+  communitySignals({ actor = defaultActor(), limit = 8 } = {}) {
+    this.requireAdminPermission(actor, "community.signals");
+    const publisherProfiles = [...this.publisherAccounts.values()]
+      .filter((publisher) => publisher.status !== "removed")
+      .map((publisher) => this.publisherProfile(publisher.handle))
+      .sort((left, right) => {
+        const leftScore = left.stats.stars * 3 + left.stats.comments * 2 + left.stats.installs + left.stats.downloads;
+        const rightScore = right.stats.stars * 3 + right.stats.comments * 2 + right.stats.installs + right.stats.downloads;
+        return rightScore - leftScore || left.publisher.handle.localeCompare(right.publisher.handle);
+      })
+      .slice(0, limit);
+    return {
+      profiles: publisherProfiles,
+      leaderboards: {
+        packages: this.communityLeaderboard({ target: "packages", sort: "trending", limit }),
+        skills: this.communityLeaderboard({ target: "skills", sort: "trending", limit }),
+      },
+      counts: {
+        stars: [...this.communityStars.values()].filter((star) => star.status === "active").length,
+        comments: [...this.communityComments.values()].filter((comment) => comment.status === "visible").length,
+        hiddenComments: [...this.communityComments.values()].filter((comment) => comment.status === "hidden").length,
+        commentReports: this.communityCommentReports.size,
+        openCommentReports: [...this.communityCommentReports.values()].filter((report) => report.status === "open").length,
+      },
+    };
+  }
+
   listCommunityComments(input = {}, options = {}) {
     const target = this.requireCommunityTarget(input);
     const comments = [...this.communityComments.values()]
@@ -3315,15 +3426,17 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
-  publicCommunityComment(comment) {
+  publicCommunityComment(comment, options = {}) {
     return {
       id: comment.id,
       targetType: comment.targetType,
       targetId: comment.targetId,
       author: this.publicActorProfile(comment.actorId),
       body: comment.body,
+      ...(options.includeHidden ? { status: comment.status } : {}),
       createdAt: comment.createdAt,
       reportCount: comment.reportCount ?? 0,
+      ...(options.includeHidden && comment.hiddenReason ? { hiddenReason: comment.hiddenReason } : {}),
     };
   }
 
@@ -3933,6 +4046,52 @@ export function createCoreHubApiHandler({
         const actor = actorFromRequest(request, storage);
         const body = await readJsonBody(request);
         const result = await storage.reportCommunityComment(decodeURIComponent(segments[2]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "community" && segments[1] === "comment-reports" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const options = readListOptions(url);
+        options.authActor = actor;
+        options.status = url.searchParams.get("status") ?? "open";
+        options.targetType = url.searchParams.get("targetType") ?? undefined;
+        options.targetId = url.searchParams.get("targetId") ?? undefined;
+        const result = storage.listCommunityCommentReports(options);
+        await storage.auditRead({
+          actor,
+          action: "community.comment_report.list",
+          targetType: "communityCommentReport",
+          targetId: options.status,
+          metadata: { total: result.meta.total },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result.items, meta: result.meta });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "community" &&
+        segments[1] === "comment-reports" &&
+        segments[3] === "resolve" &&
+        segments.length === 4
+      ) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.resolveCommunityCommentReport(decodeURIComponent(segments[2]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "community" && segments[1] === "signals" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const result = storage.communitySignals({ actor, limit: parseNonNegativeInteger(url.searchParams.get("limit"), "limit", 8) });
+        await storage.auditRead({
+          actor,
+          action: "community.signals",
+          targetType: "community",
+          targetId: "signals",
+          metadata: result.counts,
+          now: now(),
+        });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -5850,6 +6009,15 @@ function normalizeCommunityCommentBody(value) {
   return body;
 }
 
+function normalizeCommunityCommentReportResolution(input = {}) {
+  const status = normalizeRequiredString(input.status ?? "reviewed", "status").toLowerCase();
+  if (!["open", "reviewed", "closed"].includes(status)) throw httpError(400, "status must be open, reviewed, or closed");
+  const action = normalizeRequiredString(input.action ?? "none", "action").toLowerCase();
+  if (!["none", "hide", "unhide"].includes(action)) throw httpError(400, "action must be none, hide, or unhide");
+  const note = normalizeOptionalString(input.note);
+  return { status, action, ...(note ? { note } : {}) };
+}
+
 function readCommunityLeaderboardOptions(url) {
   const target = url.searchParams.get("target") ?? "all";
   if (!["all", "package", "packages", "skill", "skills"].includes(target)) {
@@ -7475,6 +7643,7 @@ function renderCoreHubAdminHtml() {
       color: var(--ink);
       border-color: var(--line);
     }
+    button.small { height: 30px; padding: 0 8px; font-size: 12px; }
     form {
       display: grid;
       grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
@@ -7569,6 +7738,10 @@ function renderCoreHubAdminHtml() {
         <div class="metric"><h3>Submissions</h3><strong id="metricSubmissions">0</strong><p class="muted">write queue</p></div>
         <div class="metric"><h3>Reviews</h3><strong id="metricReviews">0</strong><p class="muted">moderation queue</p></div>
         <div class="metric"><h3>Audit</h3><strong id="metricAudit">-</strong><p class="muted" id="metricAuditCount">0 events</p></div>
+        <div class="metric"><h3>Comment Reports</h3><strong id="metricCommentReports">0</strong><p class="muted">community queue</p></div>
+        <div class="metric"><h3>Hidden Comments</h3><strong id="metricHiddenComments">0</strong><p class="muted">moderated</p></div>
+        <div class="metric"><h3>Stars</h3><strong id="metricStars">0</strong><p class="muted">community signal</p></div>
+        <div class="metric"><h3>Comments</h3><strong id="metricComments">0</strong><p class="muted">visible</p></div>
       </div>
 
       <div class="wide-grid">
@@ -7603,6 +7776,28 @@ function renderCoreHubAdminHtml() {
           <tbody id="reviewsTable"></tbody>
         </table>
       </section>
+
+      <section>
+        <div class="toolbar">
+          <h2>Comment Reports Queue</h2>
+          <span class="status" id="commentReportCount">0</span>
+        </div>
+        <table>
+          <thead><tr><th>Report</th><th>Target</th><th>Comment</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="commentReportsTable"></tbody>
+        </table>
+      </section>
+
+      <div class="wide-grid">
+        <section>
+          <h2>Community Signals</h2>
+          <div class="checks" id="communitySignals"></div>
+        </section>
+        <section>
+          <h2>Profile Signals</h2>
+          <div class="checks" id="profileSignals"></div>
+        </section>
+      </div>
     </div>
   </main>
 
@@ -7622,6 +7817,7 @@ function renderCoreHubAdminHtml() {
     });
     nodes.validateSessionButton.addEventListener("click", () => validateSession("admin").then((session) => renderSessionValidated(session)).catch((error) => showLoginError(error.message)));
     nodes.refreshButton.addEventListener("click", () => loadDashboard());
+    nodes.commentReportsTable.addEventListener("click", resolveCommentReport);
     nodes.signOutButton.addEventListener("click", () => {
       sessionStorage.removeItem(sessionKey);
       state.session = null;
@@ -7649,13 +7845,15 @@ function renderCoreHubAdminHtml() {
       nodes.loginError.classList.add("hidden");
       try {
         const session = await validateSession("admin");
-        const [status, bundle, submissions, reviews] = await Promise.all([
+        const [status, bundle, submissions, reviews, commentReports, communitySignals] = await Promise.all([
           api("/admin/status"),
           api("/admin/support-bundle?limit=5"),
           api("/submissions?status=pending_review&limit=25"),
           api("/reviews?status=open&limit=25"),
+          api("/community/comment-reports?status=open&limit=25"),
+          api("/community/signals?limit=6"),
         ]);
-        renderDashboard(status.data, bundle.data, submissions, reviews, session);
+        renderDashboard(status.data, bundle.data, submissions, reviews, commentReports, communitySignals.data, session);
       } catch (error) {
         showLoginError(error.message || "Unable to load CoreHub admin status.");
         renderSignedOut(false);
@@ -7674,14 +7872,17 @@ function renderCoreHubAdminHtml() {
       nodes.readinessPill.className = "status good";
     }
 
-    async function api(path) {
+    async function api(path, options = {}) {
       const response = await fetch("/corehub/api/v2" + path, {
+        method: options.method || "GET",
         headers: {
           "accept": "application/json",
+          ...(options.body ? { "content-type": "application/json" } : {}),
           "authorization": "Bearer " + state.session.token,
           "x-corehub-user": state.session.actor,
           "x-corehub-token": state.session.token,
         },
+        body: options.body ? JSON.stringify(options.body) : undefined,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "CoreHub API request failed.");
@@ -7697,7 +7898,30 @@ function renderCoreHubAdminHtml() {
       if (clearError) nodes.loginError.classList.add("hidden");
     }
 
-    function renderDashboard(status, bundle, submissions, reviews, session) {
+    async function resolveCommentReport(event) {
+      const button = event.target.closest("[data-comment-report-action]");
+      if (!button) return;
+      const reportId = button.getAttribute("data-comment-report-id");
+      const action = button.getAttribute("data-comment-report-action");
+      try {
+        button.disabled = true;
+        await api("/community/comment-reports/" + encodeURIComponent(reportId) + "/resolve", {
+          method: "POST",
+          body: {
+            status: action === "none" ? "closed" : "reviewed",
+            action,
+            note: "Resolved from CoreHub admin community moderation UI.",
+          },
+        });
+        await loadDashboard();
+      } catch (error) {
+        showLoginError(error.message || "Unable to resolve community comment report.");
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function renderDashboard(status, bundle, submissions, reviews, commentReports, communitySignals, session) {
       nodes.loginPanel.classList.add("hidden");
       nodes.dashboard.classList.remove("hidden");
       nodes.sessionLabel.textContent = (session?.actor?.id || state.session.actor) + " validated admin";
@@ -7710,6 +7934,10 @@ function renderCoreHubAdminHtml() {
       nodes.metricReviews.textContent = String(status.counts.reviews || 0);
       nodes.metricAudit.textContent = status.audit.valid ? "valid" : "invalid";
       nodes.metricAuditCount.textContent = String(status.audit.count || 0) + " events";
+      nodes.metricCommentReports.textContent = String(status.queues.communityCommentReports?.open || 0);
+      nodes.metricHiddenComments.textContent = String(status.queues.communityComments?.hidden || 0);
+      nodes.metricStars.textContent = String(communitySignals.counts?.stars || 0);
+      nodes.metricComments.textContent = String(communitySignals.counts?.comments || 0);
       nodes.readinessChecks.innerHTML = status.readiness.checks.map((check) => row(check.id, check.status, check.detail)).join("");
       nodes.supportSummary.innerHTML = [
         row("state store", status.runtime.stateStore.kind, status.runtime.stateStore.table || status.runtime.stateStore.path || "memory"),
@@ -7735,12 +7963,44 @@ function renderCoreHubAdminHtml() {
           review.updatedAt || review.createdAt,
         ];
       });
+      renderTable(nodes.commentReportsTable, commentReports.data, (item) => [
+        item.report.id,
+        item.report.targetType + ":" + item.report.targetId,
+        (item.comment?.body || "missing").slice(0, 120),
+        item.comment?.status || item.report.status,
+        commentReportActionButtons(item),
+      ]);
+      nodes.communitySignals.innerHTML = [
+        row("open reports", String(communitySignals.counts?.openCommentReports || 0), "comment reports"),
+        row("hidden comments", String(communitySignals.counts?.hiddenComments || 0), "moderated comments"),
+        row("top package", communitySignals.leaderboards?.packages?.[0]?.targetId || "none", String(communitySignals.leaderboards?.packages?.[0]?.score ?? 0)),
+        row("top skill", communitySignals.leaderboards?.skills?.[0]?.targetId || "none", String(communitySignals.leaderboards?.skills?.[0]?.score ?? 0)),
+      ].join("");
+      nodes.profileSignals.innerHTML = (communitySignals.profiles || []).slice(0, 6).map((profile) =>
+        row(profile.publisher.handle, String(profile.stats.stars), profile.stats.comments + " comments · " + profile.stats.packages + " packages · " + profile.stats.skills + " skills")
+      ).join("") || row("profiles", "none", "No publisher profiles");
       nodes.submissionCount.textContent = String(submissions.meta?.total ?? submissions.data.length);
       nodes.reviewCount.textContent = String(reviews.meta?.total ?? reviews.data.length);
+      nodes.commentReportCount.textContent = String(commentReports.meta?.total ?? commentReports.data.length);
+    }
+
+    function commentReportActionButtons(item) {
+      const hidden = item.comment?.status === "hidden";
+      return {
+        __html: '<div class="toolbar">' +
+          '<button class="secondary small" type="button" data-comment-report-id="' + escapeHtml(item.report.id) + '" data-comment-report-action="' + (hidden ? "unhide" : "hide") + '">' + (hidden ? "Unhide" : "Hide") + '</button>' +
+          '<button class="secondary small" type="button" data-comment-report-id="' + escapeHtml(item.report.id) + '" data-comment-report-action="none">Close</button>' +
+          "</div>",
+      };
     }
 
     function renderTable(target, items, cellsFor) {
-      target.innerHTML = (items || []).map((item) => "<tr>" + cellsFor(item).map((cell) => "<td>" + escapeHtml(cell || "-") + "</td>").join("") + "</tr>").join("") || "<tr><td colspan=\\"5\\" class=\\"muted\\">No records</td></tr>";
+      target.innerHTML = (items || []).map((item) => "<tr>" + cellsFor(item).map((cell) => "<td>" + renderCell(cell) + "</td>").join("") + "</tr>").join("") || "<tr><td colspan=\\"5\\" class=\\"muted\\">No records</td></tr>";
+    }
+
+    function renderCell(value) {
+      if (value && typeof value === "object" && "__html" in value) return value.__html;
+      return escapeHtml(value || "-");
     }
 
     function row(label, status, detail) {

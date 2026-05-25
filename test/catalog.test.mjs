@@ -855,6 +855,9 @@ try {
   assert.match(adminPageHtml, /api\("\/session\/validate\?role=" \+ encodeURIComponent\(role\)\)/);
   assert.match(adminPageHtml, /api\("\/admin\/status"\)/);
   assert.match(adminPageHtml, /api\("\/reviews\?status=open&limit=25"\)/);
+  assert.match(adminPageHtml, /Comment Reports Queue/);
+  assert.match(adminPageHtml, /api\("\/community\/comment-reports\?status=open&limit=25"\)/);
+  assert.match(adminPageHtml, /api\("\/community\/signals\?limit=6"\)/);
   const publisherPage = await fetch(`${bootstrapInfo.url}/publisher`);
   assert.equal(publisherPage.status, 200);
   assert.match(publisherPage.headers.get("content-type"), /text\/html/);
