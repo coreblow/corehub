@@ -37,7 +37,7 @@ package_private="$(printf '%s' "$package_metadata" | node -e 'const chunks=[]; p
 
 if [[ "${package_private}" == "true" ]]; then
   echo "${package_name} is still marked private in package.json." >&2
-  echo "Real npm publish requires explicit release approval and package.json private=false." >&2
+  echo "Real npm publish requires explicit release approval and a public package manifest." >&2
   exit 1
 fi
 

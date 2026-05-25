@@ -4,9 +4,25 @@ CoreHub is the public skill and plugin registry for CoreBlow.
 
 ## Overview
 
-CoreHub is part of the CoreBlow public repository family. It is the CoreBlow counterpart to ClawHub: publish, version, search, inspect, and review CoreBlow skills, plugins, providers, channels, and compatibility metadata.
+CoreHub is part of the CoreBlow public repository family. It is the CoreBlow counterpart to ClawHub: publish, version, search, inspect, moderate, and install CoreBlow skills, plugins, providers, channels, and compatibility metadata.
 
-The current implementation is the registry foundation: catalog validation, deterministic search, skill folder inspection, command-shape parity, and a hosted public directory at `https://coreblow.com/corehub`. The next implementation phases add the backend registry API, publisher identity, versioning, moderation, and install/update flows.
+The current implementation is the accepted CoreHub v1 marketplace baseline: public Registry API, npm-compatible metadata routes, publisher identity, package and hosted skill lifecycle, moderation, scanner evidence, community signals, D1 production persistence, external artifact URL storage, protected deploy workflows, and a hosted public directory at `https://coreblow.com/corehub`.
+
+## Install
+
+After the npm release workflow publishes the package:
+
+```sh
+npm install -g @coreblow/corehub
+corehub registry info --registry https://coreblow.com/corehub
+corehub search plugin --registry https://coreblow.com/corehub
+```
+
+Until the npm package is published, use the repository-local CLI:
+
+```sh
+npm run corehub -- registry info --registry https://coreblow.com/corehub
+```
 
 ## Repository Role
 
@@ -84,7 +100,7 @@ npm run smoke:local-publish
 
 See `docs/local-publish-runbook.md` for the manual command flow.
 
-See `docs/production-persistence.md` for the D1 state-store bootstrap contract, R2 artifact storage binding, Cloudflare Worker entrypoint, migration apply helper, and binding placeholders.
+See `docs/production-persistence.md` for the D1 state-store bootstrap contract, external artifact URL storage mode, Cloudflare Worker entrypoint, migration apply helper, and binding placeholders.
 
 Run the production-style audit incident automation check:
 
@@ -127,7 +143,7 @@ npm run corehub -- inspect fixtures/example-skill
 npm run corehub -- skill publish fixtures/example-skill
 ```
 
-CoreHub also exposes a server-side upload and review boundary for future R2/S3-backed publishing. The current implementation keeps storage local/mocked for tests while preserving the API contract for `POST /corehub/api/v2/artifacts/uploads`, signed `PUT /corehub/api/v2/artifacts/uploads/:id`, `POST /corehub/api/v2/artifacts/uploads/:id/verify`, `POST /corehub/api/v2/submissions`, and `POST /corehub/api/v2/reviews/:id/approve|block`.
+CoreHub also exposes a server-side upload and review boundary for publishing. Production uses external artifact URLs, so paid object storage is not required; local tests use mocked storage while preserving the API contract for `POST /corehub/api/v2/artifacts/uploads`, signed `PUT /corehub/api/v2/artifacts/uploads/:id`, `POST /corehub/api/v2/artifacts/uploads/:id/verify`, `POST /corehub/api/v2/submissions`, and `POST /corehub/api/v2/reviews/:id/approve|block`.
 
 Approved write-side package versions can be projected into the read-only Registry API v1 shape from local state. Blocked versions stay out of projected install/search surfaces.
 
@@ -172,11 +188,13 @@ https://coreblow.com/corehub
 
 `schemas/corehub.catalog.schema.json` is the public catalog schema.
 
-`schemas/corehub.write-side.schema.json` is the planned authenticated marketplace schema for future publisher writes. It is intentionally separate from the read-only catalog schema so Registry API v1 stays stable while API v2 publishing work is built.
+`schemas/corehub.write-side.schema.json` is the authenticated marketplace schema for publisher writes. It is intentionally separate from the read-only catalog schema so Registry API v1 stays stable while API v2 publishing evolves.
 
 ## Release Policy
 
 Do not publish packages, tags, installers, or release artifacts from this repository without explicit CoreBlow release approval.
+
+The CoreHub CLI package is approved for npm release readiness. Live npm publication still runs only through the protected `CoreHub CLI NPM Release` workflow with `release_approved=true`.
 
 Version changes must follow the coordinated CoreBlow release plan.
 

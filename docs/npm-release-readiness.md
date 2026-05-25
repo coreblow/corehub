@@ -1,14 +1,13 @@
 # CoreHub npm Release Readiness
 
-CoreHub npm publication is intentionally fail-closed until an operator explicitly approves opening the CLI package.
+CoreHub npm publication is approved for release readiness. Live publication remains fail-closed unless the protected workflow receives explicit release approval.
 
 Current policy:
 
-- Keep `package.json` with `private: true` by default.
 - Do not change `version` without an approved release task.
-- Do not remove `private: true` without an approved release task.
 - Do not run live `npm publish` from a local shell.
 - Use the protected `CoreHub CLI NPM Release` workflow for real publication.
+- Keep `publishConfig.access=public` so scoped package publication is explicit.
 
 ## Local Preflight
 
@@ -18,7 +17,7 @@ Run the metadata gate without preparing a public package:
 npm run release:npm:preflight
 ```
 
-The preflight validates package name, stable semver, homepage, license, Node engine, and CLI bin wiring. When the package is still private, the command warns that live publish remains blocked.
+The preflight validates package name, stable semver, homepage, license, repository, npm public access, Node engine, and CLI bin wiring.
 
 The npm package uses the `package.json` `files` allowlist so the release tarball includes runtime CLI sources, catalog/schema data, docs, fixtures, and example artifacts, while excluding CI workflows, test suites, operator scripts, and Cloudflare deployment templates from the published CLI package.
 
@@ -28,7 +27,7 @@ Run the local dry-run rehearsal:
 npm run release:npm:dry-run
 ```
 
-The dry run performs `npm pack`, extracts the tarball into a temporary directory, removes `private` only from the temporary manifest, and runs `npm publish --dry-run --ignore-scripts --access public`. The repository `package.json` is not modified.
+The dry run performs `npm pack`, extracts the tarball into a temporary directory, confirms the publishable manifest, and runs `npm publish --dry-run --ignore-scripts --access public`. The command does not publish to npm.
 
 ## GitHub Preflight
 
@@ -43,19 +42,16 @@ release_approved: false
 
 The preflight checks the release tag, runs the release gates, runs the safe npm publish dry run, packs the prepared tarball, and uploads the preflight artifact.
 
-While `private: true` is still present, this workflow is readiness-only. A preflight artifact produced from a private package is rejected by the later publish job, so the real publish path must use a fresh preflight run after the approved manifest change.
-
 ## Live Publish Approval
 
 Real publication requires all of these conditions:
 
-1. A reviewed release change removes `private: true` from `package.json`.
-2. The package version matches the release tag.
-3. The successful preflight workflow run id is provided.
-4. The workflow is dispatched from `main`.
-5. The protected `npm-release` environment approval is granted.
-6. The workflow input `release_approved` is set to `true`.
-7. `scripts/corehub-cli-npm-publish.sh` receives `COREHUB_NPM_RELEASE_APPROVED=1`.
+1. The package version matches the release tag.
+2. The successful preflight workflow run id is provided.
+3. The workflow is dispatched from `main`.
+4. The protected `npm-release` environment approval is granted.
+5. The workflow input `release_approved` is set to `true`.
+6. `scripts/corehub-cli-npm-publish.sh` receives `COREHUB_NPM_RELEASE_APPROVED=1`.
 
 If any condition is missing, the publish path exits before calling `npm publish`.
 

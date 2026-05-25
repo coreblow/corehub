@@ -22,7 +22,7 @@ Accepted scope:
 Intentionally deferred outside v1 acceptance:
 
 - Browser OAuth UI polish and full account settings. CoreHub now owns the API-level GitHub provider exchange and signed browser session minting; richer UI entry points remain post-v1 hardening.
-- npm release publication. Release readiness, preflight, and safe dry-run rehearsal are documented in `docs/npm-release-readiness.md`, but the package remains `private: true` until an operator explicitly approves opening the CoreHub CLI release surface.
+- npm release publication. Release readiness, preflight, safe dry-run rehearsal, and approval gates are documented in `docs/npm-release-readiness.md`; live publication still requires the protected npm release workflow.
 
 ## ClawHub-To-CoreHub Matrix Lock
 
@@ -130,7 +130,7 @@ The final acceptance lock also includes focused ClawHub parity test surfaces:
 - Community and skill route parity: hosted skill read/security plus stars, comments, reports, deletion, comment moderation UI, profile signals, and leaderboard scoring.
 - Moderator CLI surface: scanner enqueue, completion, and list flow through the CoreHub registry client.
 - CI matrix split: public API, CLI, scanner, skill, community, worker, and persistence surfaces run as separate jobs; legacy catalog and account/publisher compatibility remain separate jobs.
-- npm release readiness: local preflight, safe temporary-manifest publish dry-run, protected workflow preflight, and explicit live-publish approval gates are present while `private: true` remains in the repository.
+- npm release readiness: local preflight, safe publish dry-run, protected workflow preflight, public manifest metadata, and explicit live-publish approval gates are present.
 
 Post-v1 production release lock evidence is tracked in `docs/release-lock-2026-05-25.md`.
 

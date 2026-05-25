@@ -65,6 +65,12 @@ function collectPackageMetadataErrors(pkg) {
   if (String(pkg.homepage ?? "").replace(/\/+$/, "") !== EXPECTED_HOMEPAGE_URL) {
     errors.push(`package.json homepage must be ${EXPECTED_HOMEPAGE_URL}; found "${pkg.homepage ?? ""}".`);
   }
+  if (pkg.repository?.url !== "git+https://github.com/coreblow/corehub.git") {
+    errors.push(`package.json repository.url must point at coreblow/corehub; found "${pkg.repository?.url ?? ""}".`);
+  }
+  if (pkg.publishConfig?.access !== "public") {
+    errors.push(`package.json publishConfig.access must be "public"; found "${pkg.publishConfig?.access ?? ""}".`);
+  }
   if (pkg.bin?.corehub !== EXPECTED_BIN_PATH) {
     errors.push(`package.json bin.corehub must be "${EXPECTED_BIN_PATH}"; found "${pkg.bin?.corehub ?? ""}".`);
   }

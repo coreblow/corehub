@@ -17,7 +17,7 @@ on:
         required: false
         type: string
       release_approved:
-        description: Required for real publish after package.json private=false is approved
+        description: Required for real publish after the public manifest is approved
         required: true
         default: false
         type: boolean
@@ -168,7 +168,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${RELEASE_APPROVED}" != "true" ]]; then
-            echo "Real npm publish requires release_approved=true after package.json private=false is reviewed." >&2
+            echo "Real npm publish requires release_approved=true after the public manifest is reviewed." >&2
             exit 1
           fi
 
@@ -267,7 +267,7 @@ jobs:
             exit 1
           fi
           if [[ "$ARTIFACT_PACKAGE_PRIVATE" == "true" ]]; then
-            echo "Prepared preflight package is private. Re-run preflight after the approved package.json private=false release change." >&2
+            echo "Prepared preflight package is private. Re-run preflight after the approved public manifest release change." >&2
             exit 1
           fi
 

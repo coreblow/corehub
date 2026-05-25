@@ -1,12 +1,30 @@
 {
   "name": "@coreblow/corehub",
   "version": "0.1.0",
-  "private": true,
   "description": "Skill and plugin directory for CoreBlow",
   "homepage": "https://coreblow.com/corehub",
   "license": "MIT",
   "author": "Febrinanda and CoreBlow contributors",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coreblow/corehub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/coreblow/corehub/issues"
+  },
+  "keywords": [
+    "coreblow",
+    "corehub",
+    "plugins",
+    "skills",
+    "registry",
+    "marketplace",
+    "cli"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "corehub": "src/cli.mjs"
   },

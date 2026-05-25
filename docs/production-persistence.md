@@ -531,9 +531,9 @@ The workflow follows the ClawHub CLI release shape:
 - package metadata and tag validation with `scripts/corehub-cli-npm-release-check.mjs`.
 - release gates before packing: `npm test`, `npm run validate:ops`, `npm run validate:schema`, `npm run validate:write-schema`, and `npm run validate:deploy-template`.
 - prepared npm tarball upload as `corehub-cli-npm-preflight-<tag>`.
-- real publish requires `preflight_run_id`, `main`, the `npm-release` environment, OIDC trusted publishing, and provenance.
+- real publish requires `preflight_run_id`, `main`, the `npm-release` environment, `release_approved=true`, OIDC trusted publishing, and provenance.
 
-The current package is still marked `private: true`, so real publish fails closed in `scripts/corehub-cli-npm-publish.sh` until an operator explicitly approves opening the CLI package for npm release. Use the workflow in preflight mode to validate a future tag without publishing.
+The package manifest is approved for public npm release readiness. Real publish still fails closed in `scripts/corehub-cli-npm-publish.sh` unless the protected workflow supplies `COREHUB_NPM_RELEASE_APPROVED=1`. Use the workflow in preflight mode to validate a release tag without publishing.
 
 The placeholder config is in `ops/cloudflare/wrangler.corehub-api.persistence.example.toml`.
 

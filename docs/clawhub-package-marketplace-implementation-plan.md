@@ -233,7 +233,7 @@ Implemented in this phase:
 Post-v1 hardening:
 
 - Real browser OAuth/session login when the CoreBlow app auth boundary is ready.
-- CLI/npm publication only after the operator explicitly approves opening the package from `private: true`.
+- CLI/npm publication only through the protected release workflow after explicit operator approval.
 
 ## Done Criteria For Final
 

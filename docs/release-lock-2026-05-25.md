@@ -17,10 +17,10 @@ Accepted scope:
 - Publisher portal hardening.
 - Community moderation UI.
 - Split CI/test matrix by surface.
-- npm release readiness with fail-closed publication policy.
+- npm release approval with fail-closed protected publication policy.
 - Production release evidence: live smoke, rollback drill, and release notes.
 
-The npm package remains `private: true`. This release lock does not publish npm artifacts, remove `private: true`, or change package versions.
+The npm package manifest is approved for public release readiness. This release lock does not publish npm artifacts or change package versions.
 
 ## Release Notes
 
@@ -32,7 +32,7 @@ CoreHub is accepted as the CoreBlow-native package marketplace baseline:
 - Hosted skill lifecycle, search digest depth, community signals, install lifecycle, and CLI parity surfaces are implemented.
 - Production persistence uses D1 with normalized rows and external artifact URL storage; R2 is intentionally not required.
 - Production deploy, seed, smoke, backup, restore, rollback, and finalization workflows are present.
-- npm release readiness is fail-closed until a separate explicit operator approval opens publication.
+- npm release readiness is open at the manifest level, while live publication remains fail-closed until the protected workflow receives explicit operator approval.
 
 ## Local Evidence
 
@@ -42,7 +42,7 @@ Local release lock gates:
 | --- | --- |
 | Live smoke | pass |
 | Production drill rehearsal | pass |
-| npm package visibility | `private: true` retained |
+| npm package visibility | public manifest approved |
 | npm dry-run package size | 45 files, 165.2 kB |
 
 Live smoke command:
@@ -132,5 +132,5 @@ Completed release-lock procedure result:
 
 ## Deferred
 
-- npm live publication remains deferred until explicit operator approval removes `private: true` and runs the protected npm release workflow.
+- npm live publication remains deferred until explicit operator approval runs the protected npm release workflow.
 - Browser OAuth polish remains a later UI hardening item, not a blocker for this production lock.
