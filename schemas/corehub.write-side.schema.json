@@ -35,6 +35,12 @@
         "$ref": "#/$defs/authSession"
       }
     },
+    "userAccounts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/userAccount"
+      }
+    },
     "publisherClaims": {
       "type": "array",
       "items": {
@@ -187,6 +193,57 @@
         }
       }
     },
+    "userAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "provider", "providerAccountId", "login", "actorId", "status", "personalPublisherHandle", "createdAt", "updatedAt"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "provider": {
+          "type": "string",
+          "enum": ["github"]
+        },
+        "providerAccountId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "login": {
+          "$ref": "#/$defs/handle"
+        },
+        "actorId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended", "deleted"]
+        },
+        "avatarUrl": {
+          "$ref": "#/$defs/url"
+        },
+        "profileUrl": {
+          "$ref": "#/$defs/url"
+        },
+        "githubCreatedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "personalPublisherHandle": {
+          "$ref": "#/$defs/handle"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
     "publisherClaim": {
       "type": "object",
       "additionalProperties": false,
@@ -261,6 +318,13 @@
         },
         "verifiedAt": {
           "$ref": "#/$defs/timestamp"
+        },
+        "linkedAccountId": {
+          "$ref": "#/$defs/id"
+        },
+        "linkedUserId": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -288,6 +352,12 @@
           "enum": ["active", "invited", "removed"]
         },
         "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "removedAt": {
           "$ref": "#/$defs/timestamp"
         }
       }

@@ -14,6 +14,8 @@ npm run corehub -- install plugin-lab
 npm run corehub -- install plugin-lab --dry-run
 npm run corehub -- publishers list
 npm run corehub -- publishers inspect coreblow
+npm run corehub -- publisher org create example-org --registry http://127.0.0.1:8787/corehub
+npm run corehub -- publisher org members add example-org --user github:teammate --role maintainer --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package explore
 npm run corehub -- package search plugin
 npm run corehub -- package inspect plugin-lab

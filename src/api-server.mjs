@@ -187,6 +187,7 @@ CREATE INDEX IF NOT EXISTS ${indexesTable}_lookup
 
 const normalizedD1Collections = [
   "authSessions",
+  "userAccounts",
   "publisherClaims",
   "publisherAccounts",
   "publisherMembers",
@@ -237,7 +238,12 @@ function normalizedD1Indexes(collection, item, rowId, position) {
     indexes.push({ collection, indexName, indexKey: String(value), rowId });
   };
 
-  if (collection === "publisherAccounts") {
+  if (collection === "userAccounts") {
+    push("by_actor", item.actorId);
+    push("by_provider", item.provider);
+    push("by_provider_account", item.provider && item.providerAccountId ? `${item.provider}\u0000${item.providerAccountId}` : null);
+    push("by_status", item.status);
+  } else if (collection === "publisherAccounts") {
     push("by_handle", item.handle);
     push("by_status", item.status);
   } else if (collection === "publisherMembers") {
@@ -417,6 +423,7 @@ export class CoreHubLocalStorageAdapter {
     this.analyticsSalt = normalizeAnalyticsSalt(analyticsSalt);
     this.githubOidcJwks = githubOidcJwks ?? null;
     this.authSessions = [];
+    this.userAccounts = [];
     this.publisherClaims = [];
     this.publisherAccounts = new Map(defaultPublisherAccounts().map((publisher) => [publisher.handle, publisher]));
     this.publisherMembers = defaultPublisherMembers();
@@ -2228,6 +2235,209 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  accountProfile(actor = defaultActor()) {
+    const account = this.findUserAccount(actor.id);
+    const identity = this.publisherIdentity(actor);
+    return {
+      actor,
+      account,
+      authenticated: Boolean(account && account.status === "active"),
+      identity,
+    };
+  }
+
+  findUserAccount(actorId) {
+    return this.userAccounts.find((account) => account.actorId === actorId || account.id === actorId) ?? null;
+  }
+
+  async completeOAuthIdentity(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const provider = normalizeOAuthProvider(input.provider ?? "github");
+    const login = normalizeHandleInput(input.login ?? actor.id.replace(/^github:/, ""), "login");
+    const providerAccountId = normalizeRequiredString(input.providerAccountId ?? login, "providerAccountId");
+    const actorId = provider === "github" ? `github:${login}` : `${provider}:${providerAccountId}`;
+    if (actor.id !== actorId && !this.hasAdminPermission(actor)) {
+      throw httpError(403, `Actor ${actor.id} cannot bootstrap account ${actorId}`);
+    }
+    const completedAt = now.toISOString();
+    const accountId = `account-${provider}-${slugId(providerAccountId)}`;
+    const existing = this.userAccounts.find((account) => account.id === accountId || account.actorId === actorId);
+    const account = {
+      ...(existing ?? {}),
+      id: existing?.id ?? accountId,
+      provider,
+      providerAccountId,
+      login,
+      actorId,
+      displayName: normalizeOptionalString(input.displayName) ?? existing?.displayName ?? login,
+      status: "active",
+      ...(input.avatarUrl ? { avatarUrl: String(input.avatarUrl).trim() } : existing?.avatarUrl ? { avatarUrl: existing.avatarUrl } : {}),
+      ...(input.profileUrl ? { profileUrl: String(input.profileUrl).trim() } : existing?.profileUrl ? { profileUrl: existing.profileUrl } : {}),
+      ...(input.githubCreatedAt ? { githubCreatedAt: String(input.githubCreatedAt).trim() } : existing?.githubCreatedAt ? { githubCreatedAt: existing.githubCreatedAt } : {}),
+      personalPublisherHandle: existing?.personalPublisherHandle ?? login,
+      createdAt: existing?.createdAt ?? completedAt,
+      updatedAt: completedAt,
+    };
+    if (existing) {
+      Object.assign(existing, account);
+    } else {
+      this.userAccounts.push(account);
+    }
+    const publisher = this.ensurePersonalPublisher(account, { actor: { type: "user", id: actorId }, now });
+    this.authSessions.push({
+      id: `session-${slugId(actorId)}-${String(this.authSessions.length + 1).padStart(6, "0")}`,
+      actor: { type: "user", id: actorId },
+      status: "active",
+      defaultPublisherHandle: publisher.handle,
+      createdAt: completedAt,
+      expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    this.recordAuditEvent({
+      actor: { type: "user", id: actorId },
+      action: existing ? "account.oauth.refresh" : "account.oauth.create",
+      targetType: "account",
+      targetId: account.id,
+      metadata: { provider, login, publisherHandle: publisher.handle },
+      createdAt: completedAt,
+    });
+    await this.persistState();
+    return { status: existing ? "refreshed" : "created", account, publisher, identity: this.publisherIdentity({ type: "user", id: actorId }) };
+  }
+
+  ensurePersonalPublisher(account, { actor, now }) {
+    const handle = account.personalPublisherHandle;
+    const createdAt = now.toISOString();
+    let publisher = this.publisherAccounts.get(handle);
+    if (!publisher) {
+      publisher = {
+        id: `publisher-${handle}`,
+        handle,
+        displayName: account.displayName ?? handle,
+        kind: "user",
+        status: "verified",
+        source: account.profileUrl ?? `https://github.com/${handle}`,
+        contact: account.profileUrl ?? `https://github.com/${handle}`,
+        linkedAccountId: account.id,
+        linkedUserId: account.actorId,
+        createdAt,
+        verifiedAt: createdAt,
+      };
+      this.publisherAccounts.set(handle, publisher);
+    }
+    if (!this.publisherMembers.some((member) => member.publisherHandle === handle && member.userId === account.actorId && member.status === "active")) {
+      this.publisherMembers.push({
+        id: `member-${handle}-${slugId(account.actorId)}`,
+        publisherHandle: handle,
+        userId: account.actorId,
+        role: "owner",
+        status: "active",
+        createdAt,
+      });
+    }
+    return publisher;
+  }
+
+  async createOrganizationPublisher(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const account = this.findUserAccount(actor.id);
+    if (!account && !this.hasAdminPermission(actor)) throw httpError(403, `Actor ${actor.id} must complete account sign-in before creating an organization`);
+    const handle = normalizeHandleInput(input.handle, "handle");
+    if (this.publisherAccounts.has(handle)) throw httpError(409, `Publisher ${handle} already exists`);
+    const createdAt = now.toISOString();
+    const publisher = {
+      id: `publisher-${handle}`,
+      handle,
+      displayName: normalizeOptionalString(input.displayName) ?? titleizeHandle(handle),
+      kind: "organization",
+      status: "verified",
+      ...(input.source ? { source: String(input.source).trim() } : {}),
+      ...(input.contact ? { contact: String(input.contact).trim() } : {}),
+      createdAt,
+      verifiedAt: createdAt,
+    };
+    this.publisherAccounts.set(handle, publisher);
+    const membership = {
+      id: `member-${handle}-${slugId(actor.id)}`,
+      publisherHandle: handle,
+      userId: actor.id,
+      role: "owner",
+      status: "active",
+      createdAt,
+    };
+    this.publisherMembers.push(membership);
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.org.create",
+      targetType: "publisher",
+      targetId: handle,
+      metadata: { kind: "organization" },
+      createdAt,
+    });
+    await this.persistState();
+    return { status: "created", publisher, membership };
+  }
+
+  listPublisherMembers(handle, { actor = defaultActor() } = {}) {
+    this.requirePublisherManagePermission(actor, handle, "publisher.member.list");
+    return {
+      publisher: this.requireVerifiedPublisher(handle, "publisher.member.list"),
+      members: this.publisherMembers
+        .filter((member) => member.publisherHandle === handle && member.status !== "removed")
+        .sort((left, right) => left.userId.localeCompare(right.userId)),
+    };
+  }
+
+  async addPublisherMember(handle, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requirePublisherManagePermission(actor, handle, "publisher.member.add");
+    const userId = normalizeRequiredString(input.userId, "userId");
+    const role = normalizePublisherMemberRole(input.role ?? "maintainer");
+    const createdAt = now.toISOString();
+    const existing = this.publisherMembers.find((member) => member.publisherHandle === handle && member.userId === userId);
+    if (existing) {
+      existing.role = role;
+      existing.status = "active";
+      existing.updatedAt = createdAt;
+      await this.persistState();
+      return { status: "updated", member: existing };
+    }
+    const member = {
+      id: `member-${handle}-${slugId(userId)}`,
+      publisherHandle: handle,
+      userId,
+      role,
+      status: "active",
+      createdAt,
+    };
+    this.publisherMembers.push(member);
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.member.add",
+      targetType: "publisherMember",
+      targetId: member.id,
+      metadata: { publisherHandle: handle, userId, role },
+      createdAt,
+    });
+    await this.persistState();
+    return { status: "added", member };
+  }
+
+  async removePublisherMember(handle, userId, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requirePublisherManagePermission(actor, handle, "publisher.member.remove");
+    const member = this.publisherMembers.find((item) => item.publisherHandle === handle && item.userId === userId && item.status === "active");
+    if (!member) throw httpError(404, "Publisher member not found");
+    if (member.role === "owner" && member.userId === actor.id) throw httpError(409, "Owners cannot remove themselves");
+    member.status = "removed";
+    member.removedAt = now.toISOString();
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.member.remove",
+      targetType: "publisherMember",
+      targetId: member.id,
+      metadata: { publisherHandle: handle, userId },
+      createdAt: member.removedAt,
+    });
+    await this.persistState();
+    return { status: "removed", member };
+  }
+
   publisherDashboard(actor = defaultActor()) {
     const identity = this.publisherIdentity(actor);
     const handles = new Set(identity.memberships.map((membership) => membership.publisherHandle));
@@ -2291,6 +2501,25 @@ export class CoreHubLocalStorageAdapter {
         member.publisherHandle === publisherHandle &&
         member.status === "active" &&
         publisherWriteRoles.has(member.role),
+    );
+    if (!membership) {
+      throw httpError(403, `Actor ${actor.id} cannot ${action} for publisher ${publisherHandle}`);
+    }
+    return membership;
+  }
+
+  requirePublisherManagePermission(actor, publisherHandle, action) {
+    if (this.hasAdminPermission(actor)) return null;
+    const publisher = this.publisherAccounts.get(publisherHandle);
+    if (!publisher || publisher.status !== "verified") {
+      throw httpError(403, `Publisher ${publisherHandle} is not verified for ${action}`);
+    }
+    const membership = this.publisherMembers.find(
+      (member) =>
+        member.userId === actor.id &&
+        member.publisherHandle === publisherHandle &&
+        member.status === "active" &&
+        ["owner", "admin"].includes(member.role),
     );
     if (!membership) {
       throw httpError(403, `Actor ${actor.id} cannot ${action} for publisher ${publisherHandle}`);
@@ -2657,6 +2886,7 @@ export class CoreHubLocalStorageAdapter {
       savedAt,
       publicBaseUrl: this.publicBaseUrl,
       authSessions: this.authSessions,
+      userAccounts: this.userAccounts,
       publisherClaims: this.publisherClaims,
       publisherAccounts: [...this.publisherAccounts.values()],
       publisherMembers: this.publisherMembers,
@@ -2683,6 +2913,7 @@ export class CoreHubLocalStorageAdapter {
     }
     this.publicBaseUrl = state.publicBaseUrl ?? this.publicBaseUrl;
     this.authSessions = state.authSessions ?? [];
+    this.userAccounts = state.userAccounts ?? [];
     this.publisherClaims = state.publisherClaims ?? [];
     this.publisherAccounts = new Map(
       (state.publisherAccounts ?? defaultPublisherAccounts()).map((publisher) => [publisher.handle, publisher]),
@@ -2835,6 +3066,29 @@ export function createCoreHubApiHandler({
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
+      if (request.method === "POST" && segments[0] === "oauth" && segments[1] === "github" && segments[2] === "complete" && segments.length === 3) {
+        const token = authTokenFromRequest(request);
+        if (!token || !jwtPayloadFromToken(storage, token)) throw httpError(401, "Signed OAuth identity token is required");
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.completeOAuthIdentity({ ...body, provider: "github" }, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "account" && segments[1] === "me" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const result = storage.accountProfile(actor);
+        await storage.auditRead({
+          actor,
+          action: "account.me",
+          targetType: "account",
+          targetId: result.account?.id ?? actor.id,
+          metadata: { authenticated: result.authenticated },
+          now: now(),
+        });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (request.method === "GET" && segments[0] === "publishers" && segments[1] === "me" && segments.length === 2) {
         const actor = actorFromRequest(request, storage);
         const result = storage.publisherIdentity(actor);
@@ -2871,6 +3125,32 @@ export function createCoreHubApiHandler({
         const actor = actorFromRequest(request, storage);
         storage.requireAdminPermission(actor, "publisher.list");
         const result = Array.from(storage.publisherAccounts.values());
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "orgs" && segments.length === 1) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.createOrganizationPublisher(body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "GET" && segments[0] === "orgs" && segments[2] === "members" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const result = storage.listPublisherMembers(decodeURIComponent(segments[1]), { actor });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "orgs" && segments[2] === "members" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.addPublisherMember(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "DELETE" && segments[0] === "orgs" && segments[2] === "members" && segments.length === 4) {
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.removePublisherMember(decodeURIComponent(segments[1]), decodeURIComponent(segments[3]), { actor, now: now() });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -5036,6 +5316,32 @@ function normalizeActorInput(value, name) {
     type: typeof value?.type === "string" && value.type.trim() ? value.type.trim() : "user",
     id: normalizeRequiredString(actorId, name),
   };
+}
+
+function normalizeOAuthProvider(provider) {
+  const value = normalizeRequiredString(provider, "provider").toLowerCase();
+  if (value !== "github") throw httpError(400, "provider must be github");
+  return value;
+}
+
+function normalizeHandleInput(value, name) {
+  const handle = normalizeRequiredString(value, name).toLowerCase();
+  if (!PUBLISHER_HANDLE_RE.test(handle)) {
+    throw httpError(400, `${name} must be lowercase kebab-case, 2-40 characters`);
+  }
+  return handle;
+}
+
+function normalizeOptionalString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizePublisherMemberRole(role) {
+  const value = normalizeRequiredString(role, "role").toLowerCase();
+  if (!["owner", "admin", "maintainer", "reviewer"].includes(value)) {
+    throw httpError(400, "role must be owner, admin, maintainer, or reviewer");
+  }
+  return value;
 }
 
 function normalizeRequiredString(value, name) {

@@ -103,6 +103,11 @@ async function runPublisherCommand(values) {
     return;
   }
 
+  if (subcommand === "org" || subcommand === "orgs") {
+    await runPublisherOrgCommand(args, registry);
+    return;
+  }
+
   if (subcommand === "list") {
     console.log(JSON.stringify(await listPublishers({ registry }), null, 2));
     return;
@@ -115,6 +120,55 @@ async function runPublisherCommand(values) {
     return;
   }
 
+  printPublisherHelp();
+}
+
+async function runPublisherOrgCommand(values, registry) {
+  const subcommand = values[0] ?? "list";
+  const args = values.slice(1);
+  if (!registry) throw new Error("publisher org requires --registry or COREHUB_REGISTRY");
+  const auth = await requireAuthState();
+  const client = new CoreHubRegistryClient(registry);
+  if (subcommand === "create") {
+    const handle = normalizeHandle(positionalArgs(args)[0]);
+    if (!handle) throw new Error("publisher org create requires a handle");
+    const result = await client.createOrgPublisher(
+      {
+        handle,
+        displayName: readOption(args, "--display-name") ?? titleizeHandle(handle),
+        source: readOption(args, "--source"),
+        contact: readOption(args, "--contact"),
+      },
+      { auth },
+    );
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+  if (subcommand === "members") {
+    const action = args[0] ?? "list";
+    const rest = args.slice(1);
+    const handle = normalizeHandle(positionalArgs(rest)[0]);
+    if (!handle) throw new Error("publisher org members requires an org handle");
+    if (action === "list") {
+      const result = await client.orgMembers(handle, { auth });
+      console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+      return;
+    }
+    if (action === "add") {
+      const userId = readOption(rest, "--user") ?? positionalArgs(rest)[1];
+      if (!userId) throw new Error("publisher org members add requires --user <actor>");
+      const result = await client.addOrgMember(handle, { userId, role: readOption(rest, "--role") ?? "maintainer" }, { auth });
+      console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+      return;
+    }
+    if (action === "remove") {
+      const userId = readOption(rest, "--user") ?? positionalArgs(rest)[1];
+      if (!userId) throw new Error("publisher org members remove requires --user <actor>");
+      const result = await client.removeOrgMember(handle, userId, { auth });
+      console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+      return;
+    }
+  }
   printPublisherHelp();
 }
 
@@ -3945,6 +3999,38 @@ class CoreHubRegistryClient {
     });
   }
 
+  async createOrgPublisher(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/orgs"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async orgMembers(handle, options = {}) {
+    return this.readV2Envelope(this.apiV2Url(`/orgs/${encodeURIComponent(handle)}/members`), { auth: options.auth });
+  }
+
+  async addOrgMember(handle, payload, options = {}) {
+    return this.writeData(this.apiV2Url(`/orgs/${encodeURIComponent(handle)}/members`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async removeOrgMember(handle, userId, options = {}) {
+    return this.writeData(this.apiV2Url(`/orgs/${encodeURIComponent(handle)}/members/${encodeURIComponent(userId)}`), {
+      auth: options.auth,
+      method: "DELETE",
+      expectedVersion: "v2",
+    });
+  }
+
   async publisherIdentity(options = {}) {
     return this.readV2Data(this.apiV2Url("/publishers/me"), { auth: options.auth });
   }
@@ -4099,6 +4185,9 @@ Usage:
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
+  corehub publisher org create <handle> [--display-name name] --registry https://coreblow.com/corehub
+  corehub publisher org members list <handle> --registry https://coreblow.com/corehub
+  corehub publisher org members add <handle> --user github:user [--role maintainer] --registry https://coreblow.com/corehub
   corehub admin status --registry https://coreblow.com/corehub
   corehub admin support-bundle [--output file] [--limit n] --registry https://coreblow.com/corehub
   corehub audit list [--target id] [--action action] [--actor actor-id] [--format json|jsonl] [--output file] [--limit n] [--offset n] --registry https://coreblow.com/corehub
@@ -4292,6 +4381,9 @@ function printPublisherHelp() {
 Usage:
   corehub publisher whoami [--json]
   corehub publisher claim <handle> --dry-run [--display-name name] [--kind user|organization]
+  corehub publisher org create <handle> [--display-name name] --registry https://coreblow.com/corehub
+  corehub publisher org members list <handle> --registry https://coreblow.com/corehub
+  corehub publisher org members add <handle> --user github:user [--role maintainer] --registry https://coreblow.com/corehub
   corehub publishers list [--registry https://coreblow.com/corehub]
   corehub publishers inspect <handle> [--registry https://coreblow.com/corehub]
 `);

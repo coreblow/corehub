@@ -19,6 +19,7 @@ The schema follows the ClawHub pattern where publishing is owner-scoped:
 | Collection | Purpose |
 | --- | --- |
 | `authSessions` | Authenticated CLI or API sessions for publisher workflows. |
+| `userAccounts` | Signed upstream GitHub account identities linked to personal publishers. |
 | `publisherClaims` | Handle reservation and verification requests before an account is active. |
 | `publisherAccounts` | Stable publisher handles for users or organizations. |
 | `publisherMembers` | Role bindings for organization-owned publishers. |
@@ -59,6 +60,12 @@ CoreHub API v2 now resolves a request actor from the authenticated CLI headers a
 | Boundary | Required permission |
 | --- | --- |
 | `GET /corehub/api/v2/publishers/me` | Any authenticated actor; returns memberships, roles, default publisher, and derived permissions. |
+| `POST /corehub/api/v2/oauth/github/complete` | Completes a CoreBlow/CoreHub-signed upstream GitHub identity, stores the account, and bootstraps a personal publisher. |
+| `GET /corehub/api/v2/account/me` | Returns the signed-in account, actor, publisher identity, memberships, and default publisher. |
+| `POST /corehub/api/v2/orgs` | Creates a verified organization publisher for a signed-in account and assigns the actor as owner. |
+| `GET /corehub/api/v2/orgs/:handle/members` | Lists organization publisher members for owners, admins, or global admins. |
+| `POST /corehub/api/v2/orgs/:handle/members` | Adds or updates an organization member role. |
+| `DELETE /corehub/api/v2/orgs/:handle/members/:userId` | Removes an organization member without deleting account history. |
 | `POST /corehub/api/v2/artifacts/uploads` | Active `owner`, `admin`, or `maintainer` membership on the requested `publisherHandle`. |
 | `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Active write membership on the upload slot publisher. |
 | `POST /corehub/api/v2/submissions` | Active write membership on the submission publisher. |

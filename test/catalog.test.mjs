@@ -1332,6 +1332,103 @@ try {
   assert.deepEqual(dashboardPayload.data.packages, []);
   assert.equal(dashboardPayload.data.uploadSlots.length, 0);
 
+  const oauthActor = { type: "user", id: "github:octo-dev" };
+  const oauthToken = signJwt(
+    {
+      actor: oauthActor,
+      iss: "corehub-test",
+      aud: "corehub-oauth",
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    },
+    "corehub-local-development-signing-secret",
+  );
+  const oauthCompleteResponse = await fetch(`${apiBaseUrl}/oauth/github/complete`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      login: "octo-dev",
+      providerAccountId: "12345",
+      displayName: "Octo Dev",
+      profileUrl: "https://github.com/octo-dev",
+      githubCreatedAt: "2020-01-01T00:00:00Z",
+    }),
+  });
+  assert.equal(oauthCompleteResponse.status, 200);
+  const oauthCompletePayload = await oauthCompleteResponse.json();
+  assert.equal(oauthCompletePayload.data.account.actorId, "github:octo-dev");
+  assert.equal(oauthCompletePayload.data.publisher.handle, "octo-dev");
+  assert.equal(oauthCompletePayload.data.identity.memberships[0].role, "owner");
+
+  const accountMeResponse = await fetch(`${apiBaseUrl}/account/me`, {
+    headers: { authorization: `Bearer ${oauthToken}` },
+  });
+  assert.equal(accountMeResponse.status, 200);
+  const accountMePayload = await accountMeResponse.json();
+  assert.equal(accountMePayload.data.authenticated, true);
+  assert.equal(accountMePayload.data.identity.defaultPublisher.handle, "octo-dev");
+
+  const orgCreateResponse = await fetch(`${apiBaseUrl}/orgs`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      handle: "octo-tools",
+      displayName: "Octo Tools",
+      source: "https://github.com/octo-tools",
+      contact: "https://github.com/octo-tools",
+    }),
+  });
+  assert.equal(orgCreateResponse.status, 201);
+  const orgCreatePayload = await orgCreateResponse.json();
+  assert.equal(orgCreatePayload.data.publisher.kind, "organization");
+  assert.equal(orgCreatePayload.data.membership.role, "owner");
+
+  const orgMemberAddResponse = await fetch(`${apiBaseUrl}/orgs/octo-tools/members`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ userId: "github:octo-maintainer", role: "maintainer" }),
+  });
+  assert.equal(orgMemberAddResponse.status, 200);
+  assert.equal((await orgMemberAddResponse.json()).data.member.role, "maintainer");
+
+  const orgMembersResponse = await fetch(`${apiBaseUrl}/orgs/octo-tools/members`, {
+    headers: { authorization: `Bearer ${oauthToken}` },
+  });
+  assert.equal(orgMembersResponse.status, 200);
+  const orgMembersPayload = await orgMembersResponse.json();
+  assert.equal(orgMembersPayload.data.members.length, 2);
+  assert.equal(orgMembersPayload.data.members.some((member) => member.userId === "github:octo-maintainer"), true);
+
+  const orgUploadResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-corehub-user": "github:octo-maintainer",
+    },
+    body: JSON.stringify({
+      packageId: "@octo-tools/demo",
+      version: "0.1.0",
+      publisherHandle: "octo-tools",
+      provider: "external-url",
+      artifact: {
+        name: "octo-tools-demo-0.1.0.tgz",
+        mediaType: "application/gzip",
+        size: 1,
+        sha256: "a".repeat(64),
+        url: "https://example.com/octo-tools-demo-0.1.0.tgz",
+      },
+    }),
+  });
+  assert.equal(orgUploadResponse.status, 201);
+
   // Publisher Claim Integration Test
   const claimResponse = await fetch(`${apiBaseUrl}/publishers/claim`, {
     method: "POST",

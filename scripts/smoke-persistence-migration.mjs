@@ -16,6 +16,7 @@ const snapshot = {
   schemaVersion: "corehub.local-state.v1",
   savedAt: "2026-05-23T00:00:00.000Z",
   authSessions: [],
+  userAccounts: [],
   publisherClaims: [],
   publisherAccounts: [],
   publisherMembers: [],
