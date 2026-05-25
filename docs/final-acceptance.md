@@ -80,6 +80,35 @@ The production drill completed:
 
 Final local live smoke after the drill also passed against `https://coreblow.com/corehub` with web surface, v1 registry discovery, package read, signed download metadata, signed redirect, and signed artifact read checksum verification.
 
+## Final Acceptance Pass
+
+Latest final acceptance pass:
+
+| Evidence | Result |
+| --- | --- |
+| Date | 2026-05-25 |
+| Commit | `fae3fbd` |
+| Local gate | pass |
+| Deploy template readiness | pass |
+| Live post-deploy smoke | pass against `https://coreblow.com/corehub` |
+| Smoke package | `plugin-lab` |
+| Runtime | Cloudflare Worker |
+| State store | D1 |
+| Object store mode | external URL |
+| Signed read key | `primary` |
+
+The final pass verified:
+
+- `npm test`
+- `npm run validate:ops`
+- `npm run validate:schema`
+- `npm run validate:write-schema`
+- `npm run validate:deploy-template`
+- `git diff --check`
+- `npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab --verify-web --verify-read`
+
+The live smoke verified the web surface, health endpoint, v1 registry discovery, package read, signed download metadata, signed redirect, and signed artifact read checksum.
+
 ## Final Gate
 
 Before changing acceptance status, run:
