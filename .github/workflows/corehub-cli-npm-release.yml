@@ -16,6 +16,11 @@ on:
         description: Existing successful preflight workflow run id to promote without rebuilding
         required: false
         type: string
+      release_approved:
+        description: Required for real publish after package.json private=false is approved
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: corehub-cli-npm-release-${{ inputs.tag }}
@@ -79,6 +84,16 @@ jobs:
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
           node scripts/corehub-cli-npm-release-check.mjs
 
+      - name: Run npm publish dry-run rehearsal
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_MAIN_REF: origin/main
+        run: |
+          set -euo pipefail
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          export RELEASE_SHA
+          node scripts/corehub-cli-npm-release-check.mjs --dry-run
+
       - name: Run release gates
         run: |
           set -euo pipefail
@@ -103,6 +118,7 @@ jobs:
           fi
           RELEASE_SHA="$(git rev-parse HEAD)"
           PACKAGE_VERSION="$(node -e 'const pkg=require("./package.json"); process.stdout.write(pkg.version)')"
+          PACKAGE_PRIVATE="$(node -e 'const pkg=require("./package.json"); process.stdout.write(String(pkg.private === true))')"
           ARTIFACT_DIR="$RUNNER_TEMP/corehub-cli-npm-preflight"
           rm -rf "$ARTIFACT_DIR"
           mkdir -p "$ARTIFACT_DIR"
@@ -110,6 +126,7 @@ jobs:
           printf '%s\n' "$RELEASE_TAG" > "$ARTIFACT_DIR/release-tag.txt"
           printf '%s\n' "$RELEASE_SHA" > "$ARTIFACT_DIR/release-sha.txt"
           printf '%s\n' "$PACKAGE_VERSION" > "$ARTIFACT_DIR/package-version.txt"
+          printf '%s\n' "$PACKAGE_PRIVATE" > "$ARTIFACT_DIR/package-private.txt"
           echo "dir=$ARTIFACT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Upload prepared npm publish bundle
@@ -142,6 +159,16 @@ jobs:
           set -euo pipefail
           if [[ -z "${PREFLIGHT_RUN_ID}" ]]; then
             echo "Real publish requires preflight_run_id from a successful npm preflight run." >&2
+            exit 1
+          fi
+
+      - name: Require explicit release approval
+        env:
+          RELEASE_APPROVED: ${{ inputs.release_approved }}
+        run: |
+          set -euo pipefail
+          if [[ "${RELEASE_APPROVED}" != "true" ]]; then
+            echo "Real npm publish requires release_approved=true after package.json private=false is reviewed." >&2
             exit 1
           fi
 
@@ -217,7 +244,8 @@ jobs:
           TAG_FILE="preflight-tarball/release-tag.txt"
           SHA_FILE="preflight-tarball/release-sha.txt"
           VERSION_FILE="preflight-tarball/package-version.txt"
-          if [[ ! -f "$TAG_FILE" || ! -f "$SHA_FILE" || ! -f "$VERSION_FILE" ]]; then
+          PRIVATE_FILE="preflight-tarball/package-private.txt"
+          if [[ ! -f "$TAG_FILE" || ! -f "$SHA_FILE" || ! -f "$VERSION_FILE" || ! -f "$PRIVATE_FILE" ]]; then
             echo "Prepared preflight metadata is missing." >&2
             ls -la preflight-tarball >&2 || true
             exit 1
@@ -225,6 +253,7 @@ jobs:
           ARTIFACT_RELEASE_TAG="$(tr -d '\r\n' < "$TAG_FILE")"
           ARTIFACT_RELEASE_SHA="$(tr -d '\r\n' < "$SHA_FILE")"
           ARTIFACT_PACKAGE_VERSION="$(tr -d '\r\n' < "$VERSION_FILE")"
+          ARTIFACT_PACKAGE_PRIVATE="$(tr -d '\r\n' < "$PRIVATE_FILE")"
           if [[ "$ARTIFACT_RELEASE_TAG" != "$RELEASE_TAG" ]]; then
             echo "Prepared preflight tag mismatch: expected $RELEASE_TAG, got $ARTIFACT_RELEASE_TAG" >&2
             exit 1
@@ -235,6 +264,10 @@ jobs:
           fi
           if [[ "$ARTIFACT_PACKAGE_VERSION" != "$EXPECTED_PACKAGE_VERSION" ]]; then
             echo "Prepared preflight package version mismatch: expected $EXPECTED_PACKAGE_VERSION, got $ARTIFACT_PACKAGE_VERSION" >&2
+            exit 1
+          fi
+          if [[ "$ARTIFACT_PACKAGE_PRIVATE" == "true" ]]; then
+            echo "Prepared preflight package is private. Re-run preflight after the approved package.json private=false release change." >&2
             exit 1
           fi
 
@@ -251,6 +284,8 @@ jobs:
           echo "path=$TARBALL_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Publish
+        env:
+          COREHUB_NPM_RELEASE_APPROVED: ${{ inputs.release_approved && '1' || '0' }}
         run: |
           set -euo pipefail
           publish_target="${{ steps.publish_tarball.outputs.path }}"

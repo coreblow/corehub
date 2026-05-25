@@ -10,6 +10,17 @@
   "bin": {
     "corehub": "src/cli.mjs"
   },
+  "files": [
+    "artifacts/",
+    "catalog.json",
+    "docs/",
+    "fixtures/example-skill/",
+    "fixtures/plugin-lab-plugin/",
+    "fixtures/write-side-state.json",
+    "schemas/",
+    "SECURITY.md",
+    "src/"
+  ],
   "engines": {
     "node": ">=22.12.0"
   },
@@ -22,6 +33,8 @@
     "drill:production": "node scripts/production-drill-rehearsal.mjs",
     "persistence:d1": "node scripts/corehub-d1-migration.mjs",
     "persistence:snapshot": "node scripts/persistence-snapshot.mjs",
+    "release:npm:dry-run": "node scripts/corehub-cli-npm-release-check.mjs --local --dry-run",
+    "release:npm:preflight": "node scripts/corehub-cli-npm-release-check.mjs --local",
     "seed:production": "node scripts/corehub-production-seed.mjs",
     "serve": "node src/server.mjs",
     "smoke:audit-alert-pipeline": "node scripts/smoke-audit-alert-pipeline.mjs",

@@ -10,6 +10,11 @@ if [[ "${mode}" != "--publish" ]]; then
   exit 2
 fi
 
+if [[ "${COREHUB_NPM_RELEASE_APPROVED:-}" != "1" ]]; then
+  echo "Real npm publish requires COREHUB_NPM_RELEASE_APPROVED=1 from an approved release workflow." >&2
+  exit 1
+fi
+
 if [[ -n "${publish_target}" && -f "${publish_target}" ]]; then
   case "${publish_target}" in
     /*|./*|../*) ;;

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const EXPECTED_PACKAGE_NAME = "@coreblow/corehub";
 const EXPECTED_HOMEPAGE_URL = "https://coreblow.com/corehub";
@@ -12,6 +14,14 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     const next = argv[index + 1];
+    if (arg === "--local") {
+      resolved.local = true;
+      continue;
+    }
+    if (arg === "--dry-run") {
+      resolved.dryRun = true;
+      continue;
+    }
     if ((arg === "--tag" || arg === "--release-tag") && next) {
       resolved.tag = next;
       index += 1;
@@ -92,9 +102,41 @@ function collectReleaseTagErrors({ packageVersion, releaseTag, releaseSha, relea
   return errors;
 }
 
+function runPublishDryRun(pkg) {
+  const tempRoot = mkdtempSync(join(tmpdir(), "corehub-npm-release-dry-run-"));
+  let packFile = "";
+  try {
+    const packOutput = execFileSync("npm", ["pack", "--json", "--ignore-scripts"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"],
+    });
+    const packed = JSON.parse(packOutput);
+    const filename = Array.isArray(packed) ? packed[0]?.filename : "";
+    if (!filename) {
+      throw new Error("npm pack did not return a tarball filename.");
+    }
+    packFile = filename;
+
+    execFileSync("tar", ["-xzf", filename, "-C", tempRoot], { stdio: "inherit" });
+    const packageRoot = join(tempRoot, "package");
+    const packageJsonPath = join(packageRoot, "package.json");
+    const dryRunPackageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    delete dryRunPackageJson.private;
+    writeFileSync(packageJsonPath, `${JSON.stringify(dryRunPackageJson, null, 2)}\n`);
+
+    console.log(`Running npm publish --dry-run against a temporary public copy of ${pkg.name}@${pkg.version}.`);
+    execFileSync("npm", ["publish", packageRoot, "--dry-run", "--ignore-scripts", "--access", "public", "--tag", "latest"], {
+      stdio: "inherit",
+    });
+  } finally {
+    if (packFile) rmSync(packFile, { force: true });
+    rmSync(tempRoot, { force: true, recursive: true });
+  }
+}
+
 const args = parseArgs(process.argv.slice(2));
 const pkg = readPackageJson();
-const releaseTag = args.tag ?? process.env.RELEASE_TAG ?? "";
+const releaseTag = args.tag ?? process.env.RELEASE_TAG ?? (args.local ? `v${pkg.version}` : "");
 const releaseSha = args.releaseSha ?? process.env.RELEASE_SHA ?? "";
 const releaseMainRef = args.releaseMainRef ?? process.env.RELEASE_MAIN_REF ?? "";
 
@@ -118,3 +160,7 @@ if (pkg.private === true) {
 }
 
 console.log(`Release metadata OK for ${pkg.name}@${pkg.version} (${releaseTag}).`);
+
+if (args.dryRun) {
+  runPublishDryRun(pkg);
+}
