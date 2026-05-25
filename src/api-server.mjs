@@ -196,6 +196,8 @@ const normalizedD1Collections = [
   "reviews",
   "packageVersions",
   "packageSearchDigests",
+  "skillVersions",
+  "skillSearchDigests",
   "packageReports",
   "packageAppeals",
   "packageScanJobs",
@@ -278,6 +280,18 @@ function normalizedD1Indexes(collection, item, rowId, position) {
     push("by_scan_status", item.scanStatus);
     push("by_moderation_state", item.moderationState);
     push("by_latest_version", item.latestVersion);
+    for (const token of item.capabilityTags ?? []) push("by_capability_tag", token);
+    for (const token of item.searchTokens ?? []) push("by_search_token", token);
+  } else if (collection === "skillVersions") {
+    push("by_slug", item.slug);
+    push("by_publisher", item.publisherHandle);
+    push("by_status", item.status);
+    push("by_version", item.version);
+  } else if (collection === "skillSearchDigests") {
+    push("by_slug", item.slug);
+    push("by_publisher", item.publisherHandle);
+    push("by_status", item.status);
+    push("by_scan_status", item.scanStatus);
     for (const token of item.capabilityTags ?? []) push("by_capability_tag", token);
     for (const token of item.searchTokens ?? []) push("by_search_token", token);
   } else if (collection === "packageReports") {
@@ -432,6 +446,8 @@ export class CoreHubLocalStorageAdapter {
     this.reviews = new Map();
     this.packageVersions = new Map();
     this.packageSearchDigests = new Map();
+    this.skillVersions = new Map();
+    this.skillSearchDigests = new Map();
     this.packageReports = [];
     this.packageAppeals = [];
     this.packageScanJobs = [];
@@ -2755,6 +2771,182 @@ export class CoreHubLocalStorageAdapter {
     };
   }
 
+  async publishSkill(input, { actor = defaultActor(), now = new Date() } = {}) {
+    const request = normalizeSkillPublishRequest(input);
+    this.requirePublisherPermission(actor, request.publisherHandle, "skill.publish");
+    const currentOwner = this.skillOwnerHandle(request.slug);
+    if (currentOwner && currentOwner !== request.publisherHandle) {
+      throw httpError(409, `Skill ${request.slug} is owned by ${currentOwner}, not ${request.publisherHandle}`);
+    }
+    const publishedAt = now.toISOString();
+    const scan = scanSkillFiles(request.files, request.skillMarkdown, { checkedAt: publishedAt });
+    const skill = {
+      id: `skill-${slugId(request.slug)}-${slugVersion(request.version)}`,
+      slug: request.slug,
+      version: request.version,
+      publisherHandle: request.publisherHandle,
+      displayName: request.displayName,
+      summary: request.summary,
+      status: scan.status === "malicious" ? "blocked" : "available",
+      moderationStatus: scan.status === "malicious" ? "blocked" : scan.status === "suspicious" ? "held" : "approved",
+      files: request.files,
+      skillMarkdown: request.skillMarkdown,
+      rendered: renderSkillMarkdown(request.skillMarkdown),
+      source: request.source,
+      changelog: request.changelog,
+      capabilityTags: request.capabilityTags,
+      security: scan,
+      createdBy: actor,
+      createdAt: publishedAt,
+      publishedAt,
+    };
+    this.skillVersions.set(skill.id, skill);
+    this.recordAuditEvent({
+      actor,
+      action: "skill.publish",
+      targetType: "skill",
+      targetId: request.slug,
+      metadata: {
+        version: request.version,
+        publisherHandle: request.publisherHandle,
+        fileCount: request.files.length,
+        scanStatus: scan.status,
+      },
+      createdAt: publishedAt,
+    });
+    await this.persistState();
+    return { status: "published", skill };
+  }
+
+  async renameSkill(slug, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const currentSlug = normalizeSkillSlug(slug, "slug");
+    const nextSlug = normalizeSkillSlug(input?.slug ?? input?.newSlug, "slug");
+    if (currentSlug === nextSlug) throw httpError(400, "new skill slug must be different");
+    if (this.latestSkillBySlug(nextSlug, { includeDeleted: true })) throw httpError(409, `Skill ${nextSlug} already exists`);
+    const owner = this.skillOwnerHandle(currentSlug);
+    if (!owner) throw httpError(404, "Skill not found");
+    this.requirePublisherPermission(actor, owner, "skill.rename");
+    const renamedAt = now.toISOString();
+    for (const version of this.skillVersions.values()) {
+      if (version.slug === currentSlug) {
+        version.slug = nextSlug;
+        version.renamedFrom = currentSlug;
+        version.renamedAt = renamedAt;
+        version.updatedAt = renamedAt;
+      }
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "skill.rename",
+      targetType: "skill",
+      targetId: nextSlug,
+      metadata: { fromSlug: currentSlug, toSlug: nextSlug, publisherHandle: owner },
+      createdAt: renamedAt,
+    });
+    await this.persistState();
+    return { status: "renamed", fromSlug: currentSlug, toSlug: nextSlug, skill: this.latestSkillBySlug(nextSlug, { includeDeleted: true }) };
+  }
+
+  async softDeleteSkill(slug, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const skillSlug = normalizeSkillSlug(slug, "slug");
+    const owner = this.skillOwnerHandle(skillSlug);
+    if (!owner) throw httpError(404, "Skill not found");
+    this.requirePublisherPermission(actor, owner, "skill.delete");
+    const deletedAt = now.toISOString();
+    for (const version of this.skillVersions.values()) {
+      if (version.slug === skillSlug && !version.softDeletedAt) {
+        version.softDeletedAt = deletedAt;
+        version.deletedBy = actor;
+        if (typeof input?.reason === "string" && input.reason.trim()) version.deleteReason = input.reason.trim();
+      }
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "skill.delete",
+      targetType: "skill",
+      targetId: skillSlug,
+      metadata: { publisherHandle: owner, reason: typeof input?.reason === "string" ? input.reason.trim() : null },
+      createdAt: deletedAt,
+    });
+    await this.persistState();
+    return { status: "deleted", slug: skillSlug, deletedAt };
+  }
+
+  async restoreSkill(slug, { actor = defaultActor(), now = new Date() } = {}) {
+    const skillSlug = normalizeSkillSlug(slug, "slug");
+    const owner = this.skillOwnerHandle(skillSlug, { includeDeleted: true });
+    if (!owner) throw httpError(404, "Skill not found");
+    this.requirePublisherPermission(actor, owner, "skill.restore");
+    const restoredAt = now.toISOString();
+    for (const version of this.skillVersions.values()) {
+      if (version.slug === skillSlug && version.softDeletedAt) {
+        delete version.softDeletedAt;
+        version.restoredAt = restoredAt;
+        version.restoredBy = actor;
+      }
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "skill.restore",
+      targetType: "skill",
+      targetId: skillSlug,
+      metadata: { publisherHandle: owner },
+      createdAt: restoredAt,
+    });
+    await this.persistState();
+    return { status: "restored", slug: skillSlug, restoredAt, skill: this.latestSkillBySlug(skillSlug) };
+  }
+
+  async transferSkill(slug, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const skillSlug = normalizeSkillSlug(slug, "slug");
+    const toPublisherHandle = normalizeRequiredString(input?.toPublisherHandle ?? input?.publisherHandle, "toPublisherHandle");
+    const fromPublisherHandle = this.skillOwnerHandle(skillSlug, { includeDeleted: true });
+    if (!fromPublisherHandle) throw httpError(404, "Skill not found");
+    this.requirePublisherPermission(actor, fromPublisherHandle, "skill.transfer");
+    this.requirePublisherPermission(actor, toPublisherHandle, "skill.transfer.accept");
+    this.requireVerifiedPublisher(toPublisherHandle, "skill.transfer");
+    const transferredAt = now.toISOString();
+    for (const version of this.skillVersions.values()) {
+      if (version.slug === skillSlug) {
+        version.publisherHandle = toPublisherHandle;
+        version.transferredFromPublisherHandle = fromPublisherHandle;
+        version.transferredAt = transferredAt;
+        version.updatedAt = transferredAt;
+      }
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "skill.transfer",
+      targetType: "skill",
+      targetId: skillSlug,
+      metadata: { fromPublisherHandle, toPublisherHandle },
+      createdAt: transferredAt,
+    });
+    await this.persistState();
+    return { status: "transferred", slug: skillSlug, fromPublisherHandle, toPublisherHandle, skill: this.latestSkillBySlug(skillSlug, { includeDeleted: true }) };
+  }
+
+  skillOwnerHandle(slug, options = {}) {
+    return this.latestSkillBySlug(slug, options)?.publisherHandle ?? null;
+  }
+
+  latestSkillBySlug(slug, { includeDeleted = false } = {}) {
+    const normalizedSlug = normalizeSkillSlug(slug, "slug");
+    return [...this.skillVersions.values()]
+      .filter((version) => version.slug === normalizedSlug)
+      .filter((version) => includeDeleted || !version.softDeletedAt)
+      .sort((left, right) => (right.publishedAt ?? right.createdAt).localeCompare(left.publishedAt ?? left.createdAt))
+      .at(0) ?? null;
+  }
+
+  skillVersionsForSlug(slug, { includeDeleted = false } = {}) {
+    const normalizedSlug = normalizeSkillSlug(slug, "slug");
+    return [...this.skillVersions.values()]
+      .filter((version) => version.slug === normalizedSlug)
+      .filter((version) => includeDeleted || !version.softDeletedAt)
+      .sort((left, right) => (right.publishedAt ?? right.createdAt).localeCompare(left.publishedAt ?? left.createdAt));
+  }
+
   recordAuditEvent({ actor, action, targetType, targetId, metadata = {}, createdAt }) {
     const checkpoint = this.latestAuditCheckpoint();
     const previousHash = this.auditEvents.at(-1)?.eventHash ?? checkpoint?.head ?? "0".repeat(64);
@@ -2879,8 +3071,39 @@ export class CoreHubLocalStorageAdapter {
     return entries.length > 0 ? entries.sort((a, b) => a.id.localeCompare(b.id)) : this.projectCatalogEntries();
   }
 
+  projectSkillEntries() {
+    const latestBySlug = new Map();
+    for (const version of this.skillVersions.values()) {
+      if (version.status !== "available") continue;
+      if (version.softDeletedAt) continue;
+      const current = latestBySlug.get(version.slug);
+      if (!current || (version.publishedAt ?? version.createdAt).localeCompare(current.publishedAt ?? current.createdAt) > 0) {
+        latestBySlug.set(version.slug, version);
+      }
+    }
+    return [...latestBySlug.values()]
+      .map((version) => skillVersionToPublicEntry(version, this.skillVersionsForSlug(version.slug)))
+      .sort((left, right) => left.slug.localeCompare(right.slug));
+  }
+
+  rebuildSkillSearchDigests({ updatedAt } = {}) {
+    const next = new Map();
+    for (const entry of this.projectSkillEntries()) {
+      const digest = createSkillSearchDigest(entry, { updatedAt });
+      next.set(digest.id, digest);
+    }
+    this.skillSearchDigests = next;
+    return [...next.values()].sort((left, right) => left.slug.localeCompare(right.slug));
+  }
+
+  skillSearchEntries() {
+    this.rebuildSkillSearchDigests();
+    return [...this.skillSearchDigests.values()].map((digest) => digest.entry).filter(Boolean);
+  }
+
   snapshotState({ savedAt = new Date().toISOString() } = {}) {
     this.rebuildPackageSearchDigests({ updatedAt: savedAt });
+    this.rebuildSkillSearchDigests({ updatedAt: savedAt });
     return {
       schemaVersion: localStateSchemaVersion,
       savedAt,
@@ -2895,6 +3118,8 @@ export class CoreHubLocalStorageAdapter {
       reviews: [...this.reviews.values()],
       packageVersions: [...this.packageVersions.values()],
       packageSearchDigests: [...this.packageSearchDigests.values()],
+      skillVersions: [...this.skillVersions.values()],
+      skillSearchDigests: [...this.skillSearchDigests.values()],
       packageReports: this.packageReports,
       packageAppeals: this.packageAppeals,
       packageScanJobs: this.packageScanJobs,
@@ -2924,6 +3149,8 @@ export class CoreHubLocalStorageAdapter {
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
     this.packageSearchDigests = new Map((state.packageSearchDigests ?? []).map((digest) => [digest.id, digest]));
+    this.skillVersions = new Map((state.skillVersions ?? []).map((version) => [version.id, version]));
+    this.skillSearchDigests = new Map((state.skillSearchDigests ?? []).map((digest) => [digest.id, digest]));
     this.packageReports = state.packageReports ?? [];
     this.packageAppeals = state.packageAppeals ?? [];
     this.packageScanJobs = state.packageScanJobs ?? [];
@@ -2934,6 +3161,7 @@ export class CoreHubLocalStorageAdapter {
     this.auditEvents = state.auditEvents ?? [];
     this.auditCheckpoints = state.auditCheckpoints ?? [];
     if (this.packageSearchDigests.size === 0) this.rebuildPackageSearchDigests();
+    if (this.skillSearchDigests.size === 0) this.rebuildSkillSearchDigests();
   }
 
   async saveState(path = this.statePath) {
@@ -3118,6 +3346,40 @@ export function createCoreHubApiHandler({
           },
           now: now(),
         });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "skills" && segments[1] === "publish" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.publishSkill(body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "skills" && segments[2] === "rename" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.renameSkill(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "DELETE" && segments[0] === "skills" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.softDeleteSkill(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "skills" && segments[2] === "restore" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.restoreSkill(decodeURIComponent(segments[1]), { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "skills" && segments[2] === "transfer" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.transferSkill(decodeURIComponent(segments[1]), body, { actor, now: now() });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -3743,6 +4005,7 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
       name: "CoreHub Registry API",
       entries: "/corehub/api/v1/entries",
       packages: "/corehub/api/v1/packages",
+      skills: "/corehub/api/v1/skills",
     });
   }
 
@@ -3798,6 +4061,34 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
       limit: Number.MAX_SAFE_INTEGER,
     });
     return paginatedDataResponse(results, url);
+  }
+  if (segments[0] === "skills" && segments.length === 1) {
+    return paginatedDataResponse(storage.skillSearchEntries(), url);
+  }
+  if (segments[0] === "skills" && segments[1] === "search" && segments.length === 2) {
+    const query = url.searchParams.get("q") ?? "";
+    const results = searchSkillEntries(storage.skillSearchEntries(), query, { limit: Number.MAX_SAFE_INTEGER });
+    return paginatedDataResponse(results, url);
+  }
+  if (segments[0] === "skills" && segments.length >= 2) {
+    const slug = decodeURIComponent(segments[1]);
+    const entry = storage.skillSearchEntries().find((item) => item.slug === slug || item.id === slug);
+    if (!entry) return dataResponse(null, 0, 404);
+    if (segments.length === 2) return dataResponse(entry);
+    if (segments[2] === "versions" && segments.length === 3) return paginatedDataResponse(entry.versions, url);
+    if (segments[2] === "files" && segments.length === 3) {
+      const version = selectSkillVersionForRead(entry, url);
+      return version ? dataResponse({ skill: skillReference(entry), version: version.version, files: version.files }) : dataResponse(null, 0, 404);
+    }
+    if (segments[2] === "file" && segments.length === 3) return skillFileResponse(storage, entry, url);
+    if (segments[2] === "security" && segments.length === 3) {
+      const version = selectSkillVersionForRead(entry, url);
+      return version ? dataResponse(createSkillSecuritySummary(entry, version)) : dataResponse(null, 0, 404);
+    }
+    if (segments[2] === "rendered" && segments.length === 3) {
+      const version = selectSkillVersionForRead(entry, url);
+      return version ? dataResponse({ skill: skillReference(entry), version: version.version, rendered: version.rendered }) : dataResponse(null, 0, 404);
+    }
   }
   if (segments[0] === "code-plugins" && segments.length === 1) {
     const filtered = listCatalogRecords(visibleEntries, parseMarketplaceFiltersFromUrl(url, { family: "code-plugin" }));
@@ -4017,6 +4308,190 @@ function readTarString(buffer, offset, length) {
   const raw = buffer.subarray(offset, offset + length);
   const nul = raw.indexOf(0);
   return raw.subarray(0, nul === -1 ? raw.length : nul).toString("utf8").trim();
+}
+
+function skillVersionToPublicEntry(latest, versions) {
+  return {
+    id: latest.slug,
+    slug: latest.slug,
+    kind: "skill",
+    name: latest.displayName,
+    displayName: latest.displayName,
+    summary: latest.summary,
+    source: latest.source ?? `https://github.com/${latest.publisherHandle}/${latest.slug}`,
+    homepage: latest.source ?? `https://coreblow.com/corehub/skills/${latest.slug}`,
+    version: latest.version,
+    tags: [...new Set(["skill", ...(latest.capabilityTags ?? [])])],
+    capabilities: latest.capabilityTags ?? [],
+    publisher: {
+      handle: latest.publisherHandle,
+      displayName: titleizeHandle(latest.publisherHandle),
+      verified: true,
+    },
+    security: latest.security,
+    rendered: latest.rendered,
+    latestVersion: skillVersionToPublicVersion(latest),
+    versions: versions.map(skillVersionToPublicVersion),
+  };
+}
+
+function skillVersionToPublicVersion(version) {
+  return {
+    id: version.id,
+    version: version.version,
+    tag: version.tag ?? "latest",
+    status: version.status,
+    moderationStatus: version.moderationStatus,
+    publishedAt: version.publishedAt ?? version.createdAt,
+    publisher: { handle: version.publisherHandle },
+    files: version.files.map(({ content, ...file }) => file),
+    rendered: version.rendered,
+    security: version.security,
+    capabilityTags: version.capabilityTags ?? [],
+  };
+}
+
+function selectSkillVersionForRead(entry, url) {
+  const requested = url.searchParams.get("version") ?? "latest";
+  return entry.versions.find((version) => version.version === requested || (requested === "latest" && version.tag === "latest")) ?? null;
+}
+
+function skillFileResponse(storage, entry, url) {
+  const version = selectSkillVersionForRead(entry, url);
+  if (!version) return textResponse("Skill version not found", 404);
+  const requestedPath = normalizePackageFilePath(url.searchParams.get("path") ?? "SKILL.md");
+  const stored = findStoredSkillFile(storage, entry.slug, version.version, requestedPath);
+  if (!stored) return textResponse("Skill file not found", 404);
+  return {
+    statusCode: 200,
+    headers: {
+      "Content-Type": stored.mediaType ?? "text/plain;charset=UTF-8",
+      "Cache-Control": "public, max-age=60",
+      "X-CoreHub-Skill-File": requestedPath,
+      "X-CoreHub-Skill-Version": version.version,
+      "X-CoreHub-File-SHA256": stored.sha256,
+    },
+    body: stored.content,
+  };
+}
+
+function findStoredSkillFile(storage, slug, version, requestedPath) {
+  const storedVersion = storage.skillVersionsForSlug(slug, { includeDeleted: true }).find((item) => item.version === version);
+  return storedVersion?.files.find((item) => normalizePackageFilePath(item.path) === requestedPath) ?? null;
+}
+
+function createSkillSecuritySummary(entry, version) {
+  const security = version.security ?? entry.security ?? {};
+  return {
+    skill: skillReference(entry),
+    version: version.version,
+    status: security.status ?? "pending",
+    blockedFromInstall: security.status === "malicious",
+    hasWarnings: security.status === "suspicious" || security.status === "malicious",
+    reasonCodes: security.reasonCodes ?? [],
+    summary: security.summary ?? null,
+    checkedAt: security.checkedAt ?? null,
+    evidence: security.evidence ?? [],
+  };
+}
+
+function skillReference(entry) {
+  return { slug: entry.slug, id: entry.id, name: entry.name, publisher: entry.publisher };
+}
+
+function searchSkillEntries(entries, query, { limit = 50 } = {}) {
+  const terms = tokenizeSearchText(query);
+  const scored = entries
+    .map((entry) => {
+      const text = [entry.slug, entry.name, entry.summary, entry.publisher?.handle, ...(entry.tags ?? []), ...(entry.capabilities ?? [])]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const score = terms.length === 0 ? 1 : terms.reduce((total, term) => total + (text.includes(term) ? 4 : 0), 0);
+      return { score, ...entry };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.slug.localeCompare(right.slug));
+  return scored.slice(0, limit);
+}
+
+function scanSkillFiles(files, skillMarkdown, { checkedAt }) {
+  const evidence = [];
+  const addFinding = (code, severity, file, message) => evidence.push({ code, severity, file, message });
+  for (const file of files) {
+    const content = file.content.toLowerCase();
+    if (/\beval\s*\(|function\s*\(|child_process|curl\s+.*\|\s*(bash|sh)/.test(content)) {
+      addFinding("dangerous-code-pattern", "critical", file.path, "Skill file includes a dangerous code execution pattern.");
+    }
+    if (/api[_-]?key|secret|token|password/.test(content)) {
+      addFinding("secret-reference", "warn", file.path, "Skill references credentials or secrets.");
+    }
+  }
+  const status = evidence.some((item) => item.severity === "critical")
+    ? "malicious"
+    : evidence.length > 0
+      ? "suspicious"
+      : "clean";
+  return {
+    status,
+    scanner: "corehub-skill-static",
+    engineVersion: "corehub-skill-static-v1",
+    checkedAt,
+    reasonCodes: evidence.map((item) => item.code),
+    summary:
+      status === "clean"
+        ? "No risky hosted skill patterns found."
+        : status === "suspicious"
+          ? "Hosted skill needs reviewer attention before broad promotion."
+          : "Hosted skill is blocked from public install.",
+    evidence,
+    skillSha256: createHash("sha256").update(skillMarkdown).digest("hex"),
+  };
+}
+
+function renderSkillMarkdown(markdown) {
+  const headings = [];
+  const html = [];
+  let inCode = false;
+  for (const line of markdown.split(/\r?\n/)) {
+    if (line.startsWith("```")) {
+      html.push(inCode ? "</code></pre>" : "<pre><code>");
+      inCode = !inCode;
+      continue;
+    }
+    if (inCode) {
+      html.push(escapeHtml(line));
+      continue;
+    }
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = heading[1].length;
+      const text = heading[2].trim();
+      headings.push({ level, text });
+      html.push(`<h${level}>${escapeHtml(text)}</h${level}>`);
+      continue;
+    }
+    if (/^\s*[-*]\s+/.test(line)) {
+      html.push(`<ul><li>${escapeHtml(line.replace(/^\s*[-*]\s+/, ""))}</li></ul>`);
+      continue;
+    }
+    if (line.trim()) html.push(`<p>${escapeHtml(line.trim())}</p>`);
+  }
+  if (inCode) html.push("</code></pre>");
+  return {
+    markdown,
+    html: html.join("\n"),
+    text: markdown.replace(/^---[\s\S]*?---\s*/u, "").replace(/[#*_`>-]/g, "").trim(),
+    headings,
+  };
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function normalizePackageFilePath(value) {
@@ -4667,6 +5142,65 @@ function requestBaseUrl(request, url) {
   if (!host) return `${url.origin}/corehub`;
   const proto = getHeader(request.headers, "x-forwarded-proto") ?? (url.protocol === "https:" ? "https" : "http");
   return `${proto}://${host}/corehub`;
+}
+
+function normalizeSkillPublishRequest(input) {
+  const slug = normalizeSkillSlug(input?.slug, "slug");
+  const version = normalizeRequiredString(input?.version, "version");
+  const publisherHandle = normalizeRequiredString(input?.publisherHandle, "publisherHandle");
+  const displayName = normalizeRequiredString(input?.displayName ?? titleizeHandle(slug), "displayName");
+  const summary = normalizeRequiredString(input?.summary ?? "Hosted CoreHub skill.", "summary");
+  const source = typeof input?.source === "string" && input.source.trim() ? input.source.trim() : undefined;
+  const changelog = typeof input?.changelog === "string" && input.changelog.trim() ? input.changelog.trim() : undefined;
+  const files = normalizeSkillFiles(input?.files);
+  const skillFile = files.find((file) => file.path.toLowerCase() === "skill.md");
+  if (!skillFile) throw httpError(400, "SKILL.md is required");
+  const skillMarkdown = skillFile.content;
+  const capabilityTags = normalizeStringList(input?.capabilityTags ?? input?.tags).slice(0, 24);
+  return { slug, version, publisherHandle, displayName, summary, source, changelog, files, skillMarkdown, capabilityTags };
+}
+
+function normalizeSkillSlug(value, name = "slug") {
+  const slug = normalizeRequiredString(value, name).toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(slug)) {
+    throw httpError(400, `${name} must use lowercase letters, numbers, and dashes`);
+  }
+  return slug;
+}
+
+function normalizeSkillFiles(files) {
+  if (!Array.isArray(files) || files.length === 0) throw httpError(400, "files must include SKILL.md");
+  return files.map((file, index) => {
+    if (!file || typeof file !== "object") throw httpError(400, `files[${index}] must be an object`);
+    const path = normalizePackageFilePath(file.path);
+    const content = normalizeRequiredString(file.content, `files[${index}].content`);
+    const bytes = Buffer.from(content, "utf8");
+    if (bytes.byteLength > 200 * 1024) throw httpError(413, `files[${index}] is too large`);
+    const mediaType =
+      typeof file.mediaType === "string" && file.mediaType.trim() ? file.mediaType.trim() : mediaTypeForSkillFile(path);
+    return {
+      path,
+      mediaType,
+      size: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      content,
+    };
+  });
+}
+
+function mediaTypeForSkillFile(path) {
+  if (/\.md$/i.test(path)) return "text/markdown;charset=UTF-8";
+  if (/\.json$/i.test(path)) return "application/json;charset=UTF-8";
+  return "text/plain;charset=UTF-8";
+}
+
+function normalizeStringList(value) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw httpError(400, "tags must be an array");
+  return value
+    .map((item) => String(item ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .filter((item, index, all) => all.indexOf(item) === index);
 }
 
 function normalizeUploadRequest(input) {
@@ -5496,6 +6030,37 @@ function createPackageSearchDigest(entry, { updatedAt } = {}) {
     searchTokens: [...new Set(tokenizeSearchText(searchText))].slice(0, 64),
     entry: JSON.parse(JSON.stringify(entry)),
     updatedAt: digestUpdatedAt,
+  };
+}
+
+function createSkillSearchDigest(entry, { updatedAt } = {}) {
+  const latest = entry.latestVersion ?? entry.versions?.[0] ?? null;
+  const searchText = [
+    entry.slug,
+    entry.name,
+    entry.summary,
+    entry.source,
+    entry.publisher?.handle,
+    entry.publisher?.displayName,
+    ...(entry.tags ?? []),
+    ...(entry.capabilities ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return {
+    id: `skill-search-digest-${slugId(entry.slug)}`,
+    slug: entry.slug,
+    displayName: entry.name,
+    publisherHandle: entry.publisher?.handle ?? null,
+    summary: entry.summary ?? "",
+    latestVersion: latest?.version ?? entry.version ?? null,
+    status: latest?.status ?? "unknown",
+    scanStatus: latest?.security?.status ?? entry.security?.status ?? "unknown",
+    capabilityTags: entry.capabilities ?? [],
+    searchText,
+    searchTokens: [...new Set(tokenizeSearchText(searchText))].slice(0, 64),
+    entry: JSON.parse(JSON.stringify(entry)),
+    updatedAt: updatedAt ?? latest?.publishedAt ?? new Date(0).toISOString(),
   };
 }
 

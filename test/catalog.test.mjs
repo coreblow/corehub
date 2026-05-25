@@ -1271,6 +1271,7 @@ const apiServer = createServer(
 await new Promise((resolve) => apiServer.listen(0, "127.0.0.1", resolve));
 try {
   const apiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/corehub/api/v2`;
+  const apiV1BaseUrl = `http://127.0.0.1:${apiServer.address().port}/corehub/api/v1`;
   const whoamiResponse = await fetch(`${apiBaseUrl}/publishers/me`, {
     headers: { "x-corehub-user": "github:coreblow-admin" },
   });
@@ -1406,6 +1407,123 @@ try {
   const orgMembersPayload = await orgMembersResponse.json();
   assert.equal(orgMembersPayload.data.members.length, 2);
   assert.equal(orgMembersPayload.data.members.some((member) => member.userId === "github:octo-maintainer"), true);
+
+  const orgLabsCreateResponse = await fetch(`${apiBaseUrl}/orgs`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      handle: "octo-labs",
+      displayName: "Octo Labs",
+      source: "https://github.com/octo-labs",
+    }),
+  });
+  assert.equal(orgLabsCreateResponse.status, 201);
+
+  const skillMarkdown = "# Octo Skill\n\nA hosted CoreHub skill fixture.\n";
+  const skillPublishResponse = await fetch(`${apiBaseUrl}/skills/publish`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      slug: "octo-skill",
+      version: "0.1.0",
+      publisherHandle: "octo-tools",
+      displayName: "Octo Skill",
+      summary: "Hosted skill lifecycle fixture.",
+      capabilityTags: ["directory-search"],
+      files: [
+        {
+          path: "SKILL.md",
+          mediaType: "text/markdown;charset=UTF-8",
+          content: skillMarkdown,
+        },
+        {
+          path: "corehub.skill.json",
+          mediaType: "application/json;charset=UTF-8",
+          content: JSON.stringify({ id: "octo-skill", version: "0.1.0", entrypoint: "SKILL.md" }),
+        },
+      ],
+    }),
+  });
+  assert.equal(skillPublishResponse.status, 201);
+  const skillPublishPayload = await skillPublishResponse.json();
+  assert.equal(skillPublishPayload.data.skill.slug, "octo-skill");
+  assert.equal(skillPublishPayload.data.skill.security.status, "clean");
+
+  const skillSearchResponse = await fetch(`${apiV1BaseUrl}/skills/search?q=octo`);
+  assert.equal(skillSearchResponse.status, 200);
+  const skillSearchPayload = await skillSearchResponse.json();
+  assert.equal(skillSearchPayload.data[0].slug, "octo-skill");
+  assert.equal(skillSearchPayload.data[0].score > 0, true);
+
+  const skillDetailResponse = await fetch(`${apiV1BaseUrl}/skills/octo-skill`);
+  assert.equal(skillDetailResponse.status, 200);
+  const skillDetailPayload = await skillDetailResponse.json();
+  assert.equal(skillDetailPayload.data.rendered.html.includes("<h1>Octo Skill</h1>"), true);
+
+  const skillFilesResponse = await fetch(`${apiV1BaseUrl}/skills/octo-skill/files`);
+  assert.equal(skillFilesResponse.status, 200);
+  assert.equal((await skillFilesResponse.json()).data.files.some((file) => file.path === "SKILL.md"), true);
+
+  const skillFileResponse = await fetch(`${apiV1BaseUrl}/skills/octo-skill/file?path=SKILL.md`);
+  assert.equal(skillFileResponse.status, 200);
+  assert.match(await skillFileResponse.text(), /Octo Skill/);
+
+  const skillSecurityResponse = await fetch(`${apiV1BaseUrl}/skills/octo-skill/security`);
+  assert.equal(skillSecurityResponse.status, 200);
+  const skillSecurityPayload = await skillSecurityResponse.json();
+  assert.equal(skillSecurityPayload.data.status, "clean");
+  assert.equal(skillSecurityPayload.data.blockedFromInstall, false);
+
+  const skillRenameResponse = await fetch(`${apiBaseUrl}/skills/octo-skill/rename`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ slug: "octo-skill-renamed" }),
+  });
+  assert.equal(skillRenameResponse.status, 200);
+  assert.equal((await skillRenameResponse.json()).data.toSlug, "octo-skill-renamed");
+
+  const oldSkillResponse = await fetch(`${apiV1BaseUrl}/skills/octo-skill`);
+  assert.equal(oldSkillResponse.status, 404);
+
+  const skillTransferResponse = await fetch(`${apiBaseUrl}/skills/octo-skill-renamed/transfer`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ toPublisherHandle: "octo-labs" }),
+  });
+  assert.equal(skillTransferResponse.status, 200);
+  assert.equal((await skillTransferResponse.json()).data.toPublisherHandle, "octo-labs");
+
+  const skillDeleteResponse = await fetch(`${apiBaseUrl}/skills/octo-skill-renamed`, {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ reason: "Lifecycle fixture cleanup." }),
+  });
+  assert.equal(skillDeleteResponse.status, 200);
+  assert.equal((await fetch(`${apiV1BaseUrl}/skills/octo-skill-renamed`)).status, 404);
+
+  const skillRestoreResponse = await fetch(`${apiBaseUrl}/skills/octo-skill-renamed/restore`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${oauthToken}` },
+  });
+  assert.equal(skillRestoreResponse.status, 200);
+  const restoredSkillResponse = await fetch(`${apiV1BaseUrl}/skills/octo-skill-renamed`);
+  assert.equal(restoredSkillResponse.status, 200);
+  assert.equal((await restoredSkillResponse.json()).data.publisher.handle, "octo-labs");
 
   const orgUploadResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
     method: "POST",

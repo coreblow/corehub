@@ -201,6 +201,18 @@ Rate-limited public responses return `429` and the plain text body `Rate limit e
 
 The response shape is designed for CoreBlow CLI use and can be backed by a database later without changing URLs.
 
+Hosted skill reads use the same projected v1 boundary:
+
+- `GET /corehub/api/v1/skills`
+- `GET /corehub/api/v1/skills/search?q=<query>`
+- `GET /corehub/api/v1/skills/<slug>`
+- `GET /corehub/api/v1/skills/<slug>/files`
+- `GET /corehub/api/v1/skills/<slug>/file?path=SKILL.md`
+- `GET /corehub/api/v1/skills/<slug>/security`
+- `GET /corehub/api/v1/skills/<slug>/rendered`
+
+Authenticated publishers publish hosted skills through `POST /corehub/api/v2/skills/publish`. Owner lifecycle actions are `POST /corehub/api/v2/skills/<slug>/rename`, `DELETE /corehub/api/v2/skills/<slug>`, `POST /corehub/api/v2/skills/<slug>/restore`, and `POST /corehub/api/v2/skills/<slug>/transfer`.
+
 Download endpoints support storage-backed signed redirects. The default response is a `302` to the artifact storage URL; CLI clients use `redirect=false` to inspect the signed contract before fetching bytes.
 
 Package file reads are limited to files listed in the artifact manifest, or files derived from a managed `.tgz` artifact when the manifest is not stored yet. File reads reject absolute or parent-relative paths, return only UTF-8 text files, and enforce a 200KB public read limit. External artifact URL mode can list manifest files, but raw file reads require managed artifact bytes.

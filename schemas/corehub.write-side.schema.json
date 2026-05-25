@@ -77,6 +77,18 @@
         "$ref": "#/$defs/packageSearchDigest"
       }
     },
+    "skillVersions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skillVersion"
+      }
+    },
+    "skillSearchDigests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skillSearchDigest"
+      }
+    },
     "artifactUploads": {
       "type": "array",
       "items": {
@@ -583,6 +595,70 @@
         "updatedAt": {
           "$ref": "#/$defs/timestamp"
         }
+      }
+    },
+    "skillVersion": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "slug", "version", "publisherHandle", "displayName", "summary", "status", "files", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "slug": { "$ref": "#/$defs/id" },
+        "version": { "$ref": "#/$defs/semver" },
+        "publisherHandle": { "$ref": "#/$defs/handle" },
+        "displayName": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["available", "blocked", "deprecated"] },
+        "moderationStatus": { "type": "string", "enum": ["approved", "held", "blocked"] },
+        "files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/skillFile" }
+        },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "publishedAt": { "$ref": "#/$defs/timestamp" },
+        "softDeletedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "skillFile": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["path", "mediaType", "size", "sha256", "content"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "mediaType": { "type": "string", "minLength": 1 },
+        "size": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "content": { "type": "string", "minLength": 1 }
+      }
+    },
+    "skillSearchDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "slug", "displayName", "status", "scanStatus", "searchText", "searchTokens", "entry", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "slug": { "$ref": "#/$defs/id" },
+        "displayName": { "type": "string", "minLength": 1 },
+        "publisherHandle": {
+          "anyOf": [{ "$ref": "#/$defs/handle" }, { "type": "null" }]
+        },
+        "summary": { "type": "string" },
+        "latestVersion": {
+          "anyOf": [{ "$ref": "#/$defs/semver" }, { "type": "null" }]
+        },
+        "status": { "type": "string", "minLength": 1 },
+        "scanStatus": { "type": "string", "minLength": 1 },
+        "capabilityTags": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "searchText": { "type": "string", "minLength": 1 },
+        "searchTokens": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/id" }
+        },
+        "entry": { "type": "object" },
+        "updatedAt": { "$ref": "#/$defs/timestamp" }
       }
     },
     "artifactUpload": {
