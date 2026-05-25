@@ -27,6 +27,9 @@ COREHUB_ANALYTICS_SALT = "replace-with-operator-managed-analytics-salt"
 COREHUB_RATE_LIMIT_MAX = "120"
 COREHUB_RATE_LIMIT_WINDOW_MS = "60000"
 COREHUB_REQUIRE_SESSION_TOKEN_HASHES = "1"
+# Optional GitHub browser OAuth. Store the client secret with Wrangler secrets.
+# COREHUB_GITHUB_OAUTH_CLIENT_ID = "replace-with-github-oauth-client-id"
+# COREHUB_OAUTH_SESSION_TTL_MS = "2592000000"
 
 [[d1_databases]]
 binding = "COREHUB_D1"
@@ -36,3 +39,4 @@ database_id = "replace-with-cloudflare-d1-database-id"
 # Required before deploy:
 # wrangler secret put COREHUB_SIGNING_SECRET --config ops/cloudflare/wrangler.corehub-api.persistence.example.toml
 # wrangler secret put COREHUB_SESSION_TOKEN_SHA256 --config ops/cloudflare/wrangler.corehub-api.persistence.example.toml
+# wrangler secret put COREHUB_GITHUB_OAUTH_CLIENT_SECRET --config ops/cloudflare/wrangler.corehub-api.persistence.example.toml

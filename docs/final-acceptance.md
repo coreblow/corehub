@@ -21,7 +21,7 @@ Accepted scope:
 
 Intentionally deferred outside v1 acceptance:
 
-- Real browser provider exchange UI. CoreHub v1 accepts signed upstream GitHub identity completion plus token-backed browser sessions and production token-hash enforcement until the CoreBlow app auth boundary owns the browser OAuth exchange.
+- Browser OAuth UI polish and full account settings. CoreHub now owns the API-level GitHub provider exchange and signed browser session minting; richer UI entry points remain post-v1 hardening.
 - npm release publication. The package remains `private: true` until an operator explicitly approves opening the CoreHub CLI release surface.
 
 ## ClawHub-To-CoreHub Matrix Lock
@@ -32,7 +32,7 @@ Intentionally deferred outside v1 acceptance:
 | Public plugin discovery | done | Plugin-only list/search routes and CLI filters are present. |
 | Package publish lifecycle | done | CLI and reusable workflow wrap upload, verify, submit, and pending review. |
 | Publisher identity and scoped packages | done | Publisher claims, whoami, memberships, and scope-owner validation are enforced. |
-| OAuth account and org boundary | done | Signed upstream GitHub identity completion, account records, personal publishers, org publishers, and member role enforcement are present. |
+| OAuth account and org boundary | done | Signed upstream GitHub identity completion, real GitHub OAuth provider exchange, signed browser session minting, account records, personal publishers, org publishers, and member role enforcement are present. |
 | Ownership transfer | done | API, CLI, and publisher portal transfer request/status flow are present. |
 | Trusted publisher and CI token flow | done | GitHub Actions OIDC JWT verification mints short-lived publish tokens. |
 | Official release guard | done | Official live publish requires admin, trusted publisher token, or explicit override. |

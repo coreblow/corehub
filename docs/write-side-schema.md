@@ -60,7 +60,9 @@ CoreHub API v2 now resolves a request actor from the authenticated CLI headers a
 | Boundary | Required permission |
 | --- | --- |
 | `GET /corehub/api/v2/publishers/me` | Any authenticated actor; returns memberships, roles, default publisher, and derived permissions. |
-| `POST /corehub/api/v2/oauth/github/complete` | Completes a CoreBlow/CoreHub-signed upstream GitHub identity, stores the account, and bootstraps a personal publisher. |
+| `POST /corehub/api/v2/oauth/github/start` | Starts a GitHub browser OAuth exchange and returns a signed state plus provider authorization URL. |
+| `GET /corehub/api/v2/oauth/github/callback` / `POST /corehub/api/v2/oauth/github/exchange` | Exchanges a GitHub OAuth code, fetches the GitHub user profile, mints a signed CoreHub browser session token, stores the account, and bootstraps a personal publisher. |
+| `POST /corehub/api/v2/oauth/github/complete` | Completes a CoreBlow/CoreHub-signed upstream GitHub identity for trusted app-boundary integrations and tests. |
 | `GET /corehub/api/v2/account/me` | Returns the signed-in account, actor, publisher identity, memberships, and default publisher. |
 | `POST /corehub/api/v2/orgs` | Creates a verified organization publisher for a signed-in account and assigns the actor as owner. |
 | `GET /corehub/api/v2/orgs/:handle/members` | Lists organization publisher members for owners, admins, or global admins. |

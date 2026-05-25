@@ -2319,13 +2319,18 @@ export class CoreHubLocalStorageAdapter {
     }
     const publisher = this.ensurePersonalPublisher(account, { actor: { type: "user", id: actorId }, now });
     this.authSessions.push({
-      id: `session-${slugId(actorId)}-${String(this.authSessions.length + 1).padStart(6, "0")}`,
+      id: input.sessionId ?? `session-${slugId(actorId)}-${String(this.authSessions.length + 1).padStart(6, "0")}`,
       actor: { type: "user", id: actorId },
       status: "active",
       defaultPublisherHandle: publisher.handle,
+      ...(input.sessionProvider ? { provider: input.sessionProvider } : {}),
+      ...(input.sessionLabel ? { label: normalizeOptionalString(input.sessionLabel) } : {}),
+      ...(input.sessionTokenHash ? { tokenHash: String(input.sessionTokenHash).trim().toLowerCase() } : {}),
+      ...(input.sessionTokenPreview ? { tokenPreview: String(input.sessionTokenPreview).trim() } : {}),
       createdAt: completedAt,
       expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     });
+    const session = this.authSessions.at(-1);
     this.recordAuditEvent({
       actor: { type: "user", id: actorId },
       action: existing ? "account.oauth.refresh" : "account.oauth.create",
@@ -2335,7 +2340,7 @@ export class CoreHubLocalStorageAdapter {
       createdAt: completedAt,
     });
     await this.persistState();
-    return { status: existing ? "refreshed" : "created", account, publisher, identity: this.publisherIdentity({ type: "user", id: actorId }) };
+    return { status: existing ? "refreshed" : "created", account, publisher, session, identity: this.publisherIdentity({ type: "user", id: actorId }) };
   }
 
   ensurePersonalPublisher(account, { actor, now }) {
@@ -3532,10 +3537,12 @@ export function createCoreHubApiHandler({
   now = () => new Date(),
   rateLimit,
   sessionTokens,
+  oauth,
 } = {}) {
   if (!storage) throw new Error("createCoreHubApiHandler requires storage");
   const limiter = createRateLimiter(rateLimit);
   const sessionAuth = createSessionAuth(sessionTokens);
+  const oauthConfig = createOAuthConfig(oauth);
   return async function coreHubApiHandler(request, response) {
     let errorMode = "v2";
     try {
@@ -3583,6 +3590,22 @@ export function createCoreHubApiHandler({
 
       const segments = trimBasePath(url.pathname, basePath);
       if (!segments) return sendError(response, 404, "Not found", { mode: errorMode });
+
+      if (request.method === "POST" && segments[0] === "oauth" && segments[1] === "github" && segments[2] === "start" && segments.length === 3) {
+        const body = await readJsonBody(request);
+        const result = createGitHubOAuthStart(storage, body, { oauthConfig, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (
+        ((request.method === "POST" && segments[0] === "oauth" && segments[1] === "github" && segments[2] === "exchange") ||
+          (request.method === "GET" && segments[0] === "oauth" && segments[1] === "github" && segments[2] === "callback")) &&
+        segments.length === 3
+      ) {
+        const body = request.method === "POST" ? await readJsonBody(request) : Object.fromEntries(url.searchParams.entries());
+        const result = await exchangeGitHubOAuthCode(storage, body, { oauthConfig, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
 
       if (request.method === "GET" && segments[0] === "session" && segments[1] === "validate" && segments.length === 2) {
         const result = validateSessionRequest(storage, request, url.searchParams.get("role") ?? "publisher", sessionAuth);
@@ -5596,6 +5619,185 @@ function readCommunityLeaderboardOptions(url) {
     sort,
     limit: parseV1PositiveInteger(url.searchParams.get("limit"), "limit", 20),
   };
+}
+
+function createOAuthConfig(config = {}) {
+  return {
+    githubClientId: normalizeOptionalString(config.githubClientId ?? config.clientId),
+    githubClientSecret: normalizeOptionalString(config.githubClientSecret ?? config.clientSecret),
+    githubAuthorizeUrl: normalizeOptionalString(config.githubAuthorizeUrl ?? config.authorizeUrl) ?? "https://github.com/login/oauth/authorize",
+    githubTokenUrl: normalizeOptionalString(config.githubTokenUrl ?? config.tokenUrl) ?? "https://github.com/login/oauth/access_token",
+    githubUserUrl: normalizeOptionalString(config.githubUserUrl ?? config.userUrl) ?? "https://api.github.com/user",
+    scope: normalizeOptionalString(config.scope) ?? "read:user",
+    sessionTtlMs: normalizeOAuthSessionTtlMs(config.sessionTtlMs),
+    fetch: config.fetch ?? globalThis.fetch,
+  };
+}
+
+function createGitHubOAuthStart(storage, input = {}, { oauthConfig, now = new Date() } = {}) {
+  if (!oauthConfig.githubClientId) throw httpError(503, "GitHub OAuth client id is not configured");
+  const redirectUri = normalizeOAuthRedirectUri(
+    input.redirectUri ?? `${storage.publicBaseUrl.replace(/\/$/, "")}/api/v2/oauth/github/callback`,
+    storage,
+  );
+  const label = normalizeOptionalString(input.label) ?? "CoreHub browser session";
+  const nonce = randomBytes(16).toString("base64url");
+  const stateIssuedAt = Math.max(now.getTime(), Date.now());
+  const state = signOAuthState(storage, {
+    provider: "github",
+    redirectUri,
+    label,
+    nonce,
+    aud: "corehub-oauth-state",
+    exp: Math.floor((stateIssuedAt + 10 * 60 * 1000) / 1000),
+  });
+  const authorizationUrl = new URL(oauthConfig.githubAuthorizeUrl);
+  authorizationUrl.searchParams.set("client_id", oauthConfig.githubClientId);
+  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizationUrl.searchParams.set("scope", oauthConfig.scope);
+  authorizationUrl.searchParams.set("state", state);
+  return {
+    provider: "github",
+    authorizationUrl: authorizationUrl.toString(),
+    redirectUri,
+    state,
+    label,
+    expiresAt: new Date(stateIssuedAt + 10 * 60 * 1000).toISOString(),
+  };
+}
+
+async function exchangeGitHubOAuthCode(storage, input = {}, { oauthConfig, now = new Date() } = {}) {
+  if (!oauthConfig.githubClientId || !oauthConfig.githubClientSecret) {
+    throw httpError(503, "GitHub OAuth client id or secret is not configured");
+  }
+  if (typeof oauthConfig.fetch !== "function") throw httpError(503, "GitHub OAuth fetch adapter is not configured");
+  const code = normalizeRequiredString(input.code, "code");
+  const stateToken = normalizeRequiredString(input.state, "state");
+  const state = verifyOAuthState(storage, stateToken);
+  if (state.provider !== "github" || state.aud !== "corehub-oauth-state") throw httpError(403, "OAuth state is invalid");
+  const redirectUri = normalizeOAuthRedirectUri(input.redirectUri ?? state.redirectUri, storage);
+  if (redirectUri !== state.redirectUri) throw httpError(403, "OAuth redirectUri does not match state");
+
+  const tokenResponse = await oauthConfig.fetch(oauthConfig.githubTokenUrl, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+      "user-agent": "corehub-oauth",
+    },
+    body: new URLSearchParams({
+      client_id: oauthConfig.githubClientId,
+      client_secret: oauthConfig.githubClientSecret,
+      code,
+      redirect_uri: redirectUri,
+      state: stateToken,
+    }).toString(),
+  });
+  if (!tokenResponse.ok) throw httpError(503, `GitHub OAuth token exchange failed: ${tokenResponse.status}`);
+  const tokenPayload = await tokenResponse.json();
+  const accessToken = normalizeRequiredString(tokenPayload.access_token, "access_token");
+  const userResponse = await oauthConfig.fetch(oauthConfig.githubUserUrl, {
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${accessToken}`,
+      "user-agent": "corehub-oauth",
+    },
+  });
+  if (!userResponse.ok) throw httpError(503, `GitHub OAuth user fetch failed: ${userResponse.status}`);
+  const user = await userResponse.json();
+  const login = normalizeHandleInput(user.login, "github.login");
+  const providerAccountId = normalizeRequiredString(String(user.id ?? ""), "github.id");
+  const actor = { type: "user", id: `github:${login}` };
+  const sessionId = `session-${slugId(actor.id)}-${randomBytes(8).toString("hex")}`;
+  const sessionIssuedAt = Math.max(now.getTime(), Date.now());
+  const sessionExpiresAt = new Date(sessionIssuedAt + oauthConfig.sessionTtlMs);
+  const sessionToken = signJwt(
+    {
+      actor,
+      sessionId,
+      iss: "corehub",
+      aud: "corehub-session",
+      provider: "github",
+      exp: Math.floor(sessionExpiresAt.getTime() / 1000),
+    },
+    storage.requireSigningSecret(storage.signedReadKeyId),
+  );
+  const result = await storage.completeOAuthIdentity(
+    {
+      provider: "github",
+      login,
+      providerAccountId,
+      displayName: normalizeOptionalString(user.name) ?? login,
+      avatarUrl: normalizeOptionalString(user.avatar_url),
+      profileUrl: normalizeOptionalString(user.html_url) ?? `https://github.com/${login}`,
+      githubCreatedAt: normalizeOptionalString(user.created_at),
+      sessionId,
+      sessionProvider: "github-oauth",
+      sessionLabel: state.label,
+      sessionTokenHash: sha256Hex(sessionToken),
+      sessionTokenPreview: previewToken(sessionToken),
+    },
+    { actor, now },
+  );
+  return {
+    provider: "github",
+    tokenType: "Bearer",
+    token: sessionToken,
+    expiresAt: sessionExpiresAt.toISOString(),
+    account: result.account,
+    publisher: result.publisher,
+    session: result.session,
+    identity: result.identity,
+  };
+}
+
+function signOAuthState(storage, payload) {
+  return signJwt(payload, storage.requireSigningSecret(storage.signedReadKeyId));
+}
+
+function verifyOAuthState(storage, token) {
+  const payload = verifyJwt(token, storage.requireSigningSecret(storage.signedReadKeyId));
+  if (!payload) throw httpError(403, "OAuth state is invalid or expired");
+  return payload;
+}
+
+function normalizeOAuthRedirectUri(value, storage) {
+  const redirectUri = normalizeRequiredString(value, "redirectUri");
+  let url;
+  try {
+    url = new URL(redirectUri);
+  } catch {
+    throw httpError(400, "redirectUri must be an absolute URL");
+  }
+  if (url.protocol !== "https:" && !isLoopbackHttpUrl(url)) {
+    throw httpError(400, "redirectUri must use https or loopback http");
+  }
+  const publicBase = new URL(storage.publicBaseUrl);
+  const sameHost = url.protocol === publicBase.protocol && url.host === publicBase.host;
+  if (!sameHost && !isLoopbackHttpUrl(url)) {
+    throw httpError(400, "redirectUri must target the CoreHub host or loopback");
+  }
+  return url.toString();
+}
+
+function isLoopbackHttpUrl(url) {
+  return url.protocol === "http:" && ["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname);
+}
+
+function normalizeOAuthSessionTtlMs(value) {
+  if (value === undefined || value === null || value === "") return 30 * 24 * 60 * 60 * 1000;
+  const ttl = Number(value);
+  if (!Number.isSafeInteger(ttl) || ttl < 60_000) throw httpError(400, "OAuth sessionTtlMs must be at least 60000");
+  return ttl;
+}
+
+function sha256Hex(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function previewToken(token) {
+  if (!token || token.length <= 12) return "********";
+  return `${token.slice(0, 6)}...${token.slice(-4)}`;
 }
 
 function normalizeUploadRequest(input) {

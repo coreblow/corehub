@@ -230,6 +230,16 @@ Authenticated community writes use API v2:
 - `DELETE /corehub/api/v2/community/comments/<comment-id>`
 - `POST /corehub/api/v2/community/comments/<comment-id>/report`
 
+GitHub browser OAuth uses API v2 and is enabled only when the Worker has a GitHub OAuth client id and secret configured:
+
+- `POST /corehub/api/v2/oauth/github/start`
+- `GET /corehub/api/v2/oauth/github/callback?code=<code>&state=<signed-state>`
+- `POST /corehub/api/v2/oauth/github/exchange`
+- `GET /corehub/api/v2/account/me`
+- `GET /corehub/api/v2/session/validate?role=publisher`
+
+The start route signs OAuth state with the active CoreHub signing key. The callback/exchange route validates state, exchanges the provider code with GitHub, fetches the GitHub profile, stores or refreshes the CoreHub account, bootstraps the personal publisher, and returns a signed CoreHub browser session token.
+
 Download endpoints support storage-backed signed redirects. The default response is a `302` to the artifact storage URL; CLI clients use `redirect=false` to inspect the signed contract before fetching bytes.
 
 Package file reads are limited to files listed in the artifact manifest, or files derived from a managed `.tgz` artifact when the manifest is not stored yet. File reads reject absolute or parent-relative paths, return only UTF-8 text files, and enforce a 200KB public read limit. External artifact URL mode can list manifest files, but raw file reads require managed artifact bytes.

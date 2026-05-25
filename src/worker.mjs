@@ -25,6 +25,7 @@ export async function handleCoreHubWorkerRequest(request, env = {}, context = un
       storage: app.storage,
       rateLimit: workerRateLimitConfig(env, options),
       sessionTokens: workerSessionTokensConfig(env, options),
+      oauth: workerOAuthConfig(env, options),
     });
     const response = createFetchResponseRecorder();
     await handler(await toNodeLikeRequest(request), response);
@@ -54,6 +55,18 @@ function workerRateLimitConfig(env = {}, options = {}) {
     limit: Number.parseInt(String(env.COREHUB_RATE_LIMIT_MAX), 10),
     windowMs: Number.parseInt(String(env.COREHUB_RATE_LIMIT_WINDOW_MS), 10),
     bucketKey: "worker",
+  };
+}
+
+function workerOAuthConfig(env = {}, options = {}) {
+  if (options.oauth) return options.oauth;
+  return {
+    githubClientId: env.COREHUB_GITHUB_OAUTH_CLIENT_ID,
+    githubClientSecret: env.COREHUB_GITHUB_OAUTH_CLIENT_SECRET,
+    githubAuthorizeUrl: env.COREHUB_GITHUB_OAUTH_AUTHORIZE_URL,
+    githubTokenUrl: env.COREHUB_GITHUB_OAUTH_TOKEN_URL,
+    githubUserUrl: env.COREHUB_GITHUB_OAUTH_USER_URL,
+    sessionTtlMs: env.COREHUB_OAUTH_SESSION_TTL_MS,
   };
 }
 

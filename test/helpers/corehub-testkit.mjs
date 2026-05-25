@@ -52,6 +52,7 @@ export async function startCoreHubTestServer(options = {}) {
       now: options.now ?? (() => fixedNow),
       rateLimit: options.rateLimit,
       sessionTokens: options.sessionTokens,
+      oauth: options.oauth,
     }),
   );
   await new Promise((resolve, reject) => {
