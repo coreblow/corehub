@@ -360,6 +360,7 @@ The local storage adapter preserves one logical `corehub.local-state.v1` model a
 | `submissions` | Package submission records plus pending or decided package version previews. |
 | `reviews` | Moderation review decisions and reviewer audit metadata. |
 | `packageVersions` | Approved, blocked, soft-deleted, or restored version records used by projection. |
+| `packageSearchDigests` | Digest-backed public search/list rows rebuilt from package projections, including filter fields, tokens, scan status, and public entry payload. |
 | `trustedPublishers` | Package-level trusted publisher policies. |
 | `publishTokens` | Short-lived CI publish tokens with mint, use, and revoke metadata. |
 | `packageReports` | Package moderation reports and triage metadata. |
@@ -368,7 +369,7 @@ The local storage adapter preserves one logical `corehub.local-state.v1` model a
 | `auditEvents` | Append-only audit events for upload, verification, submission, review decision, and admin read actions. |
 | `auditCheckpoints` | Local checkpoint records created after export-before-prune retention actions. |
 
-The D1 normalized store indexes package/version, status, publisher, scan result, repository, audit sequence, target, day, and install event lookups. This gives CoreHub a ClawHub-like table/index persistence shape without leaking D1 storage details into the HTTP API or CLI.
+The D1 normalized store indexes package/version, status, publisher, scan result, repository, audit sequence, target, day, install event, marketplace filter fields, capability tags, and search tokens. This gives CoreHub a ClawHub-like table/index persistence shape without leaking D1 storage details into the HTTP API or CLI.
 
 ## Audit Trail Boundary
 

@@ -1233,7 +1233,7 @@ try {
   const persistenceMigrationSmoke = await execFileAsync(process.execPath, [persistenceMigrationSmokePath]);
   const persistenceMigrationPayload = JSON.parse(persistenceMigrationSmoke.stdout);
   assert.equal(persistenceMigrationPayload.status, "ok");
-  assert.deepEqual(persistenceMigrationPayload.persistedCollections, ["packageVersions", "slots"]);
+  assert.deepEqual(persistenceMigrationPayload.persistedCollections, ["packageSearchDigests", "packageVersions", "slots"]);
 
   const productionFinalization = await execFileAsync(process.execPath, [productionFinalizationPath]);
   assert.equal(JSON.parse(productionFinalization.stdout).status, "ready");
@@ -2770,6 +2770,10 @@ try {
     assert.equal(pluginLabSlot.artifactUpload.status, "verified");
     assert.equal(persistedState.submissions[0].submission.status, "approved");
     assert.equal(persistedState.packageVersions[0].status, "available");
+    assert.equal(persistedState.packageSearchDigests[0].packageId, "plugin-lab");
+    assert.equal(persistedState.packageSearchDigests[0].family, "code-plugin");
+    assert.equal(persistedState.packageSearchDigests[0].searchTokens.includes("plugin"), true);
+    assert.equal(persistedState.packageSearchDigests[0].entry.id, "plugin-lab");
     assert.equal("softDeletedAt" in persistedState.packageVersions[0], false);
     assert.equal(typeof persistedState.packageVersions[0].restoredAt, "string");
     assert.equal(persistedState.packageVersions[0].manualModeration.state, "quarantined");
@@ -2805,8 +2809,11 @@ try {
       statePath: apiStatePath,
     });
     const reloadedEntries = reloadedStorage.projectCatalogEntries();
+    const reloadedSearchEntries = reloadedStorage.packageSearchEntries();
     assert.equal(reloadedEntries.length, 1);
     assert.equal(reloadedEntries[0].id, "plugin-lab");
+    assert.equal(reloadedSearchEntries.length, 1);
+    assert.equal(reloadedSearchEntries[0].id, "plugin-lab");
     assert.equal(reloadedEntries[0].versions[0].artifact.sha256, entries[2].versions[0].artifact.sha256);
     assert.ok(reloadedStorage.listAuditEvents({ target: remoteSubmitPayload.moderationReview.id }).items.length > 0);
     assert.equal(reloadedStorage.verifyAuditEvents().valid, true);

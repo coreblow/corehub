@@ -65,6 +65,12 @@
         "$ref": "#/$defs/packageVersion"
       }
     },
+    "packageSearchDigests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/packageSearchDigest"
+      }
+    },
     "artifactUploads": {
       "type": "array",
       "items": {
@@ -389,6 +395,123 @@
         "moderationStatus": {
           "type": "string",
           "enum": ["pending", "approved", "held", "blocked"]
+        }
+      }
+    },
+    "packageSearchDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "packageId",
+        "name",
+        "normalizedName",
+        "displayName",
+        "family",
+        "channel",
+        "isOfficial",
+        "executesCode",
+        "category",
+        "latestVersion",
+        "capabilityTags",
+        "scanStatus",
+        "moderationState",
+        "downloadEnabled",
+        "searchText",
+        "searchTokens",
+        "entry",
+        "updatedAt"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "packageId": {
+          "$ref": "#/$defs/packageId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "normalizedName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "type": "string",
+          "enum": ["skill", "code-plugin", "bundle-plugin"]
+        },
+        "channel": {
+          "$ref": "#/$defs/id"
+        },
+        "isOfficial": {
+          "type": "boolean"
+        },
+        "executesCode": {
+          "type": "boolean"
+        },
+        "category": {
+          "$ref": "#/$defs/id"
+        },
+        "publisherHandle": {
+          "anyOf": [{ "$ref": "#/$defs/handle" }, { "type": "null" }]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "latestVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "capabilityTags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "scanStatus": {
+          "type": "string",
+          "minLength": 1
+        },
+        "moderationState": {
+          "type": "string",
+          "minLength": 1
+        },
+        "downloadEnabled": {
+          "type": "boolean"
+        },
+        "stats": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "installs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "downloads": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "searchText": {
+          "type": "string",
+          "minLength": 1
+        },
+        "searchTokens": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "entry": {
+          "type": "object"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp"
         }
       }
     },

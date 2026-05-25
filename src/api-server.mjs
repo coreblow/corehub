@@ -194,6 +194,7 @@ const normalizedD1Collections = [
   "submissions",
   "reviews",
   "packageVersions",
+  "packageSearchDigests",
   "packageReports",
   "packageAppeals",
   "packageScanJobs",
@@ -260,6 +261,19 @@ function normalizedD1Indexes(collection, item, rowId, position) {
     push("by_publisher", item.publisherHandle);
     push("by_status", item.status);
     push("by_channel", item.channel);
+  } else if (collection === "packageSearchDigests") {
+    push("by_package", item.packageId);
+    push("by_family", item.family);
+    push("by_channel", item.channel);
+    push("by_official", item.isOfficial);
+    push("by_executes_code", item.executesCode);
+    push("by_category", item.category);
+    push("by_publisher", item.publisherHandle);
+    push("by_scan_status", item.scanStatus);
+    push("by_moderation_state", item.moderationState);
+    push("by_latest_version", item.latestVersion);
+    for (const token of item.capabilityTags ?? []) push("by_capability_tag", token);
+    for (const token of item.searchTokens ?? []) push("by_search_token", token);
   } else if (collection === "packageReports") {
     push("by_package", item.packageId);
     push("by_status", item.status);
@@ -410,6 +424,7 @@ export class CoreHubLocalStorageAdapter {
     this.submissions = new Map();
     this.reviews = new Map();
     this.packageVersions = new Map();
+    this.packageSearchDigests = new Map();
     this.packageReports = [];
     this.packageAppeals = [];
     this.packageScanJobs = [];
@@ -2396,7 +2411,24 @@ export class CoreHubLocalStorageAdapter {
     return entries.sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  rebuildPackageSearchDigests({ updatedAt } = {}) {
+    const next = new Map();
+    for (const entry of this.projectCatalogEntries()) {
+      const digest = createPackageSearchDigest(entry, { updatedAt });
+      next.set(digest.id, digest);
+    }
+    this.packageSearchDigests = next;
+    return [...next.values()].sort((left, right) => left.packageId.localeCompare(right.packageId));
+  }
+
+  packageSearchEntries() {
+    this.rebuildPackageSearchDigests();
+    const entries = [...this.packageSearchDigests.values()].map(packageSearchDigestToEntry).filter(Boolean);
+    return entries.length > 0 ? entries.sort((a, b) => a.id.localeCompare(b.id)) : this.projectCatalogEntries();
+  }
+
   snapshotState({ savedAt = new Date().toISOString() } = {}) {
+    this.rebuildPackageSearchDigests({ updatedAt: savedAt });
     return {
       schemaVersion: localStateSchemaVersion,
       savedAt,
@@ -2409,6 +2441,7 @@ export class CoreHubLocalStorageAdapter {
       submissions: [...this.submissions.values()],
       reviews: [...this.reviews.values()],
       packageVersions: [...this.packageVersions.values()],
+      packageSearchDigests: [...this.packageSearchDigests.values()],
       packageReports: this.packageReports,
       packageAppeals: this.packageAppeals,
       packageScanJobs: this.packageScanJobs,
@@ -2436,6 +2469,7 @@ export class CoreHubLocalStorageAdapter {
     this.submissions = new Map((state.submissions ?? []).map((record) => [record.submission.id, record]));
     this.reviews = new Map((state.reviews ?? []).map((review) => [review.id, review]));
     this.packageVersions = new Map((state.packageVersions ?? []).map((version) => [version.id, version]));
+    this.packageSearchDigests = new Map((state.packageSearchDigests ?? []).map((digest) => [digest.id, digest]));
     this.packageReports = state.packageReports ?? [];
     this.packageAppeals = state.packageAppeals ?? [];
     this.packageScanJobs = state.packageScanJobs ?? [];
@@ -2445,6 +2479,7 @@ export class CoreHubLocalStorageAdapter {
     this.installEvents = state.installEvents ?? [];
     this.auditEvents = state.auditEvents ?? [];
     this.auditCheckpoints = state.auditCheckpoints ?? [];
+    if (this.packageSearchDigests.size === 0) this.rebuildPackageSearchDigests();
   }
 
   async saveState(path = this.statePath) {
@@ -3148,7 +3183,7 @@ function errorModeForPath(pathname, basePath) {
 
 async function handleProjectedRegistryV1(storage, request, url, segments, { actor = defaultActor(), now = new Date() } = {}) {
   if (request.method !== "GET") return null;
-  const entries = storage.projectCatalogEntries();
+  const entries = storage.packageSearchEntries();
   const visibleEntries = entries.filter((entry) => canViewProjectedEntry(storage, actor, entry));
   const baseUrl = requestBaseUrl(request, url);
 
@@ -4533,6 +4568,75 @@ function slugId(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "unknown";
+}
+
+function createPackageSearchDigest(entry, { updatedAt } = {}) {
+  const marketplace = entry.marketplace ?? {};
+  const latest = entry.versions?.[0] ?? null;
+  const artifact = latest?.artifact ?? null;
+  const searchText = packageSearchText(entry);
+  const digestUpdatedAt = updatedAt ?? latest?.publishedAt ?? latest?.createdAt ?? new Date(0).toISOString();
+  return {
+    id: `package-search-digest-${slugId(entry.id)}`,
+    packageId: entry.id,
+    name: entry.name,
+    normalizedName: normalizeSearchText(entry.name ?? entry.id),
+    displayName: entry.name,
+    family: marketplace.family ?? (entry.kind === "skill" ? "skill" : "code-plugin"),
+    channel: marketplace.channel ?? "community",
+    isOfficial: Boolean(marketplace.isOfficial),
+    executesCode: Boolean(marketplace.executesCode),
+    category: marketplace.category ?? "dev-tools",
+    publisherHandle: entry.publisher?.handle ?? null,
+    summary: entry.summary ?? "",
+    latestVersion: latest?.version ?? entry.version ?? null,
+    capabilityTags: marketplace.capabilityTags ?? entry.tags ?? [],
+    scanStatus: artifact?.security?.scanStatus ?? entry.scanner?.scanStatus ?? "unknown",
+    moderationState: artifact?.trust?.moderationState ?? "available",
+    downloadEnabled: artifact?.downloadEnabled !== false && !artifact?.trust?.blockedFromDownload,
+    stats: marketplace.stats ?? entry.stats ?? { installs: 0, downloads: 0 },
+    searchText,
+    searchTokens: [...new Set(tokenizeSearchText(searchText))].slice(0, 64),
+    entry: JSON.parse(JSON.stringify(entry)),
+    updatedAt: digestUpdatedAt,
+  };
+}
+
+function packageSearchDigestToEntry(digest) {
+  return digest?.entry ?? null;
+}
+
+function packageSearchText(entry) {
+  return [
+    entry.id,
+    entry.name,
+    entry.summary,
+    entry.source,
+    entry.homepage,
+    entry.kind,
+    entry.publisher?.handle,
+    entry.publisher?.displayName,
+    entry.marketplace?.family,
+    entry.marketplace?.channel,
+    entry.marketplace?.category,
+    ...(entry.tags ?? []),
+    ...(entry.capabilities ?? []),
+    ...(entry.marketplace?.capabilityTags ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function normalizeSearchText(value) {
+  return tokenizeSearchText(value).join("-");
+}
+
+function tokenizeSearchText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .split(/[^a-z0-9-]+/)
+    .map((term) => term.trim())
+    .filter(Boolean);
 }
 
 function hashAuditEvent(event) {

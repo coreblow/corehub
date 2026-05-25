@@ -73,7 +73,7 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Static scanner pipeline | v1 accepted | Static scan job model, scan status, rescan/backfill operations, and scanner evidence. | CoreHub now stores static scan jobs, emits public scan status, exposes admin rescan/backfill routes, and includes scan counts/evidence in support bundles. | Keep covered by route tests. |
 | Deep hosted scanner parity | intentionally deferred | VirusTotal-style scanner state, LLM/ClawScan review, hosted queues, external scanner callbacks, and rich rescan policy. | CoreHub has the scanner boundary and static evidence model, but does not implement ClawHub scanner internals. | Post-v1 major phase. |
 | Normalized package persistence | v1 accepted | ClawHub has normalized `packages`, `packageReleases`, stats, reports, appeals, scan jobs, search digests, trusted publishers, token tables. | CoreHub now uses D1 normalized meta/row/index tables while preserving the logical state-store boundary and legacy snapshot fallback. | Keep covered by D1 migration and Worker smoke tests. |
-| Search digest/index depth | partial | ClawHub stores package/skill search digest tables and indexed query paths. | CoreHub now persists lookup indexes for normalized state rows, but public search still projects deterministic catalog/state results instead of a dedicated search digest table. | Add dedicated search digest if scale requires it. |
+| Search digest/index depth | v1 accepted | ClawHub stores package/skill search digest tables and indexed query paths. | CoreHub now persists `packageSearchDigests`, rebuilds them from the write-side projection, stores normalized D1 row/index entries for filter/search tokens, and serves public list/search from digest-backed entries. | Keep covered by persistence migration and public route tests. |
 | Real browser OAuth | intentionally deferred | ClawHub has GitHub-backed browser auth/account model. | CoreHub v1 accepts token-backed browser sessions plus token-hash enforcement. | Implement with CoreBlow app auth boundary. |
 | User/org management | intentionally deferred | ClawHub includes user, organization, publisher-admin, settings, memberships, and org ownership semantics. | CoreHub has publisher identity and memberships sufficient for v1 package ownership. | Post-v1 account/org phase. |
 | Moderator CLI depth | full parity missing | `clawhub-mod` has richer moderation, migration, repair, and backfill operator commands. | CoreHub admin CLI/API covers v1 review/status/support but not all mod tooling. | Add after public API compatibility. |
@@ -91,9 +91,9 @@ No P0 compatibility rows remain for CoreHub v1 package marketplace acceptance.
 
 After P0:
 
-1. Add dedicated search digest rows if public marketplace scale requires query-time search acceleration.
-2. Expand moderator CLI around scanner/backfill operations.
-3. Add publisher portal report/appeal visibility and transfer accept/reject controls.
+1. Expand moderator CLI around scanner/backfill operations.
+2. Add publisher portal report/appeal visibility and transfer accept/reject controls.
+3. Broaden hosted skill lifecycle parity if CoreHub scope expands beyond package marketplace v1.
 
 ## P2 Product Scope Decisions
 

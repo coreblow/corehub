@@ -174,7 +174,7 @@ List and search v1 responses return:
 }
 ```
 
-List and search routes support `limit` and `cursor`. Clients should pass the returned `meta.nextCursor` to continue. Existing `offset` reads remain accepted for local tooling, but cursor reads are the public compatibility path.
+List and search routes support `limit` and `cursor`. Clients should pass the returned `meta.nextCursor` to continue. Existing `offset` reads remain accepted for local tooling, but cursor reads are the public compatibility path. Package list and search responses are served from rebuilt `packageSearchDigests`, so the public shape stays stable while the persistence layer keeps ClawHub-style indexed digest rows.
 
 Public API v1 error responses follow the ClawHub-compatible plain text contract. Validation failures, missing resources, rate limits, and blocked downloads return `content-type: text/plain; charset=utf-8` with a human-readable body. For example, an invalid cursor returns `400` with `cursor must be a valid CoreHub pagination cursor`, and a moderation-blocked package download returns `403` with the moderation reason.
 
@@ -220,7 +220,7 @@ The OpenClaw-style user command is `corehub install <id>`. It is the intended in
 
 ## Search
 
-The local search index scores matches across id, kind, name, summary, tags, capabilities, marketplace family, channel, and plugin category. This is intentionally deterministic so CI can validate catalog behavior before a hosted search service exists.
+The local search index scores digest-backed entries across id, kind, name, summary, tags, capabilities, marketplace family, channel, and plugin category. This is intentionally deterministic so CI can validate catalog behavior before a hosted search service exists.
 
 Discovery filters match the ClawHub package marketplace shape where CoreHub can express it today:
 
