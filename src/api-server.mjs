@@ -2685,6 +2685,17 @@ export class CoreHubLocalStorageAdapter {
     const transfers = [...this.ownershipTransfers.values()]
       .filter((transfer) => handles.has(transfer.fromPublisherHandle) || handles.has(transfer.toPublisherHandle))
       .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
+    const reports = this.packageReports
+      .filter((report) => handles.has(report.publisherHandle))
+      .sort((left, right) => right.reportedAt.localeCompare(left.reportedAt));
+    const appeals = this.packageAppeals
+      .filter((appeal) => handles.has(appeal.publisherHandle))
+      .sort((left, right) => right.appealedAt.localeCompare(left.appealedAt));
+    const moderationStatuses = [...this.packageVersions.values()]
+      .filter((version) => handles.has(version.publisherHandle))
+      .filter((version) => version.status === "available" && !version.softDeletedAt)
+      .map((version) => this.packageModerationQueueItem(version))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.packageId.localeCompare(right.packageId));
     const uploadSlots = [...this.slots.values()]
       .filter((slot) => handles.has(slot.publisherHandle))
       .map((slot) => ({
@@ -2702,6 +2713,9 @@ export class CoreHubLocalStorageAdapter {
       packages,
       submissions,
       transfers,
+      reports,
+      appeals,
+      moderationStatuses,
       uploadSlots,
       counts: {
         publishers: handles.size,
@@ -2709,6 +2723,11 @@ export class CoreHubLocalStorageAdapter {
         submissions: submissions.length,
         pendingSubmissions: submissions.filter((item) => item.submission.status === "pending_review").length,
         transfers: transfers.length,
+        reports: reports.length,
+        openReports: reports.filter((item) => item.status === "open").length,
+        appeals: appeals.length,
+        openAppeals: appeals.filter((item) => item.status === "open").length,
+        blockedReleases: moderationStatuses.filter((item) => item.blockedFromDownload).length,
         uploadSlots: uploadSlots.length,
       },
     };
@@ -7844,6 +7863,7 @@ function renderCoreHubPublisherHtml() {
       cursor: not-allowed;
     }
     button.secondary { background: #fff; color: var(--ink); border-color: var(--line); }
+    button.small { height: 30px; padding: 0 8px; font-size: 12px; }
     form { display: grid; gap: 10px; }
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
@@ -7897,6 +7917,10 @@ function renderCoreHubPublisherHtml() {
         <div class="metric"><h3>Packages</h3><strong id="metricPackages">0</strong><p class="muted">owned listings</p></div>
         <div class="metric"><h3>Pending</h3><strong id="metricPending">0</strong><p class="muted">submissions</p></div>
         <div class="metric"><h3>Transfers</h3><strong id="metricTransfers">0</strong><p class="muted">requests</p></div>
+        <div class="metric"><h3>Reports</h3><strong id="metricReports">0</strong><p class="muted">open reports</p></div>
+        <div class="metric"><h3>Appeals</h3><strong id="metricAppeals">0</strong><p class="muted">open appeals</p></div>
+        <div class="metric"><h3>Blocked</h3><strong id="metricBlocked">0</strong><p class="muted">release gates</p></div>
+        <div class="metric"><h3>Uploads</h3><strong id="metricUploads">0</strong><p class="muted">artifact slots</p></div>
       </div>
 
       <div class="two">
@@ -7987,8 +8011,25 @@ function renderCoreHubPublisherHtml() {
           <div class="notice hidden" id="transferNotice"></div>
           <div class="error hidden" id="transferError"></div>
           <table>
-            <thead><tr><th>Transfer</th><th>Package</th><th>Route</th><th>Status</th></tr></thead>
+            <thead><tr><th>Transfer</th><th>Package</th><th>Route</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody id="transfersTable"></tbody>
+          </table>
+        </section>
+      </div>
+
+      <div class="two">
+        <section>
+          <div class="split-toolbar"><h2>Reports and Appeals</h2><span class="status" id="moderationSignalCount">0</span></div>
+          <table>
+            <thead><tr><th>Type</th><th>Package</th><th>Status</th><th>Detail</th></tr></thead>
+            <tbody id="signalsTable"></tbody>
+          </table>
+        </section>
+        <section>
+          <div class="split-toolbar"><h2>Package Moderation Status</h2><span class="status" id="moderationStatusCount">0</span></div>
+          <table>
+            <thead><tr><th>Package</th><th>Release</th><th>Status</th><th>Reason</th></tr></thead>
+            <tbody id="moderationStatusTable"></tbody>
           </table>
         </section>
       </div>
@@ -8027,6 +8068,7 @@ function renderCoreHubPublisherHtml() {
     nodes.claimForm.addEventListener("submit", claimPublisher);
     nodes.publishForm.addEventListener("submit", uploadAndSubmit);
     nodes.transferForm.addEventListener("submit", requestTransfer);
+    nodes.transfersTable.addEventListener("click", decideTransfer);
     nodes.artifactFile.addEventListener("change", hydrateArtifactFieldsFromFile);
     nodes.artifactUrlInput.addEventListener("input", updatePublishMode);
     nodes.submissionFilter.addEventListener("change", () => state.dashboard && renderPortal(state.dashboard));
@@ -8192,6 +8234,27 @@ function renderCoreHubPublisherHtml() {
       }
     }
 
+    async function decideTransfer(event) {
+      const button = event.target.closest("[data-transfer-action]");
+      if (!button) return;
+      const transferId = button.getAttribute("data-transfer-id");
+      const action = button.getAttribute("data-transfer-action");
+      try {
+        button.disabled = true;
+        hideNode(nodes.transferError);
+        await api("/transfers/" + encodeURIComponent(transferId) + "/" + action, {
+          method: "POST",
+          body: { note: "Publisher portal " + action + "." },
+        });
+        showNotice(nodes.transferNotice, "Transfer " + action + " completed.");
+        await loadPortal();
+      } catch (error) {
+        showTransferError(error.message || "Transfer decision failed.");
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     async function api(path, options = {}) {
       const response = await apiRaw(path, {
         ...options,
@@ -8249,6 +8312,10 @@ function renderCoreHubPublisherHtml() {
       nodes.metricPackages.textContent = String(dashboard.counts.packages);
       nodes.metricPending.textContent = String(dashboard.counts.pendingSubmissions);
       nodes.metricTransfers.textContent = String(dashboard.counts.transfers);
+      nodes.metricReports.textContent = String(dashboard.counts.openReports);
+      nodes.metricAppeals.textContent = String(dashboard.counts.openAppeals);
+      nodes.metricBlocked.textContent = String(dashboard.counts.blockedReleases);
+      nodes.metricUploads.textContent = String(dashboard.counts.uploadSlots);
       nodes.whoamiRows.innerHTML = identity.memberships.map((membership) =>
         row(membership.publisherHandle, membership.role, (membership.publisher?.status || "unknown") + " · " + (membership.permissions || []).join(", "))
       ).join("") || '<p class="muted">No publisher memberships.</p>';
@@ -8274,6 +8341,23 @@ function renderCoreHubPublisherHtml() {
         item.packageId,
         item.fromPublisherHandle + " -> " + item.toPublisherHandle,
         statusBadge(item.status),
+        transferActionButtons(item, identity),
+      ]);
+      const signals = [
+        ...(dashboard.reports || []).map((item) => ({ type: "report", packageId: item.packageId, version: item.version, status: item.status, detail: item.triageNote || item.reason || item.finalAction })),
+        ...(dashboard.appeals || []).map((item) => ({ type: "appeal", packageId: item.packageId, version: item.version, status: item.status, detail: item.resolutionNote || item.message || item.finalAction })),
+      ].sort((left, right) => statusRank(left.status) - statusRank(right.status) || left.packageId.localeCompare(right.packageId));
+      renderTable(nodes.signalsTable, signals, (item) => [
+        item.type,
+        item.packageId + "@" + item.version,
+        statusBadge(item.status),
+        item.detail,
+      ]);
+      renderTable(nodes.moderationStatusTable, dashboard.moderationStatuses, (item) => [
+        item.packageId,
+        item.version,
+        statusBadge(item.blockedFromDownload ? "blocked" : item.moderationState),
+        (item.reasons || []).join(", ") || item.moderationReason || item.scanStatus,
       ]);
       renderTable(nodes.uploadsTable, dashboard.uploadSlots, (item) => [
         item.id,
@@ -8283,8 +8367,36 @@ function renderCoreHubPublisherHtml() {
       ]);
       nodes.packageCount.textContent = String(dashboard.packages.length);
       nodes.submissionCount.textContent = String(filteredSubmissions.length);
+      nodes.moderationSignalCount.textContent = String(signals.length);
+      nodes.moderationStatusCount.textContent = String(dashboard.moderationStatuses.length);
       nodes.uploadCount.textContent = String(dashboard.uploadSlots.length);
       updatePublishMode();
+    }
+
+    function transferActionButtons(item, identity) {
+      if (item.status !== "requested") return "-";
+      const membershipByHandle = new Map(identity.memberships.map((membership) => [membership.publisherHandle, membership]));
+      const targetRole = membershipByHandle.get(item.toPublisherHandle)?.role;
+      const sourceRole = membershipByHandle.get(item.fromPublisherHandle)?.role;
+      const canDecide = identity.permissions.admin || ["owner", "admin"].includes(targetRole);
+      const canCancel = identity.permissions.admin || ["owner", "admin"].includes(sourceRole);
+      const buttons = [];
+      if (canDecide) {
+        buttons.push(actionButton(item.id, "accept", "Accept"));
+        buttons.push(actionButton(item.id, "reject", "Reject"));
+      }
+      if (canCancel) buttons.push(actionButton(item.id, "cancel", "Cancel"));
+      return buttons.length ? { __html: '<div class="controls">' + buttons.join("") + "</div>" } : "-";
+    }
+
+    function actionButton(id, action, label) {
+      return '<button class="secondary small" type="button" data-transfer-id="' + escapeHtml(id) + '" data-transfer-action="' + escapeHtml(action) + '">' + escapeHtml(label) + '</button>';
+    }
+
+    function statusRank(status) {
+      if (status === "open" || status === "requested") return 0;
+      if (status === "confirmed" || status === "accepted") return 1;
+      return 2;
     }
 
     function renderPublisherOptions(memberships) {
@@ -8303,8 +8415,8 @@ function renderCoreHubPublisherHtml() {
 
     function statusClass(value) {
       if (["active", "owner", "admin", "maintainer", "verified", "approved", "available"].includes(String(value))) return "good";
-      if (["pending", "pending_review", "requested"].includes(String(value))) return "warn";
-      if (["blocked", "rejected", "revoked"].includes(String(value))) return "bad";
+      if (["pending", "pending_review", "requested", "open", "confirmed", "held", "quarantined", "suspicious"].includes(String(value))) return "warn";
+      if (["blocked", "rejected", "revoked", "malicious"].includes(String(value))) return "bad";
       return "";
     }
 

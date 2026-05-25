@@ -106,6 +106,8 @@ try {
   await assertVisibleText(page, "Upload Artifact and Submit Package");
   await assertVisibleText(page, "Submission Status");
   await assertVisibleText(page, "Ownership Transfer");
+  await assertVisibleText(page, "Reports and Appeals");
+  await assertVisibleText(page, "Package Moderation Status");
   await assertVisibleText(page, "Artifact Uploads");
   await assertVisibleText(page, "admin publisher");
 

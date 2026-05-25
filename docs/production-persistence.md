@@ -308,7 +308,9 @@ The current foundation covers the ClawHub-style publisher workflow through CoreH
 - Publisher claim form through `POST /corehub/api/v2/publishers/claim`.
 - Artifact upload and package submission form through upload slot, artifact verify, and submission APIs.
 - Submission status tracking for packages owned by the signed-in publisher.
-- Ownership transfer request and transfer status table.
+- Ownership transfer request, transfer status table, and accept/reject/cancel controls where the signed-in publisher has the required role.
+- Owner-facing reports and appeals visibility for packages owned by the signed-in publisher.
+- Package moderation status table showing release gates, blocked download state, scan/report reasons, and manual moderation status.
 
 Run the authenticated publisher UI smoke locally with:
 

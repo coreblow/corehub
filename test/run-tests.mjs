@@ -5,4 +5,5 @@ await import("./scanner-routes.test.mjs");
 await import("./community-skill-routes.test.mjs");
 await import("./oauth-account-routes.test.mjs");
 await import("./account-org-settings.test.mjs");
+await import("./publisher-portal-hardening.test.mjs");
 await import("./cli-moderator-surface.test.mjs");

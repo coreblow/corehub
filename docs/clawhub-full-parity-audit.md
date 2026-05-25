@@ -54,14 +54,14 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Public package list/search/detail | v1 accepted | `GET /api/v1/packages`, `/packages/search`, `/plugins`, `/plugins/search`, package detail. | CoreHub exposes package and plugin browse/search/detail routes with filters and deterministic ranking. | Keep covered by smoke and regression tests. |
 | Package versions and artifact metadata | v1 accepted | Version detail, artifact metadata, artifact download routes. | CoreHub exposes versions, signed metadata, signed redirect/read, and external artifact URL mode. | Keep v1 accepted. |
 | Release quarantine/revoke enforcement | v1 accepted | Moderation final actions block install/download through trust state. | CoreHub report triage final actions block release downloads and readiness/install signals. | Keep covered by package download/readiness tests. |
-| Reports and appeals | v1 accepted | Package reports, triage, appeals, event logs. | CoreHub API, CLI, audit events, and support bundle include reports and appeals. | Keep accepted; add owner-facing portal visibility as hardening. |
+| Reports and appeals | v1 accepted | Package reports, triage, appeals, event logs. | CoreHub API, CLI, audit events, support bundle, and publisher portal owner-facing visibility include reports and appeals. | Keep accepted; expand web moderation ergonomics only as product polish. |
 | Soft delete/undelete | v1 accepted | Hide deleted packages from public reads while preserving history. | CoreHub hides deleted packages in v1 projections and keeps history. | Keep accepted. |
 | Publisher identity and scoped names | v1 accepted | User/org publishers, scoped packages, ownership boundary. | CoreHub validates scoped package ownership and exposes publisher claim/whoami/session flows. | Keep v1 accepted; real OAuth/org depth remains separate. |
-| Ownership transfer | v1 accepted | Transfer request/list/status/accept/reject/cancel. | CoreHub API, CLI, and publisher portal cover v1 transfer request/status flow. | Add browser accept/reject controls as hardening. |
+| Ownership transfer | v1 accepted | Transfer request/list/status/accept/reject/cancel. | CoreHub API, CLI, and publisher portal cover transfer request/status plus browser accept/reject/cancel controls where the actor has the target/source role. | Keep accepted. |
 | Trusted publisher and CI token flow | v1 accepted | GitHub Actions trusted publishing and OIDC token boundary. | CoreHub verifies GitHub Actions OIDC JWTs before minting publish tokens. | Keep accepted; preserve official channel guard. |
 | OAuth account and org boundary | v1 accepted | GitHub-backed account identity, personal publishers, org publishers, and publisher membership role checks. | CoreHub accepts signed upstream GitHub identity completion and now supports real GitHub browser OAuth start/exchange, signed browser session tokens, account storage, personal publisher bootstrap, org publishers, org members, and membership enforcement for package upload/submission boundaries. | Keep browser UI polish in post-v1 rows. |
 | Admin review and evidence | v1 accepted | Review queues, approve/block, evidence, assignment. | CoreHub admin API/UI has health/status, support bundle, queue counts, review detail, evidence, assign, approve, block. | Keep accepted; expand queue ergonomics only after P0 API gaps. |
-| Publisher portal self-service | v1 accepted | Publisher operations in web UI. | CoreHub portal has token session UX, whoami/role, package list, upload, submission status, transfer request/status. | Polish after P0 compatibility. |
+| Publisher portal self-service | v1 accepted | Publisher operations in web UI. | CoreHub portal has token session UX, whoami/role, package list, upload, submission status, transfer request/decision/status, reports/appeals visibility, and package moderation status. | Polish visual ergonomics after compatibility. |
 | Install lifecycle and telemetry opt-out | v1 accepted | Install, pin, update, sync, opt-out telemetry. | CoreHub CLI stores local install state and honors `COREHUB_DISABLE_TELEMETRY=1`. | Keep accepted; app installer handoff remains separate. |
 | Production D1/deploy/drill | v1 accepted | Operational deployment, backup, restore, rollback. | CoreHub production-lite drill passed with real Worker/D1 revision, smoke, export, restore dry run/apply, rollback, restore. | Keep accepted; repeat after compatibility changes. |
 | Exact package security endpoint | v1 accepted | `GET /api/v1/packages/{name}/versions/{version}/security` returns exact release security and trust summary. | CoreHub now exposes version-exact public security and trust summary for install clients. | Keep covered by route tests. |
@@ -92,7 +92,7 @@ No P0 compatibility rows remain for CoreHub v1 package marketplace acceptance.
 
 After P0:
 
-1. Add publisher portal report/appeal visibility and transfer accept/reject controls.
+1. Polish browser settings UI for account and organization management.
 2. Add ClawHub-style migration repair tooling only if CoreHub needs package rename/migration operations.
 3. Keep extending focused API/CLI/route suites with every new post-v1 compatibility row.
 

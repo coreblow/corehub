@@ -864,6 +864,9 @@ try {
   assert.match(publisherPageHtml, /api\("\/session\/validate\?role=" \+ encodeURIComponent\(role\)\)/);
   assert.match(publisherPageHtml, /api\("\/publisher\/dashboard"\)/);
   assert.match(publisherPageHtml, /Upload Artifact and Submit Package/);
+  assert.match(publisherPageHtml, /Reports and Appeals/);
+  assert.match(publisherPageHtml, /Package Moderation Status/);
+  assert.match(publisherPageHtml, /data-transfer-action/);
   assert.equal(bootstrapServer.stateStoreKind, "local-json");
   assert.match(bootstrapServer.statePath, /write-side-state\.json$/);
 } finally {

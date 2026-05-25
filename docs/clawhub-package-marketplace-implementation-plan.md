@@ -57,7 +57,8 @@ Already implemented:
 | Browser login/session for publisher portal | done | Token/session UX, explicit session validation, and production token-hash verification are accepted for v1; real OAuth is intentionally deferred to the CoreBlow app auth boundary. |
 | Artifact upload UI | done | Publisher portal uploads, verifies, and submits artifacts through API v2. |
 | Submission/review status UI | done | Publisher portal lists owned submissions and review ids/statuses. |
-| Transfer UI | done | Publisher portal can request ownership transfers and list transfer statuses. |
+| Transfer UI | done | Publisher portal can request ownership transfers, list transfer statuses, and accept/reject/cancel pending transfers where permitted. |
+| Publisher moderation visibility | done | Publisher portal lists owner-facing reports, appeals, and package moderation status for owned releases. |
 | Install pin/unpin/uninstall/list/update/sync | done | CLI stores CoreHub-local install state and skips pinned updates/syncs. |
 | Telemetry opt-out | done | `COREHUB_DISABLE_TELEMETRY=1` skips CLI analytics record writes. |
 | Production auth/rate limit/private visibility | done | Private v1 visibility, session token hash verification, and API rate-limit boundary are wired; real OAuth is intentionally deferred. |
@@ -143,7 +144,7 @@ Tasks:
 
 ### Phase H: Publisher Portal Full Self-Service
 
-Status: complete for CoreHub v1. Token-backed browser sessions, explicit session validation, publisher dashboard operations, artifact upload, submission status, and transfer request/status are accepted for this release scope.
+Status: complete for CoreHub v1 plus Post-v1 C hardening. Token-backed browser sessions, explicit session validation, publisher dashboard operations, artifact upload, submission status, transfer request/decision/status, report/appeal visibility, and moderation status visibility are accepted for this release scope.
 
 Goal: Publisher can operate CoreHub without admin-only tools.
 
@@ -164,8 +165,9 @@ Tasks:
 
 Post-v1 hardening:
 
-- Report/appeal visibility for owned packages.
-- Transfer accept/reject browser controls for permitted recipient/source actors.
+- Report/appeal visibility for owned packages: done.
+- Transfer accept/reject/cancel browser controls for permitted recipient/source actors: done.
+- Package moderation status and blocked release visibility: done.
 - Real browser OAuth/session validation when the CoreBlow app auth boundary is ready.
 
 ### Phase I: Install and Sync Lifecycle

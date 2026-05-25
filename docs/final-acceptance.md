@@ -14,7 +14,7 @@ Accepted scope:
 - Package publish wrapper, upload verification, pending review submission, and reusable CI publish workflow.
 - Publisher identity, signed upstream GitHub account completion, personal publishers, org publishers, membership role enforcement, scoped namespace validation, package ownership, trusted publisher policy, and GitHub Actions OIDC publish token verification.
 - Admin review, assignment, evidence, approve, block, support bundle, audit visibility, and authenticated admin UI smoke.
-- Publisher portal token session UX, whoami/role status, owned package list, artifact upload, submission status, and transfer request/status.
+- Publisher portal token session UX, whoami/role status, owned package list, artifact upload, submission status, transfer request/decision/status, reports/appeals visibility, and moderation status visibility.
 - Reports, triage, appeals, soft delete/undelete, release quarantine/revoke download enforcement, and install/readiness signals.
 - Marketplace filters, plugin-only routes, deterministic ranking, hosted skill publish/search/detail/file/security/rendered lifecycle, install lifecycle state, pin/unpin/uninstall/update/sync, and telemetry opt-out.
 - Production D1 persistence, external artifact URL mode, session token hash enforcement, rate limit boundary, private package visibility, protected deploy, seed, smoke, backup, restore, rollback, and production drill workflows.
@@ -33,7 +33,7 @@ Intentionally deferred outside v1 acceptance:
 | Package publish lifecycle | done | CLI and reusable workflow wrap upload, verify, submit, and pending review. |
 | Publisher identity and scoped packages | done | Publisher claims, whoami, memberships, and scope-owner validation are enforced. |
 | OAuth account and org boundary | done | Signed upstream GitHub identity completion, real GitHub OAuth provider exchange, signed browser session minting, account records, profile settings, account soft deletion, personal publishers, org publishers, org settings, invites, member lifecycle, and member role enforcement are present. |
-| Ownership transfer | done | API, CLI, and publisher portal transfer request/status flow are present. |
+| Ownership transfer | done | API, CLI, and publisher portal transfer request/accept/reject/cancel/status flow are present. |
 | Trusted publisher and CI token flow | done | GitHub Actions OIDC JWT verification mints short-lived publish tokens. |
 | Official release guard | done | Official live publish requires admin, trusted publisher token, or explicit override. |
 | Admin moderation and review | done | Admin API/CLI/UI cover status, support bundle, review action, assignment, and evidence. |
@@ -43,7 +43,7 @@ Intentionally deferred outside v1 acceptance:
 | Marketplace search depth | done | Filters and deterministic ranking are implemented. |
 | Hosted skill lifecycle | done | Hosted skill publish, search, detail, file/security routes, `SKILL.md` rendering, delete/restore, rename, and transfer are present. |
 | Hosted scanner depth | done | Static scan jobs, hosted queue/result ingestion, VirusTotal/LLM/ClawScan-style snapshots, and public scan trust summaries are present. |
-| Publisher portal | done | Token-backed self-service surface covers v1 publisher operations. |
+| Publisher portal | done | Token-backed self-service surface covers v1 publisher operations plus post-v1 hardening for reports, appeals, transfer decisions, and release moderation visibility. |
 | Install lifecycle | done | Local install state, pinning, update, sync, uninstall, and telemetry opt-out are implemented. |
 | Production persistence | done | D1 normalized meta/row/index store, schema migration, backup/export, restore, and runbooks are present. |
 | Production deployment and rollback | done | Protected deploy, live smoke, backup validation, restore drill, rollback drill, and final verification are exercised. |
