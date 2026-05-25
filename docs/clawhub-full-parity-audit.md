@@ -45,7 +45,7 @@ ClawHub sources audited from `/Users/febrinanda/openclaw-refs/clawhub`:
 
 CoreHub is accepted for v1 package marketplace parity. Full ClawHub parity is not complete.
 
-The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth outside the package marketplace: real browser OAuth UI/provider exchange, hosted skill lifecycle, community surfaces, and broader ClawHub test/docs coverage.
+The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth outside the accepted marketplace surface: real browser OAuth UI/provider exchange, full user/org settings, community surfaces, and broader ClawHub test coverage.
 
 ## Matrix Lock
 
@@ -82,7 +82,7 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Community signals | full parity missing | ClawHub has comments, stars, leaderboards, public profiles, and community-oriented surfaces. | CoreHub has marketplace/package lifecycle, not community surfaces. | Defer unless CoreHub product scope expands. |
 | Artifact schema richness | v1 accepted | ClawHub release records include artifact kind, npm integrity/shasum/tarball, unpacked size, file count, manifests, capabilities, scan fields. | CoreHub now preserves artifact kind, format, SHA-256, npm integrity/shasum/tarball, unpacked size, file count, file manifests, capability summaries, compatibility summaries, verification summaries, and scan trust fields through catalog, CLI submit, API projection, npm mirror, and production seed flows. | Keep covered by schema, CLI, npm mirror, and route tests. |
 | Test surface parity | full parity missing | ClawHub has broad unit, API, route, package, scanner, rate-limit, and CLI tests. | CoreHub has one main Node test plus smoke scripts. | Add focused tests with every new compatibility row. |
-| Documentation consistency | full parity missing | ClawHub docs and specs define endpoint-level behavior. | CoreHub `final-acceptance.md` is current for v1, while older `clawhub-parity.md` still contains stale pending notes. | Update old docs after this audit lock. |
+| Documentation consistency | v1 accepted | ClawHub docs and specs define endpoint-level behavior. | CoreHub `final-acceptance.md`, `clawhub-parity.md`, and this audit now agree on accepted hosted skill lifecycle, hosted scanner depth, and remaining deferred/full-parity rows. | Keep docs updated with every accepted compatibility row. |
 
 ## P0 Implementation Order
 
@@ -93,16 +93,14 @@ No P0 compatibility rows remain for CoreHub v1 package marketplace acceptance.
 After P0:
 
 1. Add publisher portal report/appeal visibility and transfer accept/reject controls.
-2. Broaden hosted skill lifecycle parity if CoreHub scope expands beyond package marketplace v1.
-3. Add ClawHub-style migration repair tooling only if CoreHub needs package rename/migration operations.
+2. Add ClawHub-style migration repair tooling only if CoreHub needs package rename/migration operations.
+3. Split the main Node test into focused API/CLI/route suites if test surface parity becomes a release objective.
 
 ## P2 Product Scope Decisions
 
 These are not required for CoreHub v1 package marketplace final, but are required if the target becomes full ClawHub product parity:
 
-- Hosted skill publish lifecycle.
-- Skill file/security routes.
-- Skill rename, merge, transfer, delete, restore.
+- Skill merge/alias repair beyond v1 hosted skill rename/transfer/delete/restore.
 - Comments, stars, leaderboards, public profiles.
 - Full user/org settings and organization management.
 - Real browser OAuth and account linking.

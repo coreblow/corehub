@@ -16,13 +16,12 @@ Accepted scope:
 - Admin review, assignment, evidence, approve, block, support bundle, audit visibility, and authenticated admin UI smoke.
 - Publisher portal token session UX, whoami/role status, owned package list, artifact upload, submission status, and transfer request/status.
 - Reports, triage, appeals, soft delete/undelete, release quarantine/revoke download enforcement, and install/readiness signals.
-- Marketplace filters, plugin-only routes, deterministic ranking, install lifecycle state, pin/unpin/uninstall/update/sync, and telemetry opt-out.
+- Marketplace filters, plugin-only routes, deterministic ranking, hosted skill publish/search/detail/file/security/rendered lifecycle, install lifecycle state, pin/unpin/uninstall/update/sync, and telemetry opt-out.
 - Production D1 persistence, external artifact URL mode, session token hash enforcement, rate limit boundary, private package visibility, protected deploy, seed, smoke, backup, restore, rollback, and production drill workflows.
 
 Intentionally deferred outside v1 acceptance:
 
 - Real browser provider exchange UI. CoreHub v1 accepts signed upstream GitHub identity completion plus token-backed browser sessions and production token-hash enforcement until the CoreBlow app auth boundary owns the browser OAuth exchange.
-- Deep hosted scanner parity. CoreHub v1 preserves moderation/review/release blocking boundaries and can attach evidence, but does not copy ClawHub's Convex scanner internals.
 - npm release publication. The package remains `private: true` until an operator explicitly approves opening the CoreHub CLI release surface.
 
 ## ClawHub-To-CoreHub Matrix Lock
@@ -42,6 +41,8 @@ Intentionally deferred outside v1 acceptance:
 | Quarantine/revoke enforcement | done | Confirmed final actions block release downloads through trust metadata and download routes. |
 | Soft delete/undelete | done | Deleted packages are hidden from public v1 projections while preserving history. |
 | Marketplace search depth | done | Filters and deterministic ranking are implemented. |
+| Hosted skill lifecycle | done | Hosted skill publish, search, detail, file/security routes, `SKILL.md` rendering, delete/restore, rename, and transfer are present. |
+| Hosted scanner depth | done | Static scan jobs, hosted queue/result ingestion, VirusTotal/LLM/ClawScan-style snapshots, and public scan trust summaries are present. |
 | Publisher portal | done | Token-backed self-service surface covers v1 publisher operations. |
 | Install lifecycle | done | Local install state, pinning, update, sync, uninstall, and telemetry opt-out are implemented. |
 | Production persistence | done | D1 normalized meta/row/index store, schema migration, backup/export, restore, and runbooks are present. |

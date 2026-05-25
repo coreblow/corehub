@@ -32,21 +32,21 @@ CoreHub should provide the same registry class of features as ClawHub:
 
 ### Phase 1: Directory Contract
 
-Status: active.
+Status: accepted.
 
 - `catalog.json` is the canonical static catalog.
 - `schemas/corehub.catalog.schema.json` validates the public catalog contract.
 - `corehub validate`, `corehub explore`, `corehub search`, and `corehub inspect` work locally.
 - `corehub package explore/search/inspect` mirrors the ClawHub package command shape.
-- `corehub skill publish` performs a local dry-run inspection until the registry backend lands.
+- `corehub skill publish` supports local inspection, while hosted skill publishing is available through the authenticated registry lifecycle.
 
 ### Phase 2: Registry API
 
-Status: active.
+Status: accepted.
 
-- Add a hosted API under `https://coreblow.com/corehub/api/v1`.
-- Expose list, search, inspect, versions, file, and download endpoints.
-- Keep response shapes stable enough for the CoreBlow CLI to consume.
+- The hosted API is exposed under `https://coreblow.com/corehub/api/v1`.
+- It exposes list, search, inspect, versions, file, and download endpoints.
+- Response shapes are stable enough for the CoreBlow CLI to consume.
 - Keep static catalog generation as the fallback source of truth until the backend is promoted.
 
 Implemented v1 read endpoints:
@@ -60,6 +60,14 @@ Implemented v1 read endpoints:
 - `GET /corehub/api/v1/packages/search?q=<query>`
 - `GET /corehub/api/v1/plugins`
 - `GET /corehub/api/v1/plugins/search?q=<query>`
+- `GET /corehub/api/v1/skills`
+- `GET /corehub/api/v1/skills/search?q=<query>`
+- `GET /corehub/api/v1/skills/:slug`
+- `GET /corehub/api/v1/skills/:slug/versions`
+- `GET /corehub/api/v1/skills/:slug/files`
+- `GET /corehub/api/v1/skills/:slug/file?path=SKILL.md`
+- `GET /corehub/api/v1/skills/:slug/security`
+- `GET /corehub/api/v1/skills/:slug/rendered`
 - `GET /corehub/api/v1/packages/:id`
 - `GET /corehub/api/v1/packages/:id/versions`
 - `GET /corehub/api/v1/packages/:id/versions/:version/security`
@@ -78,7 +86,7 @@ Still pending or deferred for full ClawHub product parity:
 
 - real browser OAuth and fuller user/org account management
 - ClawHub-specific migration repair tooling, if CoreHub later needs package rename or migration operations
-- full hosted skill lifecycle and community surfaces
+- community surfaces such as comments, stars, public profiles, and leaderboards
 
 Implemented package CLI parity starters:
 
@@ -99,15 +107,19 @@ Implemented package CLI parity starters:
 
 ### Phase 4: Publishing and Versioning
 
-- Add skill publish and package publish APIs.
-- Store versions, changelogs, file manifests, fingerprints, and latest tags.
-- Add dry-run and CI publishing paths before enabling writes from public users.
+Status: accepted.
+
+- Skill publish and package publish APIs are present.
+- Versions, changelogs, file manifests, fingerprints, and latest tags are stored for hosted package and skill flows.
+- Dry-run and CI publishing paths are available before broader public write enablement.
 
 ### Phase 5: Moderation and Trust
 
-- Add review queues, reports, appeals, hidden listings, deprecated listings, and audit logs.
-- Add security metadata checks for environment variables, binaries, package manifests, and source links.
-- Keep moderation states visible in web and CLI inspect output.
+Status: accepted.
+
+- Review queues, reports, appeals, hidden listings, deprecated listings, and audit logs are present for the v1 marketplace scope.
+- Security metadata checks and scan evidence are available for package releases and hosted skill files.
+- Moderation states are visible in web, API, and CLI inspection paths.
 
 Implemented moderation/trust starters:
 
@@ -119,12 +131,15 @@ Implemented moderation/trust starters:
 - `corehub package trusted-publisher set|get|delete <id>` stores package-level GitHub Actions trusted publisher policy.
 - `corehub package publish-token mint|revoke <id>` mints and revokes short-lived publish tokens for matching trusted publisher runs.
 - Package browse/search now supports ClawHub-style discovery filters and deterministic ranking for family, channel, category, capability, official, featured, and executes-code fields.
+- Hosted skills support publish, `SKILL.md` rendering, file/security reads, delete/restore, rename, transfer, and search digest projection.
 
 ### Phase 6: Install and Sync
 
-- Add install, pin, unpin, uninstall, list, update, and sync flows.
-- Add minimal aggregate telemetry with a `COREHUB_DISABLE_TELEMETRY=1` opt-out.
-- Ensure install/update never overwrites pinned local entries.
+Status: accepted.
+
+- Install, pin, unpin, uninstall, list, update, and sync flows are present.
+- Minimal aggregate telemetry has a `COREHUB_DISABLE_TELEMETRY=1` opt-out.
+- Install/update does not overwrite pinned local entries.
 
 ## Non-Negotiables
 
