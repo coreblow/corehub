@@ -133,7 +133,7 @@ npm run persistence:d1 -- apply --config ops/cloudflare/wrangler.corehub-api.pro
 
 The helper is fail-closed: `apply` is dry-run unless `--apply` is present, and production apply refuses placeholder D1 database ids. The deploy workflow runs the dry run during production checks and applies the migration immediately before `wrangler deploy`.
 
-The row store currently normalizes CoreHub collections for auth sessions, publisher claims/accounts/members, upload slots, submissions, reviews, package versions, reports, appeals, scan jobs, trusted publishers, publish tokens, ownership transfers, install events, audit events, and audit checkpoints. The index table records CoreHub-native lookup keys such as package/version, status, publisher, scan result, audit sequence, target, and repository.
+The row store currently normalizes CoreHub collections for auth sessions, publisher claims/accounts/members, upload slots, submissions, reviews, package versions, hosted skill versions, search digests, community stars/comments/comment reports, package reports, appeals, scan jobs, trusted publishers, publish tokens, ownership transfers, install events, audit events, and audit checkpoints. The index table records CoreHub-native lookup keys such as package/version, skill slug, community target, status, publisher, scan result, audit sequence, target, and repository.
 
 ## Bootstrap Selection
 

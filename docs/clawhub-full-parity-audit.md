@@ -45,7 +45,7 @@ ClawHub sources audited from `/Users/febrinanda/openclaw-refs/clawhub`:
 
 CoreHub is accepted for v1 package marketplace parity. Full ClawHub parity is not complete.
 
-The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth outside the accepted marketplace surface: real browser OAuth UI/provider exchange, full user/org settings, community surfaces, and broader ClawHub test coverage.
+The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth outside the accepted marketplace surface: real browser OAuth UI/provider exchange, full user/org settings, and broader ClawHub test coverage.
 
 ## Matrix Lock
 
@@ -79,7 +79,7 @@ The main remaining gap is not basic marketplace lifecycle anymore. The remaining
 | Full user/org settings | intentionally deferred | ClawHub includes full user profile settings, org settings pages, invites, and account deletion flows. | CoreHub has account records, personal publishers, org publishers, and membership management sufficient for v1 package ownership. | Post-v1 account settings phase. |
 | Moderator CLI depth | v1 accepted | `clawhub-mod` has richer moderation, migration, repair, and backfill operator commands. | CoreHub CLI now covers review/status/support plus package reports, report triage, release moderation, moderation queue, scanner list/rescan/backfill, appeals, trusted publishers, publish tokens, and delete/undelete in CoreHub-native API v2 form. | Keep migrations/repair-name deferred unless CoreHub needs ClawHub internal migration repair tooling. |
 | Skill marketplace parity | v1 accepted | ClawHub supports skills, `SKILL.md` rendering, skill publish, skill file/security routes, rename/merge/transfer, skill search. | CoreHub now has hosted skill publish, public skill list/search/detail, `SKILL.md` rendering, file/security routes, and owner delete/restore/rename/transfer actions in CoreHub-native API v2 plus projected v1 reads. Merge/alias depth remains intentionally deferred. | Keep covered by hosted skill route tests; add alias/merge only if CoreHub needs ClawHub's legacy slug repair depth. |
-| Community signals | full parity missing | ClawHub has comments, stars, leaderboards, public profiles, and community-oriented surfaces. | CoreHub has marketplace/package lifecycle, not community surfaces. | Defer unless CoreHub product scope expands. |
+| Community signals | v1 accepted | ClawHub has comments, stars, leaderboards, public profiles, and community-oriented surfaces. | CoreHub now has package/skill stars, comments, comment reports with soft-hide thresholding, public publisher profiles, and package/skill leaderboards in CoreHub-native state collections and API routes. | Add richer web UI and moderation queue ergonomics as hardening. |
 | Artifact schema richness | v1 accepted | ClawHub release records include artifact kind, npm integrity/shasum/tarball, unpacked size, file count, manifests, capabilities, scan fields. | CoreHub now preserves artifact kind, format, SHA-256, npm integrity/shasum/tarball, unpacked size, file count, file manifests, capability summaries, compatibility summaries, verification summaries, and scan trust fields through catalog, CLI submit, API projection, npm mirror, and production seed flows. | Keep covered by schema, CLI, npm mirror, and route tests. |
 | Test surface parity | full parity missing | ClawHub has broad unit, API, route, package, scanner, rate-limit, and CLI tests. | CoreHub has one main Node test plus smoke scripts. | Add focused tests with every new compatibility row. |
 | Documentation consistency | v1 accepted | ClawHub docs and specs define endpoint-level behavior. | CoreHub `final-acceptance.md`, `clawhub-parity.md`, and this audit now agree on accepted hosted skill lifecycle, hosted scanner depth, and remaining deferred/full-parity rows. | Keep docs updated with every accepted compatibility row. |
@@ -101,7 +101,7 @@ After P0:
 These are not required for CoreHub v1 package marketplace final, but are required if the target becomes full ClawHub product parity:
 
 - Skill merge/alias repair beyond v1 hosted skill rename/transfer/delete/restore.
-- Comments, stars, leaderboards, public profiles.
+- Richer community UI surfaces beyond API-level stars, comments, profiles, and leaderboards.
 - Full user/org settings and organization management.
 - Real browser OAuth and account linking.
 - CLI/npm publication opening after explicit operator approval.

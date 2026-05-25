@@ -89,6 +89,24 @@
         "$ref": "#/$defs/skillSearchDigest"
       }
     },
+    "communityStars": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/communityStar"
+      }
+    },
+    "communityComments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/communityComment"
+      }
+    },
+    "communityCommentReports": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/communityCommentReport"
+      }
+    },
     "artifactUploads": {
       "type": "array",
       "items": {
@@ -659,6 +677,51 @@
         },
         "entry": { "type": "object" },
         "updatedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "communityStar": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "targetType", "targetId", "actorId", "status", "starredAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "targetType": { "type": "string", "enum": ["package", "skill"] },
+        "targetId": { "type": "string", "minLength": 1 },
+        "actorId": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["active", "removed"] },
+        "starredAt": { "$ref": "#/$defs/timestamp" },
+        "unstarredAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "communityComment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "targetType", "targetId", "actorId", "body", "status", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "targetType": { "type": "string", "enum": ["package", "skill"] },
+        "targetId": { "type": "string", "minLength": 1 },
+        "actorId": { "type": "string", "minLength": 1 },
+        "body": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["visible", "hidden", "deleted"] },
+        "reportCount": { "type": "integer", "minimum": 0 },
+        "createdAt": { "$ref": "#/$defs/timestamp" },
+        "deletedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "communityCommentReport": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "commentId", "targetType", "targetId", "actorId", "reason", "status", "reportedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "commentId": { "$ref": "#/$defs/id" },
+        "targetType": { "type": "string", "enum": ["package", "skill"] },
+        "targetId": { "type": "string", "minLength": 1 },
+        "actorId": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["open", "reviewed", "closed"] },
+        "reportedAt": { "$ref": "#/$defs/timestamp" }
       }
     },
     "artifactUpload": {

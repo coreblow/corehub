@@ -1525,6 +1525,78 @@ try {
   assert.equal(restoredSkillResponse.status, 200);
   assert.equal((await restoredSkillResponse.json()).data.publisher.handle, "octo-labs");
 
+  const skillStarResponse = await fetch(`${apiBaseUrl}/community/stars`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ targetType: "skill", targetId: "octo-skill-renamed" }),
+  });
+  assert.equal(skillStarResponse.status, 200);
+  const skillStarPayload = await skillStarResponse.json();
+  assert.equal(skillStarPayload.data.starred, true);
+  assert.equal(skillStarPayload.data.stats.stars, 1);
+
+  const skillCommentResponse = await fetch(`${apiBaseUrl}/community/comments`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      targetType: "skill",
+      targetId: "octo-skill-renamed",
+      body: "Useful hosted skill fixture.",
+    }),
+  });
+  assert.equal(skillCommentResponse.status, 201);
+  const skillCommentPayload = await skillCommentResponse.json();
+  assert.equal(skillCommentPayload.data.comment.targetId, "octo-skill-renamed");
+  assert.equal(skillCommentPayload.data.stats.comments, 1);
+
+  const skillCommunityResponse = await fetch(`${apiV1BaseUrl}/skills/octo-skill-renamed/community`);
+  assert.equal(skillCommunityResponse.status, 200);
+  const skillCommunityPayload = await skillCommunityResponse.json();
+  assert.equal(skillCommunityPayload.data.stats.stars, 1);
+  assert.equal(skillCommunityPayload.data.comments[0].body, "Useful hosted skill fixture.");
+
+  const skillCommentsResponse = await fetch(`${apiV1BaseUrl}/skills/octo-skill-renamed/comments`);
+  assert.equal(skillCommentsResponse.status, 200);
+  assert.equal((await skillCommentsResponse.json()).data[0].author.handle, "octo-dev");
+
+  const profileResponse = await fetch(`${apiV1BaseUrl}/profiles/octo-labs`);
+  assert.equal(profileResponse.status, 200);
+  const profilePayload = await profileResponse.json();
+  assert.equal(profilePayload.data.publisher.handle, "octo-labs");
+  assert.equal(profilePayload.data.stats.skills, 1);
+  assert.equal(profilePayload.data.stats.stars, 1);
+
+  const leaderboardResponse = await fetch(`${apiV1BaseUrl}/community/leaderboard?target=skills&sort=trending`);
+  assert.equal(leaderboardResponse.status, 200);
+  const leaderboardPayload = await leaderboardResponse.json();
+  assert.equal(leaderboardPayload.data[0].targetId, "octo-skill-renamed");
+  assert.equal(leaderboardPayload.data[0].score, 5);
+
+  const commentReportResponse = await fetch(`${apiBaseUrl}/community/comments/${skillCommentPayload.data.comment.id}/report`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${oauthToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ reason: "report fixture" }),
+  });
+  assert.equal(commentReportResponse.status, 200);
+  assert.equal((await commentReportResponse.json()).data.reported, true);
+
+  const commentDeleteResponse = await fetch(`${apiBaseUrl}/community/comments/${skillCommentPayload.data.comment.id}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${oauthToken}` },
+  });
+  assert.equal(commentDeleteResponse.status, 200);
+  assert.equal((await fetch(`${apiV1BaseUrl}/skills/octo-skill-renamed/comments`)).status, 200);
+  assert.equal((await (await fetch(`${apiV1BaseUrl}/skills/octo-skill-renamed/comments`)).json()).data.length, 0);
+
   const orgUploadResponse = await fetch(`${apiBaseUrl}/artifacts/uploads`, {
     method: "POST",
     headers: {

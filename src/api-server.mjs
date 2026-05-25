@@ -198,6 +198,9 @@ const normalizedD1Collections = [
   "packageSearchDigests",
   "skillVersions",
   "skillSearchDigests",
+  "communityStars",
+  "communityComments",
+  "communityCommentReports",
   "packageReports",
   "packageAppeals",
   "packageScanJobs",
@@ -294,6 +297,19 @@ function normalizedD1Indexes(collection, item, rowId, position) {
     push("by_scan_status", item.scanStatus);
     for (const token of item.capabilityTags ?? []) push("by_capability_tag", token);
     for (const token of item.searchTokens ?? []) push("by_search_token", token);
+  } else if (collection === "communityStars") {
+    push("by_target", item.targetType && item.targetId ? `${item.targetType}\u0000${item.targetId}` : null);
+    push("by_actor", item.actorId);
+    push("by_target_actor", item.targetType && item.targetId && item.actorId ? `${item.targetType}\u0000${item.targetId}\u0000${item.actorId}` : null);
+    push("by_status", item.status);
+  } else if (collection === "communityComments") {
+    push("by_target", item.targetType && item.targetId ? `${item.targetType}\u0000${item.targetId}` : null);
+    push("by_actor", item.actorId);
+    push("by_status", item.status);
+  } else if (collection === "communityCommentReports") {
+    push("by_comment", item.commentId);
+    push("by_actor", item.actorId);
+    push("by_status", item.status);
   } else if (collection === "packageReports") {
     push("by_package", item.packageId);
     push("by_status", item.status);
@@ -448,6 +464,9 @@ export class CoreHubLocalStorageAdapter {
     this.packageSearchDigests = new Map();
     this.skillVersions = new Map();
     this.skillSearchDigests = new Map();
+    this.communityStars = new Map();
+    this.communityComments = new Map();
+    this.communityCommentReports = new Map();
     this.packageReports = [];
     this.packageAppeals = [];
     this.packageScanJobs = [];
@@ -2926,6 +2945,280 @@ export class CoreHubLocalStorageAdapter {
     return { status: "transferred", slug: skillSlug, fromPublisherHandle, toPublisherHandle, skill: this.latestSkillBySlug(skillSlug, { includeDeleted: true }) };
   }
 
+  async starCommunityTarget(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const target = this.requireCommunityTarget(input);
+    const actorId = normalizeActorId(actor);
+    const id = `star-${slugId(target.targetType)}-${slugId(target.targetId)}-${slugId(actorId)}`;
+    const starredAt = now.toISOString();
+    const existing = this.communityStars.get(id);
+    if (existing && existing.status === "active") {
+      return { starred: true, alreadyStarred: true, star: existing, stats: this.communityStatsForTarget(target) };
+    }
+    const star = {
+      id,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      actorId,
+      status: "active",
+      starredAt,
+      ...(existing?.unstarredAt ? { restarredAt: starredAt } : {}),
+    };
+    this.communityStars.set(id, star);
+    this.recordAuditEvent({
+      actor,
+      action: "community.star",
+      targetType: target.targetType,
+      targetId: target.targetId,
+      metadata: { starId: id },
+      createdAt: starredAt,
+    });
+    await this.persistState();
+    return { starred: true, alreadyStarred: false, star, stats: this.communityStatsForTarget(target) };
+  }
+
+  async unstarCommunityTarget(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const target = this.requireCommunityTarget(input);
+    const actorId = normalizeActorId(actor);
+    const id = `star-${slugId(target.targetType)}-${slugId(target.targetId)}-${slugId(actorId)}`;
+    const star = this.communityStars.get(id);
+    if (!star || star.status !== "active") {
+      return { unstarred: true, alreadyUnstarred: true, stats: this.communityStatsForTarget(target) };
+    }
+    star.status = "removed";
+    star.unstarredAt = now.toISOString();
+    this.recordAuditEvent({
+      actor,
+      action: "community.unstar",
+      targetType: target.targetType,
+      targetId: target.targetId,
+      metadata: { starId: id },
+      createdAt: star.unstarredAt,
+    });
+    await this.persistState();
+    return { unstarred: true, alreadyUnstarred: false, star, stats: this.communityStatsForTarget(target) };
+  }
+
+  async addCommunityComment(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const target = this.requireCommunityTarget(input);
+    const body = normalizeCommunityCommentBody(input?.body);
+    const actorId = normalizeActorId(actor);
+    const createdAt = now.toISOString();
+    const id = `comment-${slugId(target.targetType)}-${slugId(target.targetId)}-${String(this.communityComments.size + 1).padStart(6, "0")}`;
+    const comment = {
+      id,
+      targetType: target.targetType,
+      targetId: target.targetId,
+      actorId,
+      body,
+      status: "visible",
+      reportCount: 0,
+      createdAt,
+    };
+    this.communityComments.set(id, comment);
+    this.recordAuditEvent({
+      actor,
+      action: "community.comment.create",
+      targetType: target.targetType,
+      targetId: target.targetId,
+      metadata: { commentId: id },
+      createdAt,
+    });
+    await this.persistState();
+    return { status: "created", comment, stats: this.communityStatsForTarget(target) };
+  }
+
+  async deleteCommunityComment(commentId, { actor = defaultActor(), now = new Date() } = {}) {
+    const id = normalizeRequiredString(commentId, "commentId");
+    const comment = this.communityComments.get(id);
+    if (!comment || comment.status !== "visible") throw httpError(404, "Comment not found");
+    const actorId = normalizeActorId(actor);
+    if (comment.actorId !== actorId && !this.hasAdminPermission(actor)) {
+      throw httpError(403, "Only the comment author or an admin can delete this comment");
+    }
+    comment.status = "deleted";
+    comment.deletedAt = now.toISOString();
+    comment.deletedBy = actor;
+    this.recordAuditEvent({
+      actor,
+      action: "community.comment.delete",
+      targetType: "communityComment",
+      targetId: comment.id,
+      metadata: { targetType: comment.targetType, targetId: comment.targetId },
+      createdAt: comment.deletedAt,
+    });
+    await this.persistState();
+    return { status: "deleted", comment };
+  }
+
+  async reportCommunityComment(commentId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const id = normalizeRequiredString(commentId, "commentId");
+    const comment = this.communityComments.get(id);
+    if (!comment || comment.status !== "visible") throw httpError(404, "Comment not found");
+    const actorId = normalizeActorId(actor);
+    const existing = [...this.communityCommentReports.values()].find((report) => report.commentId === id && report.actorId === actorId);
+    if (existing) return { ok: true, reported: false, alreadyReported: true, report: existing };
+    const reason = normalizeRequiredString(input?.reason, "reason").slice(0, 700);
+    const reportedAt = now.toISOString();
+    const report = {
+      id: `comment-report-${slugId(id)}-${String(this.communityCommentReports.size + 1).padStart(6, "0")}`,
+      commentId: id,
+      targetType: comment.targetType,
+      targetId: comment.targetId,
+      actorId,
+      reason,
+      status: "open",
+      reportedAt,
+    };
+    this.communityCommentReports.set(report.id, report);
+    comment.reportCount = (comment.reportCount ?? 0) + 1;
+    comment.lastReportedAt = reportedAt;
+    if (comment.reportCount > 3) {
+      comment.status = "hidden";
+      comment.hiddenAt = reportedAt;
+      comment.hiddenReason = "report-threshold";
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "community.comment.report",
+      targetType: "communityComment",
+      targetId: id,
+      metadata: { reportId: report.id, reportCount: comment.reportCount, hidden: comment.status === "hidden" },
+      createdAt: reportedAt,
+    });
+    await this.persistState();
+    return { ok: true, reported: true, alreadyReported: false, report, comment };
+  }
+
+  listCommunityComments(input = {}, options = {}) {
+    const target = this.requireCommunityTarget(input);
+    const comments = [...this.communityComments.values()]
+      .filter((comment) => comment.targetType === target.targetType && comment.targetId === target.targetId)
+      .filter((comment) => comment.status === "visible")
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    return paginate(comments.map((comment) => this.publicCommunityComment(comment)), options);
+  }
+
+  communitySummary(input = {}) {
+    const target = this.requireCommunityTarget(input);
+    return {
+      target,
+      stats: this.communityStatsForTarget(target),
+      comments: this.listCommunityComments(target, { limit: 10 }).items,
+    };
+  }
+
+  publicCommunityComment(comment) {
+    return {
+      id: comment.id,
+      targetType: comment.targetType,
+      targetId: comment.targetId,
+      author: this.publicActorProfile(comment.actorId),
+      body: comment.body,
+      createdAt: comment.createdAt,
+      reportCount: comment.reportCount ?? 0,
+    };
+  }
+
+  communityStatsForTarget(target) {
+    const targetType = target.targetType;
+    const targetId = target.targetId;
+    const stars = [...this.communityStars.values()].filter(
+      (star) => star.targetType === targetType && star.targetId === targetId && star.status === "active",
+    ).length;
+    const comments = [...this.communityComments.values()].filter(
+      (comment) => comment.targetType === targetType && comment.targetId === targetId && comment.status === "visible",
+    ).length;
+    const installEvents = targetType === "package" ? this.installEvents.filter((event) => event.packageId === targetId) : [];
+    return {
+      stars,
+      comments,
+      installs: installEvents.filter((event) => event.event === "installed").length,
+      downloads: installEvents.filter((event) => event.event === "downloaded").length,
+    };
+  }
+
+  publicActorProfile(actorId) {
+    const account = this.userAccounts.find((item) => item.actorId === actorId && item.status === "active");
+    const publisher = this.publisherMembers.find((member) => member.userId === actorId && member.status === "active")?.publisherHandle;
+    return {
+      id: actorId,
+      handle: account?.login ?? actorId.replace(/^github:/, ""),
+      displayName: account?.displayName ?? account?.login ?? actorId,
+      profileUrl: account?.profileUrl ?? null,
+      publisherHandle: publisher ?? null,
+    };
+  }
+
+  publisherProfile(handle) {
+    const publisherHandle = normalizeRequiredString(handle, "handle");
+    const publisher = this.publisherAccounts.get(publisherHandle);
+    if (!publisher || publisher.status === "removed") throw httpError(404, "Publisher profile not found");
+    const packages = this.projectCatalogEntries().filter((entry) => entry.publisher?.handle === publisherHandle);
+    const skills = this.skillSearchEntries().filter((entry) => entry.publisher?.handle === publisherHandle);
+    const stats = [...packages.map((entry) => ({ targetType: "package", targetId: entry.id })), ...skills.map((entry) => ({ targetType: "skill", targetId: entry.slug }))].reduce(
+      (totals, target) => {
+        const next = this.communityStatsForTarget(target);
+        totals.stars += next.stars;
+        totals.comments += next.comments;
+        totals.installs += next.installs;
+        totals.downloads += next.downloads;
+        return totals;
+      },
+      { packages: packages.length, skills: skills.length, stars: 0, comments: 0, installs: 0, downloads: 0 },
+    );
+    return {
+      publisher,
+      stats,
+      packages: packages.slice(0, 12),
+      skills: skills.slice(0, 12),
+      members: this.publisherMembers
+        .filter((member) => member.publisherHandle === publisherHandle && member.status === "active")
+        .map((member) => ({ user: this.publicActorProfile(member.userId), role: member.role })),
+    };
+  }
+
+  communityLeaderboard({ target = "all", sort = "stars", limit = 20 } = {}) {
+    const items = [
+      ...this.projectCatalogEntries().map((entry) => ({
+        targetType: "package",
+        targetId: entry.id,
+        name: entry.name,
+        publisher: entry.publisher,
+        stats: this.communityStatsForTarget({ targetType: "package", targetId: entry.id }),
+      })),
+      ...this.skillSearchEntries().map((entry) => ({
+        targetType: "skill",
+        targetId: entry.slug,
+        name: entry.name,
+        publisher: entry.publisher,
+        stats: this.communityStatsForTarget({ targetType: "skill", targetId: entry.slug }),
+      })),
+    ].filter((item) => target === "all" || item.targetType === target.replace(/s$/, ""));
+    const scoreFor = (item) => {
+      if (sort === "comments") return item.stats.comments;
+      if (sort === "downloads") return item.stats.downloads;
+      if (sort === "installs") return item.stats.installs;
+      if (sort === "trending") return item.stats.stars * 3 + item.stats.comments * 2 + item.stats.installs + item.stats.downloads;
+      return item.stats.stars;
+    };
+    return items
+      .map((item) => ({ ...item, score: scoreFor(item) }))
+      .sort((left, right) => right.score - left.score || right.stats.downloads - left.stats.downloads || left.targetId.localeCompare(right.targetId))
+      .slice(0, limit);
+  }
+
+  requireCommunityTarget(input = {}) {
+    const targetType = normalizeRequiredString(input?.targetType ?? input?.type, "targetType");
+    if (!["package", "skill"].includes(targetType)) throw httpError(400, "targetType must be package or skill");
+    const targetId = targetType === "skill" ? normalizeSkillSlug(input?.targetId ?? input?.slug, "targetId") : normalizeRequiredString(input?.targetId ?? input?.packageId, "targetId");
+    if (targetType === "package") {
+      if (!this.projectCatalogEntries().some((entry) => entry.id === targetId)) throw httpError(404, "Package not found");
+    } else if (!this.skillSearchEntries().some((entry) => entry.slug === targetId)) {
+      throw httpError(404, "Skill not found");
+    }
+    return { targetType, targetId };
+  }
+
   skillOwnerHandle(slug, options = {}) {
     return this.latestSkillBySlug(slug, options)?.publisherHandle ?? null;
   }
@@ -2980,6 +3273,7 @@ export class CoreHubLocalStorageAdapter {
       const submission = submissionRecord.submission;
       const source = submission.source ?? `https://github.com/${version.publisherHandle}/${version.packageId}`;
       const installStats = this.installEvents.filter((event) => event.packageId === version.packageId);
+      const communityStats = this.communityStatsForTarget({ targetType: "package", targetId: version.packageId });
       const artifact = createProjectedArtifactMetadata({
         artifactUpload,
         packageId: version.packageId,
@@ -3007,7 +3301,10 @@ export class CoreHubLocalStorageAdapter {
         stats: {
           installs: installStats.filter((event) => event.event === "installed").length,
           downloads: installStats.filter((event) => event.event === "downloaded").length,
+          stars: communityStats.stars,
+          comments: communityStats.comments,
         },
+        community: communityStats,
         marketplace: {
           family: submission.kind === "skill" ? "skill" : "code-plugin",
           channel: submission.channel ?? version.channel ?? "community",
@@ -3082,7 +3379,11 @@ export class CoreHubLocalStorageAdapter {
       }
     }
     return [...latestBySlug.values()]
-      .map((version) => skillVersionToPublicEntry(version, this.skillVersionsForSlug(version.slug)))
+      .map((version) => {
+        const entry = skillVersionToPublicEntry(version, this.skillVersionsForSlug(version.slug));
+        const communityStats = this.communityStatsForTarget({ targetType: "skill", targetId: version.slug });
+        return { ...entry, stats: communityStats, community: communityStats };
+      })
       .sort((left, right) => left.slug.localeCompare(right.slug));
   }
 
@@ -3120,6 +3421,9 @@ export class CoreHubLocalStorageAdapter {
       packageSearchDigests: [...this.packageSearchDigests.values()],
       skillVersions: [...this.skillVersions.values()],
       skillSearchDigests: [...this.skillSearchDigests.values()],
+      communityStars: [...this.communityStars.values()],
+      communityComments: [...this.communityComments.values()],
+      communityCommentReports: [...this.communityCommentReports.values()],
       packageReports: this.packageReports,
       packageAppeals: this.packageAppeals,
       packageScanJobs: this.packageScanJobs,
@@ -3151,6 +3455,9 @@ export class CoreHubLocalStorageAdapter {
     this.packageSearchDigests = new Map((state.packageSearchDigests ?? []).map((digest) => [digest.id, digest]));
     this.skillVersions = new Map((state.skillVersions ?? []).map((version) => [version.id, version]));
     this.skillSearchDigests = new Map((state.skillSearchDigests ?? []).map((digest) => [digest.id, digest]));
+    this.communityStars = new Map((state.communityStars ?? []).map((star) => [star.id, star]));
+    this.communityComments = new Map((state.communityComments ?? []).map((comment) => [comment.id, comment]));
+    this.communityCommentReports = new Map((state.communityCommentReports ?? []).map((report) => [report.id, report]));
     this.packageReports = state.packageReports ?? [];
     this.packageAppeals = state.packageAppeals ?? [];
     this.packageScanJobs = state.packageScanJobs ?? [];
@@ -3346,6 +3653,46 @@ export function createCoreHubApiHandler({
           },
           now: now(),
         });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "community" && segments[1] === "stars" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.starCommunityTarget(body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "DELETE" && segments[0] === "community" && segments[1] === "stars" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.unstarCommunityTarget(body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "community" && segments[1] === "comments" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.addCommunityComment(body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "DELETE" && segments[0] === "community" && segments[1] === "comments" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.deleteCommunityComment(decodeURIComponent(segments[2]), { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (
+        request.method === "POST" &&
+        segments[0] === "community" &&
+        segments[1] === "comments" &&
+        segments[3] === "report" &&
+        segments.length === 4
+      ) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.reportCommunityComment(decodeURIComponent(segments[2]), body, { actor, now: now() });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -4026,6 +4373,12 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
     });
     return paginatedDataResponse(results, url, results.length > 0 || query.trim().length > 0 ? 200 : 400);
   }
+  if (segments[0] === "community" && segments[1] === "leaderboard" && segments.length === 2) {
+    return dataResponse(storage.communityLeaderboard(readCommunityLeaderboardOptions(url)));
+  }
+  if (segments[0] === "profiles" && segments.length === 2) {
+    return dataResponse(storage.publisherProfile(decodeURIComponent(segments[1])));
+  }
   if (segments[0] === "download" && segments.length === 1) {
     const entry = findProjectedEntry(visibleEntries, url.searchParams.get("id"));
     return entry ? projectedDownloadResponse(storage, request, url, entry, { actor, baseUrl, now }) : dataResponse(null, 0, 404);
@@ -4075,6 +4428,13 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
     const entry = storage.skillSearchEntries().find((item) => item.slug === slug || item.id === slug);
     if (!entry) return dataResponse(null, 0, 404);
     if (segments.length === 2) return dataResponse(entry);
+    if (segments[2] === "community" && segments.length === 3) {
+      return dataResponse(storage.communitySummary({ targetType: "skill", targetId: entry.slug }));
+    }
+    if (segments[2] === "comments" && segments.length === 3) {
+      const result = storage.listCommunityComments({ targetType: "skill", targetId: entry.slug }, readListOptions(url));
+      return dataResponse(result.items, result.meta.count, 200, result.meta);
+    }
     if (segments[2] === "versions" && segments.length === 3) return paginatedDataResponse(entry.versions, url);
     if (segments[2] === "files" && segments.length === 3) {
       const version = selectSkillVersionForRead(entry, url);
@@ -4102,6 +4462,13 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
     const entry = findProjectedEntry(visibleEntries, segments[1]);
     if (!entry) return dataResponse(null, 0, 404);
     if (segments.length === 2) return dataResponse(entry);
+    if (segments[2] === "community" && segments.length === 3) {
+      return dataResponse(storage.communitySummary({ targetType: "package", targetId: entry.id }));
+    }
+    if (segments[2] === "comments" && segments.length === 3) {
+      const result = storage.listCommunityComments({ targetType: "package", targetId: entry.id }, readListOptions(url));
+      return dataResponse(result.items, result.meta.count, 200, result.meta);
+    }
     if (segments[2] === "versions" && segments.length === 3) return paginatedDataResponse(entry.versions, url);
     if (segments[2] === "versions" && segments[4] === "security" && segments.length === 5) {
       const version = findProjectedVersion(entry, segments[3]);
@@ -5201,6 +5568,34 @@ function normalizeStringList(value) {
     .map((item) => String(item ?? "").trim().toLowerCase())
     .filter(Boolean)
     .filter((item, index, all) => all.indexOf(item) === index);
+}
+
+function normalizeActorId(actor) {
+  const id = actor?.id ?? actor;
+  return normalizeRequiredString(id, "actor.id");
+}
+
+function normalizeCommunityCommentBody(value) {
+  const body = normalizeRequiredString(value, "body").trim();
+  if (!body) throw httpError(400, "Comment body required");
+  if (body.length > 4000) throw httpError(400, "Comment body must be 4000 characters or fewer");
+  return body;
+}
+
+function readCommunityLeaderboardOptions(url) {
+  const target = url.searchParams.get("target") ?? "all";
+  if (!["all", "package", "packages", "skill", "skills"].includes(target)) {
+    throw httpError(400, "target must be all, package, packages, skill, or skills");
+  }
+  const sort = url.searchParams.get("sort") ?? "stars";
+  if (!["stars", "comments", "downloads", "installs", "trending"].includes(sort)) {
+    throw httpError(400, "sort must be stars, comments, downloads, installs, or trending");
+  }
+  return {
+    target,
+    sort,
+    limit: parseV1PositiveInteger(url.searchParams.get("limit"), "limit", 20),
+  };
 }
 
 function normalizeUploadRequest(input) {

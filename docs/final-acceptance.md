@@ -109,6 +109,16 @@ The final pass verified:
 
 The live smoke verified the web surface, health endpoint, v1 registry discovery, package read, signed download metadata, signed redirect, and signed artifact read checksum.
 
+## Post-Acceptance Additions
+
+After the final acceptance pass, CoreHub added API-level community signals for full ClawHub product parity:
+
+- Package and hosted skill stars.
+- Package and hosted skill comments.
+- Comment reports with soft-hide thresholding.
+- Public publisher profiles.
+- Package and hosted skill leaderboards.
+
 ## Final Gate
 
 Before changing acceptance status, run:

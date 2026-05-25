@@ -213,6 +213,23 @@ Hosted skill reads use the same projected v1 boundary:
 
 Authenticated publishers publish hosted skills through `POST /corehub/api/v2/skills/publish`. Owner lifecycle actions are `POST /corehub/api/v2/skills/<slug>/rename`, `DELETE /corehub/api/v2/skills/<slug>`, `POST /corehub/api/v2/skills/<slug>/restore`, and `POST /corehub/api/v2/skills/<slug>/transfer`.
 
+Community signal reads are public and project package plus hosted skill reputation:
+
+- `GET /corehub/api/v1/community/leaderboard?target=skills&sort=trending`
+- `GET /corehub/api/v1/profiles/<publisher>`
+- `GET /corehub/api/v1/packages/<id>/community`
+- `GET /corehub/api/v1/packages/<id>/comments`
+- `GET /corehub/api/v1/skills/<slug>/community`
+- `GET /corehub/api/v1/skills/<slug>/comments`
+
+Authenticated community writes use API v2:
+
+- `POST /corehub/api/v2/community/stars`
+- `DELETE /corehub/api/v2/community/stars`
+- `POST /corehub/api/v2/community/comments`
+- `DELETE /corehub/api/v2/community/comments/<comment-id>`
+- `POST /corehub/api/v2/community/comments/<comment-id>/report`
+
 Download endpoints support storage-backed signed redirects. The default response is a `302` to the artifact storage URL; CLI clients use `redirect=false` to inspect the signed contract before fetching bytes.
 
 Package file reads are limited to files listed in the artifact manifest, or files derived from a managed `.tgz` artifact when the manifest is not stored yet. File reads reject absolute or parent-relative paths, return only UTF-8 text files, and enforce a 200KB public read limit. External artifact URL mode can list manifest files, but raw file reads require managed artifact bytes.
