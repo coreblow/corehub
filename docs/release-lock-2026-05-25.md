@@ -132,6 +132,7 @@ Completed release-lock procedure result:
 
 ## Deferred
 
-- npm live publication remains deferred until explicit operator approval runs the protected npm release workflow.
-- npm preflight for `v0.1.0` passed in run `26389641795`; live publish is still not executed.
+- npm preflight for `v0.1.0` passed in run `26389641795`.
+- npm initial publication completed for `@coreblow/corehub@0.1.0`; published package smoke passed against `https://coreblow.com/corehub`.
+- Future npm releases should run through the protected workflow after npm Trusted Publisher is configured for this package.
 - Browser OAuth polish remains a later UI hardening item, not a blocker for this production lock.

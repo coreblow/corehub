@@ -56,6 +56,29 @@ Latest approved npm preflight:
 | Finished | `2026-05-25T07:48:43Z` |
 | Run URL | `https://github.com/coreblow/corehub/actions/runs/26389641795` |
 
+Initial npm publication:
+
+| Evidence | Result |
+| --- | --- |
+| Package | `@coreblow/corehub` |
+| Version | `0.1.0` |
+| Result | published |
+| Published at | `2026-05-25T08:41:13Z` |
+| Dist tag | `latest` |
+| Tarball | `https://registry.npmjs.org/@coreblow/corehub/-/corehub-0.1.0.tgz` |
+| Integrity | `sha512-+zVYHFpINA57/aW0y92F0ASTm7rQyJ77q5c7TykAtnrBsITG1gPzWQhs+n+fyOCBou0QTR1pCnpgk36DR8XPdA==` |
+
+The initial publication was performed from an authenticated local npm session because npm trusted publishing had not yet been configured for the new package. Future releases should use the protected GitHub workflow after npm Trusted Publisher is configured for `coreblow/corehub` and `.github/workflows/corehub-cli-npm-release.yml`.
+
+Published package smoke:
+
+```sh
+npm exec --yes --package @coreblow/corehub@0.1.0 -- sh -lc 'corehub registry info --registry https://coreblow.com/corehub'
+npm exec --yes --package @coreblow/corehub@0.1.0 -- sh -lc 'corehub search plugin --registry https://coreblow.com/corehub'
+```
+
+Both commands passed against `https://coreblow.com/corehub`.
+
 ## Live Publish Approval
 
 Real publication requires all of these conditions:
