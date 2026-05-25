@@ -32,7 +32,7 @@ Intentionally deferred outside v1 acceptance:
 | Public plugin discovery | done | Plugin-only list/search routes and CLI filters are present. |
 | Package publish lifecycle | done | CLI and reusable workflow wrap upload, verify, submit, and pending review. |
 | Publisher identity and scoped packages | done | Publisher claims, whoami, memberships, and scope-owner validation are enforced. |
-| OAuth account and org boundary | done | Signed upstream GitHub identity completion, real GitHub OAuth provider exchange, signed browser session minting, account records, personal publishers, org publishers, and member role enforcement are present. |
+| OAuth account and org boundary | done | Signed upstream GitHub identity completion, real GitHub OAuth provider exchange, signed browser session minting, account records, profile settings, account soft deletion, personal publishers, org publishers, org settings, invites, member lifecycle, and member role enforcement are present. |
 | Ownership transfer | done | API, CLI, and publisher portal transfer request/status flow are present. |
 | Trusted publisher and CI token flow | done | GitHub Actions OIDC JWT verification mints short-lived publish tokens. |
 | Official release guard | done | Official live publish requires admin, trusted publisher token, or explicit override. |

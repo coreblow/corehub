@@ -236,9 +236,20 @@ GitHub browser OAuth uses API v2 and is enabled only when the Worker has a GitHu
 - `GET /corehub/api/v2/oauth/github/callback?code=<code>&state=<signed-state>`
 - `POST /corehub/api/v2/oauth/github/exchange`
 - `GET /corehub/api/v2/account/me`
+- `PATCH /corehub/api/v2/account/me`
+- `DELETE /corehub/api/v2/account/me`
+- `PATCH /corehub/api/v2/orgs/<publisher>`
+- `DELETE /corehub/api/v2/orgs/<publisher>`
+- `POST /corehub/api/v2/orgs/<publisher>/invites`
+- `POST /corehub/api/v2/orgs/<publisher>/invites/accept`
+- `GET /corehub/api/v2/orgs/<publisher>/members`
+- `POST /corehub/api/v2/orgs/<publisher>/members`
+- `DELETE /corehub/api/v2/orgs/<publisher>/members/<user-id>`
 - `GET /corehub/api/v2/session/validate?role=publisher`
 
 The start route signs OAuth state with the active CoreHub signing key. The callback/exchange route validates state, exchanges the provider code with GitHub, fetches the GitHub profile, stores or refreshes the CoreHub account, bootstraps the personal publisher, and returns a signed CoreHub browser session token.
+
+Account and organization settings routes are authenticated API v2 operations. Profile updates and lifecycle actions are soft-state operations with audit events; organization invites are represented as invited publisher members until the matching signed-in actor accepts them.
 
 Download endpoints support storage-backed signed redirects. The default response is a `302` to the artifact storage URL; CLI clients use `redirect=false` to inspect the signed contract before fetching bytes.
 

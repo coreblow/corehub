@@ -64,9 +64,15 @@ CoreHub API v2 now resolves a request actor from the authenticated CLI headers a
 | `GET /corehub/api/v2/oauth/github/callback` / `POST /corehub/api/v2/oauth/github/exchange` | Exchanges a GitHub OAuth code, fetches the GitHub user profile, mints a signed CoreHub browser session token, stores the account, and bootstraps a personal publisher. |
 | `POST /corehub/api/v2/oauth/github/complete` | Completes a CoreBlow/CoreHub-signed upstream GitHub identity for trusted app-boundary integrations and tests. |
 | `GET /corehub/api/v2/account/me` | Returns the signed-in account, actor, publisher identity, memberships, and default publisher. |
+| `PATCH /corehub/api/v2/account/me` | Updates self-service profile fields and audits `user.profile.update`. |
+| `DELETE /corehub/api/v2/account/me` | Soft-deletes the signed-in account, revokes active sessions, removes memberships, and audits `user.account.delete`. |
 | `POST /corehub/api/v2/orgs` | Creates a verified organization publisher for a signed-in account and assigns the actor as owner. |
+| `PATCH /corehub/api/v2/orgs/:handle` | Updates organization profile/settings fields and audits `publisher.profile.update`. |
+| `DELETE /corehub/api/v2/orgs/:handle` | Soft-deletes an organization publisher after explicit confirmation. |
 | `GET /corehub/api/v2/orgs/:handle/members` | Lists organization publisher members for owners, admins, or global admins. |
 | `POST /corehub/api/v2/orgs/:handle/members` | Adds or updates an organization member role. |
+| `POST /corehub/api/v2/orgs/:handle/invites` | Creates or refreshes an invited member by GitHub login, user id, or email. |
+| `POST /corehub/api/v2/orgs/:handle/invites/accept` | Lets a matching signed-in actor accept an organization invite. |
 | `DELETE /corehub/api/v2/orgs/:handle/members/:userId` | Removes an organization member without deleting account history. |
 | `POST /corehub/api/v2/artifacts/uploads` | Active `owner`, `admin`, or `maintainer` membership on the requested `publisherHandle`. |
 | `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Active write membership on the upload slot publisher. |

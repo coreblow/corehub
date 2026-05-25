@@ -266,9 +266,15 @@
           "type": "string",
           "minLength": 1
         },
+        "bio": {
+          "type": "string"
+        },
         "status": {
           "type": "string",
           "enum": ["active", "suspended", "deleted"]
+        },
+        "email": {
+          "type": "string"
         },
         "avatarUrl": {
           "$ref": "#/$defs/url"
@@ -287,6 +293,9 @@
         },
         "updatedAt": {
           "$ref": "#/$defs/timestamp"
+        },
+        "deletedAt": {
+          "$ref": "#/$defs/timestamp"
         }
       }
     },
@@ -304,6 +313,12 @@
         "displayName": {
           "type": "string",
           "minLength": 1
+        },
+        "bio": {
+          "type": "string"
+        },
+        "avatarUrl": {
+          "$ref": "#/$defs/url"
         },
         "kind": {
           "type": "string",
@@ -345,6 +360,12 @@
           "type": "string",
           "minLength": 1
         },
+        "bio": {
+          "type": "string"
+        },
+        "avatarUrl": {
+          "$ref": "#/$defs/url"
+        },
         "kind": {
           "type": "string",
           "enum": ["user", "organization"]
@@ -363,6 +384,12 @@
           "$ref": "#/$defs/timestamp"
         },
         "verifiedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "updatedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "deletedAt": {
           "$ref": "#/$defs/timestamp"
         },
         "linkedAccountId": {
@@ -402,6 +429,22 @@
         },
         "updatedAt": {
           "$ref": "#/$defs/timestamp"
+        },
+        "invitedBy": {
+          "$ref": "#/$defs/actor"
+        },
+        "invitedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "acceptedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "inviteEmail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inviteGithubLogin": {
+          "$ref": "#/$defs/handle"
         },
         "removedAt": {
           "$ref": "#/$defs/timestamp"

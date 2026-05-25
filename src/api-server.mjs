@@ -2285,6 +2285,73 @@ export class CoreHubLocalStorageAdapter {
     return this.userAccounts.find((account) => account.actorId === actorId || account.id === actorId) ?? null;
   }
 
+  async updateAccountProfile(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const account = this.findUserAccount(actor.id);
+    if (!account || account.status !== "active") throw httpError(403, `Actor ${actor.id} must complete account sign-in before updating profile`);
+    const updatedAt = now.toISOString();
+    const previous = accountPublicProfile(account);
+    const next = normalizeAccountProfileUpdate(input, account);
+    applyOptionalProfileFields(account, next);
+    account.updatedAt = updatedAt;
+    const personalPublisher = this.publisherAccounts.get(account.personalPublisherHandle);
+    if (personalPublisher?.linkedAccountId === account.id) {
+      personalPublisher.displayName = account.displayName;
+      syncOptionalProfileField(personalPublisher, "source", account.profileUrl);
+      syncOptionalProfileField(personalPublisher, "contact", account.profileUrl);
+      syncOptionalProfileField(personalPublisher, "avatarUrl", account.avatarUrl);
+      syncOptionalProfileField(personalPublisher, "bio", account.bio);
+      personalPublisher.updatedAt = updatedAt;
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "user.profile.update",
+      targetType: "account",
+      targetId: account.id,
+      metadata: { previous, next: accountPublicProfile(account) },
+      createdAt: updatedAt,
+    });
+    await this.persistState();
+    return { status: "updated", account, identity: this.publisherIdentity(actor) };
+  }
+
+  async deleteAccount(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const account = this.findUserAccount(actor.id);
+    if (!account || account.status !== "active") throw httpError(404, "Active account not found");
+    const confirmed = input.confirm === true || input.confirm === account.login || input.confirm === account.actorId;
+    if (!confirmed) throw httpError(409, "Account deletion requires confirm true, login, or actor id");
+    const deletedAt = now.toISOString();
+    account.status = "deleted";
+    account.deletedAt = deletedAt;
+    account.updatedAt = deletedAt;
+    account.displayName = "Deleted account";
+    account.bio = "";
+    delete account.avatarUrl;
+    delete account.profileUrl;
+    delete account.email;
+    for (const session of this.authSessions) {
+      if (session.actor?.id === actor.id && session.status === "active") {
+        session.status = "revoked";
+        session.revokedAt = deletedAt;
+      }
+    }
+    for (const member of this.publisherMembers) {
+      if (member.userId === actor.id && member.status === "active") {
+        member.status = "removed";
+        member.removedAt = deletedAt;
+      }
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "user.account.delete",
+      targetType: "account",
+      targetId: account.id,
+      metadata: { login: account.login, personalPublisherHandle: account.personalPublisherHandle },
+      createdAt: deletedAt,
+    });
+    await this.persistState();
+    return { status: "deleted", account };
+  }
+
   async completeOAuthIdentity(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
     const provider = normalizeOAuthProvider(input.provider ?? "github");
     const login = normalizeHandleInput(input.login ?? actor.id.replace(/^github:/, ""), "login");
@@ -2415,6 +2482,58 @@ export class CoreHubLocalStorageAdapter {
     return { status: "created", publisher, membership };
   }
 
+  async updateOrganizationPublisher(handle, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requirePublisherManagePermission(actor, handle, "publisher.profile.update");
+    const publisher = this.requireVerifiedPublisher(handle, "publisher.profile.update");
+    if (publisher.kind !== "organization") throw httpError(400, "Only organization publishers can be updated through org settings");
+    const previous = publisherPublicProfile(publisher);
+    const updates = normalizePublisherProfileUpdate(input, publisher);
+    applyOptionalProfileFields(publisher, updates);
+    publisher.updatedAt = now.toISOString();
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.profile.update",
+      targetType: "publisher",
+      targetId: handle,
+      metadata: { previous, next: publisherPublicProfile(publisher) },
+      createdAt: publisher.updatedAt,
+    });
+    await this.persistState();
+    return { status: "updated", publisher };
+  }
+
+  async deleteOrganizationPublisher(handle, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requirePublisherManagePermission(actor, handle, "publisher.org.delete");
+    const publisher = this.requireVerifiedPublisher(handle, "publisher.org.delete");
+    if (publisher.kind !== "organization") throw httpError(400, "Only organization publishers can be deleted through org settings");
+    const confirmed = input.confirm === true || input.confirm === handle;
+    if (!confirmed) throw httpError(409, "Organization deletion requires confirm true or publisher handle");
+    const packageCount = this.projectCatalogEntries().filter((entry) => entry.publisher?.handle === handle).length;
+    if (packageCount > 0 && input.transferPackages !== true) {
+      throw httpError(409, "Organization owns packages; transfer packages before deletion or set transferPackages true for operator-managed cleanup");
+    }
+    const deletedAt = now.toISOString();
+    publisher.status = "blocked";
+    publisher.deletedAt = deletedAt;
+    publisher.updatedAt = deletedAt;
+    for (const member of this.publisherMembers) {
+      if (member.publisherHandle === handle && member.status !== "removed") {
+        member.status = "removed";
+        member.removedAt = deletedAt;
+      }
+    }
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.org.delete",
+      targetType: "publisher",
+      targetId: handle,
+      metadata: { packageCount },
+      createdAt: deletedAt,
+    });
+    await this.persistState();
+    return { status: "deleted", publisher };
+  }
+
   listPublisherMembers(handle, { actor = defaultActor() } = {}) {
     this.requirePublisherManagePermission(actor, handle, "publisher.member.list");
     return {
@@ -2457,6 +2576,71 @@ export class CoreHubLocalStorageAdapter {
     });
     await this.persistState();
     return { status: "added", member };
+  }
+
+  async invitePublisherMember(handle, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requirePublisherManagePermission(actor, handle, "publisher.member.invite");
+    this.requireVerifiedPublisher(handle, "publisher.member.invite");
+    const invitee = normalizePublisherInviteTarget(input);
+    const role = normalizePublisherMemberRole(input.role ?? "maintainer");
+    const invitedAt = now.toISOString();
+    const userId = invitee.userId ?? `invite:${invitee.githubLogin ?? invitee.email}`;
+    const existing = this.publisherMembers.find((member) => member.publisherHandle === handle && member.userId === userId);
+    if (existing && existing.status === "active") throw httpError(409, "Publisher member is already active");
+    const member = existing ?? {
+      id: `member-${handle}-${slugId(userId)}`,
+      publisherHandle: handle,
+      userId,
+      createdAt: invitedAt,
+    };
+    Object.assign(member, {
+      role,
+      status: "invited",
+      invitedBy: actor,
+      invitedAt,
+      updatedAt: invitedAt,
+      ...(invitee.email ? { inviteEmail: invitee.email } : {}),
+      ...(invitee.githubLogin ? { inviteGithubLogin: invitee.githubLogin } : {}),
+    });
+    if (!existing) this.publisherMembers.push(member);
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.member.invite",
+      targetType: "publisherMember",
+      targetId: member.id,
+      metadata: { publisherHandle: handle, role, invitee },
+      createdAt: invitedAt,
+    });
+    await this.persistState();
+    return { status: existing ? "resent" : "invited", member };
+  }
+
+  async acceptPublisherInvite(handle, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    const account = this.findUserAccount(actor.id);
+    const login = actor.id.replace(/^github:/, "");
+    const member = this.publisherMembers.find(
+      (item) =>
+        item.publisherHandle === handle &&
+        item.status === "invited" &&
+        (item.userId === actor.id || item.inviteGithubLogin === login || item.inviteEmail === account?.email),
+    );
+    if (!member) throw httpError(404, "Publisher invite not found");
+    const acceptedAt = now.toISOString();
+    member.userId = actor.id;
+    member.status = "active";
+    member.acceptedAt = acceptedAt;
+    member.updatedAt = acceptedAt;
+    if (input.role && this.hasAdminPermission(actor)) member.role = normalizePublisherMemberRole(input.role);
+    this.recordAuditEvent({
+      actor,
+      action: "publisher.member.invite.accept",
+      targetType: "publisherMember",
+      targetId: member.id,
+      metadata: { publisherHandle: handle, role: member.role },
+      createdAt: acceptedAt,
+    });
+    await this.persistState();
+    return { status: "accepted", member };
   }
 
   async removePublisherMember(handle, userId, { actor = defaultActor(), now = new Date() } = {}) {
@@ -3647,6 +3831,20 @@ export function createCoreHubApiHandler({
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
+      if (request.method === "PATCH" && segments[0] === "account" && segments[1] === "me" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.updateAccountProfile(body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "DELETE" && segments[0] === "account" && segments[1] === "me" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.deleteAccount(body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (request.method === "GET" && segments[0] === "publishers" && segments[1] === "me" && segments.length === 2) {
         const actor = actorFromRequest(request, storage);
         const result = storage.publisherIdentity(actor);
@@ -3767,9 +3965,37 @@ export function createCoreHubApiHandler({
         return json(response, 201, { apiVersion: "v2", data: result });
       }
 
+      if (request.method === "PATCH" && segments[0] === "orgs" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.updateOrganizationPublisher(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "DELETE" && segments[0] === "orgs" && segments.length === 2) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.deleteOrganizationPublisher(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
       if (request.method === "GET" && segments[0] === "orgs" && segments[2] === "members" && segments.length === 3) {
         const actor = actorFromRequest(request, storage);
         const result = storage.listPublisherMembers(decodeURIComponent(segments[1]), { actor });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "orgs" && segments[2] === "invites" && segments.length === 3) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.invitePublisherMember(decodeURIComponent(segments[1]), body, { actor, now: now() });
+        return json(response, 201, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "orgs" && segments[2] === "invites" && segments[3] === "accept" && segments.length === 4) {
+        const actor = actorFromRequest(request, storage);
+        const body = await readJsonBody(request);
+        const result = await storage.acceptPublisherInvite(decodeURIComponent(segments[1]), body, { actor, now: now() });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -5789,6 +6015,108 @@ function normalizeOAuthSessionTtlMs(value) {
   const ttl = Number(value);
   if (!Number.isSafeInteger(ttl) || ttl < 60_000) throw httpError(400, "OAuth sessionTtlMs must be at least 60000");
   return ttl;
+}
+
+function normalizeAccountProfileUpdate(input = {}, account = {}) {
+  return {
+    displayName: normalizeOptionalString(input.displayName) ?? account.displayName ?? account.login,
+    bio: normalizeProfileText(input.bio ?? account.bio, "bio", 500),
+    ...(input.avatarUrl !== undefined ? { avatarUrl: normalizeOptionalUrl(input.avatarUrl, "avatarUrl") } : {}),
+    ...(input.profileUrl !== undefined ? { profileUrl: normalizeOptionalUrl(input.profileUrl, "profileUrl") } : {}),
+    ...(input.email !== undefined ? { email: normalizeOptionalEmail(input.email) } : {}),
+  };
+}
+
+function normalizePublisherProfileUpdate(input = {}, publisher = {}) {
+  return {
+    displayName: normalizeOptionalString(input.displayName) ?? publisher.displayName ?? publisher.handle,
+    bio: normalizeProfileText(input.bio ?? publisher.bio, "bio", 700),
+    ...(input.source !== undefined ? { source: normalizeOptionalUrl(input.source, "source") } : {}),
+    ...(input.contact !== undefined ? { contact: normalizeOptionalUrl(input.contact, "contact") } : {}),
+    ...(input.avatarUrl !== undefined ? { avatarUrl: normalizeOptionalUrl(input.avatarUrl, "avatarUrl") } : {}),
+  };
+}
+
+function normalizePublisherInviteTarget(input = {}) {
+  const userId = normalizeOptionalString(input.userId);
+  const githubLogin = input.githubLogin ? normalizeHandleInput(input.githubLogin, "githubLogin") : null;
+  const email = normalizeOptionalEmail(input.email);
+  if (!userId && !githubLogin && !email) throw httpError(400, "Invite requires userId, githubLogin, or email");
+  return {
+    ...(userId ? { userId } : {}),
+    ...(githubLogin ? { githubLogin } : {}),
+    ...(email ? { email } : {}),
+  };
+}
+
+function normalizeProfileText(value, name, maxLength) {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") throw httpError(400, `${name} must be a string`);
+  const text = value.trim();
+  if (text.length > maxLength) throw httpError(400, `${name} must be ${maxLength} characters or less`);
+  return text;
+}
+
+function normalizeOptionalUrl(value, name) {
+  if (value === undefined || value === null || value === "") return "";
+  const text = normalizeRequiredString(value, name);
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    throw httpError(400, `${name} must be a URL`);
+  }
+  if (!["https:", "http:"].includes(url.protocol)) throw httpError(400, `${name} must use http or https`);
+  return url.toString();
+}
+
+function normalizeOptionalEmail(value) {
+  if (value === undefined || value === null || value === "") return "";
+  const email = normalizeRequiredString(value, "email").toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw httpError(400, "email must be valid");
+  return email;
+}
+
+function applyOptionalProfileFields(target, fields) {
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === "") {
+      if (["avatarUrl", "profileUrl", "source", "contact", "email"].includes(key)) {
+        delete target[key];
+      } else {
+        target[key] = "";
+      }
+      continue;
+    }
+    target[key] = value;
+  }
+}
+
+function syncOptionalProfileField(target, key, value) {
+  if (value === undefined || value === null || value === "") {
+    delete target[key];
+  } else {
+    target[key] = value;
+  }
+}
+
+function accountPublicProfile(account) {
+  return {
+    displayName: account.displayName ?? null,
+    bio: account.bio ?? "",
+    avatarUrl: account.avatarUrl ?? "",
+    profileUrl: account.profileUrl ?? "",
+    email: account.email ?? "",
+  };
+}
+
+function publisherPublicProfile(publisher) {
+  return {
+    displayName: publisher.displayName ?? null,
+    bio: publisher.bio ?? "",
+    avatarUrl: publisher.avatarUrl ?? "",
+    source: publisher.source ?? "",
+    contact: publisher.contact ?? "",
+  };
 }
 
 function sha256Hex(value) {
