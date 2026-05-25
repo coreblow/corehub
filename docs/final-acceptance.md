@@ -87,7 +87,7 @@ Latest final acceptance pass:
 | Evidence | Result |
 | --- | --- |
 | Date | 2026-05-25 |
-| Commit | `fae3fbd` |
+| Accepted code baseline | `ab3633c` |
 | Local gate | pass |
 | Deploy template readiness | pass |
 | Live post-deploy smoke | pass against `https://coreblow.com/corehub` |
@@ -104,14 +104,16 @@ The final pass verified:
 - `npm run validate:schema`
 - `npm run validate:write-schema`
 - `npm run validate:deploy-template`
+- `npm run smoke:persistence-migration`
+- `npm run smoke:worker-local`
 - `git diff --check`
 - `npm run smoke:post-deploy -- --registry https://coreblow.com/corehub --package plugin-lab --verify-web --verify-read`
 
 The live smoke verified the web surface, health endpoint, v1 registry discovery, package read, signed download metadata, signed redirect, and signed artifact read checksum.
 
-## Post-Acceptance Additions
+## Acceptance Lock Additions
 
-After the final acceptance pass, CoreHub added API-level community signals for full ClawHub product parity:
+The final acceptance lock includes API-level community signals for full ClawHub product parity:
 
 - Package and hosted skill stars.
 - Package and hosted skill comments.
@@ -119,7 +121,7 @@ After the final acceptance pass, CoreHub added API-level community signals for f
 - Public publisher profiles.
 - Package and hosted skill leaderboards.
 
-CoreHub also split the ClawHub parity test surface into focused route and CLI coverage:
+The final acceptance lock also includes focused ClawHub parity test surfaces:
 
 - Public API compatibility: cursor pagination, exact security endpoint shape, v1 text errors, v2 error envelopes, and rate-limit headers.
 - npm and artifact route parity: packument, tarball redirect, file manifest, raw file read, and path validation.

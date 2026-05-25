@@ -43,9 +43,9 @@ ClawHub sources audited from `/Users/febrinanda/openclaw-refs/clawhub`:
 
 ## Executive Status
 
-CoreHub is accepted for v1 package marketplace parity. Full ClawHub parity is not complete.
+CoreHub is accepted for v1 package marketplace parity. Full ClawHub product parity still has intentionally deferred post-v1 product scope.
 
-The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth outside the accepted marketplace surface: real browser OAuth UI/provider exchange, full user/org settings, and broader ClawHub test coverage.
+The main remaining gap is not basic marketplace lifecycle anymore. The remaining gap is depth outside the accepted marketplace surface: real browser OAuth UI/provider exchange and full user/org settings.
 
 ## Matrix Lock
 
@@ -94,7 +94,7 @@ After P0:
 
 1. Add publisher portal report/appeal visibility and transfer accept/reject controls.
 2. Add ClawHub-style migration repair tooling only if CoreHub needs package rename/migration operations.
-3. Split the main Node test into focused API/CLI/route suites if test surface parity becomes a release objective.
+3. Keep extending focused API/CLI/route suites with every new post-v1 compatibility row.
 
 ## P2 Product Scope Decisions
 
