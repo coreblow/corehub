@@ -43,7 +43,7 @@ Intentionally deferred outside v1 acceptance:
 | Marketplace search depth | done | Filters and deterministic ranking are implemented. |
 | Publisher portal | done | Token-backed self-service surface covers v1 publisher operations. |
 | Install lifecycle | done | Local install state, pinning, update, sync, uninstall, and telemetry opt-out are implemented. |
-| Production persistence | done | D1 state store, schema migration, backup/export, restore, and runbooks are present. |
+| Production persistence | done | D1 normalized meta/row/index store, schema migration, backup/export, restore, and runbooks are present. |
 | Production deployment and rollback | done | Protected deploy, live smoke, backup validation, restore drill, rollback drill, and final verification are exercised. |
 
 No `missing` rows remain for CoreHub v1 package marketplace parity. Deferred items are documented product decisions, not acceptance blockers.

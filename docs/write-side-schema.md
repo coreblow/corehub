@@ -315,7 +315,7 @@ Production Worker binding uses `COREHUB_OBJECT_STORE=external-url`, so no paid o
 
 ## Projection Boundary
 
-Approved write-side versions can now be projected into the read-only Registry API v1 shape before persistence is wired:
+Approved write-side versions can now be projected into the read-only Registry API v1 shape through the persistence adapter boundary:
 
 ```text
 verified artifact upload -> pending submission -> approved review -> available package version -> projected catalog entry
@@ -334,7 +334,7 @@ Blocked versions remain write-side audit records and are intentionally excluded 
 
 ## Persistence Adapter Boundary
 
-Phase 23 keeps production persistence out of scope, but the local storage adapter can now persist write-side metadata to a JSON file. This gives the API boundary a durable state shape before replacing the internals with a database or object-storage metadata layer.
+The local storage adapter preserves one logical `corehub.local-state.v1` model across local JSON and D1. Local development persists that model as a JSON file. Production D1 persists the same logical model as normalized meta rows, collection rows, and lookup index rows, while keeping legacy snapshot fallback reads for migration safety.
 
 | State section | Contents |
 | --- | --- |
@@ -344,10 +344,13 @@ Phase 23 keeps production persistence out of scope, but the local storage adapte
 | `packageVersions` | Approved, blocked, soft-deleted, or restored version records used by projection. |
 | `trustedPublishers` | Package-level trusted publisher policies. |
 | `publishTokens` | Short-lived CI publish tokens with mint, use, and revoke metadata. |
+| `packageReports` | Package moderation reports and triage metadata. |
+| `packageAppeals` | Publisher appeals and moderator resolution metadata. |
+| `packageScanJobs` | Static scanner job status and evidence records. |
 | `auditEvents` | Append-only audit events for upload, verification, submission, review decision, and admin read actions. |
 | `auditCheckpoints` | Local checkpoint records created after export-before-prune retention actions. |
 
-The local state file uses `schemaVersion: corehub.local-state.v1`. Future production persistence should preserve this logical state model even if storage moves to SQL, KV, or Durable Objects metadata.
+The D1 normalized store indexes package/version, status, publisher, scan result, repository, audit sequence, target, day, and install event lookups. This gives CoreHub a ClawHub-like table/index persistence shape without leaking D1 storage details into the HTTP API or CLI.
 
 ## Audit Trail Boundary
 

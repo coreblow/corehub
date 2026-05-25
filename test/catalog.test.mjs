@@ -883,12 +883,11 @@ try {
       sha256: entries[2].versions[0].artifact.sha256,
     },
   });
-  const d1Snapshot = JSON.parse(d1Rows.get("write-side-state").value);
   assert.equal(d1BootstrapServer.stateStoreKind, "d1");
   assert.equal(d1BootstrapServer.statePath, null);
   assert.equal(d1BootstrapServer.stateStoreKey, "write-side-state");
   assert.equal(d1BootstrapServer.stateStoreTable, "corehub_state");
-  assert.equal(d1Snapshot.slots[0].id, slot.id);
+  assert.equal(JSON.parse(d1Rows.get(`corehub_state_rows:slots:${slot.id}`).value).id, slot.id);
   await d1BootstrapServer.close();
   await assert.rejects(
     createCoreHubServer({
@@ -957,8 +956,8 @@ const workerPutResponse = await coreHubWorker.fetch(
 );
 assert.equal(workerPutResponse.status, 200);
 assert.equal(workerObjects.has(workerUploadPayload.data.uploadSlot.storage.key), true);
-const workerSnapshot = JSON.parse(workerRows.get("write-side-state").value);
-assert.equal(workerSnapshot.auditEvents[0].actor.id, "github:coreblow-admin");
+const workerAuditEvents = normalizedMockRows(workerRows, "auditEvents");
+assert.equal(workerAuditEvents[0].actor.id, "github:coreblow-admin");
 const workerRegistryInfo = await handleCoreHubWorkerRequest(
   new Request("https://coreblow.com/corehub/api/v1"),
   workerEnv,
@@ -1208,10 +1207,19 @@ try {
       sha256: entries[2].versions[0].artifact.sha256,
     },
   });
-  assert.match(CoreHubD1StateStore.migrationSql(), /CREATE TABLE IF NOT EXISTS corehub_state/);
-  const d1Snapshot = JSON.parse(d1Rows.get("write-side-state").value);
-  assert.equal(d1Store.kind, "d1-snapshot");
-  assert.equal(d1Snapshot.slots[0].id, "upload-plugin-lab-0-2-0");
+  assert.match(CoreHubD1StateStore.migrationSql(), /CREATE TABLE IF NOT EXISTS corehub_state_rows/);
+  assert.equal(d1Store.kind, "d1-normalized");
+  assert.equal(JSON.parse(d1Rows.get("corehub_state_meta:manifest").value).schemaVersion, "corehub.local-state.v1");
+  assert.equal(
+    JSON.parse(d1Rows.get("corehub_state_rows:slots:upload-plugin-lab-0-2-0").value).id,
+    "upload-plugin-lab-0-2-0",
+  );
+  assert.equal(d1Rows.get("corehub_state_indexes:slots:by_package_version:plugin-lab\u00000.2.0:upload-plugin-lab-0-2-0").row_id, "upload-plugin-lab-0-2-0");
+  const d1ReloadedStorage = await CoreHubLocalStorageAdapter.open({
+    root: snapshotStoreDir,
+    stateStore: new CoreHubD1StateStore({ database: createMockD1Database(d1Rows) }),
+  });
+  assert.equal(d1ReloadedStorage.slots.get("upload-plugin-lab-0-2-0").id, "upload-plugin-lab-0-2-0");
 
   const d1Sql = await execFileAsync(process.execPath, [d1MigrationPath, "sql"]);
   assert.match(d1Sql.stdout, /CREATE TABLE IF NOT EXISTS corehub_state/);
@@ -1225,7 +1233,7 @@ try {
   const persistenceMigrationSmoke = await execFileAsync(process.execPath, [persistenceMigrationSmokePath]);
   const persistenceMigrationPayload = JSON.parse(persistenceMigrationSmoke.stdout);
   assert.equal(persistenceMigrationPayload.status, "ok");
-  assert.deepEqual(persistenceMigrationPayload.persistedKeys, ["write-side-state"]);
+  assert.deepEqual(persistenceMigrationPayload.persistedCollections, ["packageVersions", "slots"]);
 
   const productionFinalization = await execFileAsync(process.execPath, [productionFinalizationPath]);
   assert.equal(JSON.parse(productionFinalization.stdout).status, "ready");
@@ -3728,6 +3736,14 @@ try {
   await new Promise((resolve) => registryServer.close(resolve));
 }
 
+function normalizedMockRows(rows, collection) {
+  return [...rows.entries()]
+    .filter(([key]) => key.startsWith(`corehub_state_rows:${collection}:`))
+    .map(([, row]) => row)
+    .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))
+    .map((row) => JSON.parse(row.value));
+}
+
 function createMockD1Database(rows) {
   return {
     prepare(sql) {
@@ -3737,21 +3753,76 @@ function createMockD1Database(rows) {
           return { ...this, values };
         },
         async first() {
-          if (!/^SELECT value FROM corehub_state WHERE key = \?1$/.test(sql)) {
+          if (/^SELECT value FROM corehub_state_meta WHERE key = \?1$/.test(sql)) {
+            return rows.get(`corehub_state_meta:${this.values[0]}`) ?? null;
+          }
+          if (/^SELECT value FROM corehub_state WHERE key = \?1$/.test(sql)) {
+            return rows.get(`corehub_state:${this.values[0]}`) ?? rows.get(this.values[0]) ?? null;
+          }
+          throw new Error(`Unexpected mock D1 query: ${sql}`);
+        },
+        async all() {
+          if (!/^SELECT collection, value FROM corehub_state_rows ORDER BY collection ASC, position ASC, id ASC$/.test(sql)) {
             throw new Error(`Unexpected mock D1 query: ${sql}`);
           }
-          return rows.get(this.values[0]) ?? null;
+          return {
+            results: [...rows.entries()]
+              .filter(([key]) => key.startsWith("corehub_state_rows:"))
+              .map(([, row]) => row)
+              .sort((left, right) => left.collection.localeCompare(right.collection) || left.position - right.position || left.id.localeCompare(right.id)),
+          };
         },
         async run() {
-          if (!sql.startsWith("INSERT INTO corehub_state")) {
-            throw new Error(`Unexpected mock D1 mutation: ${sql}`);
+          if (/^DELETE FROM corehub_state_indexes$/.test(sql)) {
+            for (const key of [...rows.keys()].filter((key) => key.startsWith("corehub_state_indexes:"))) rows.delete(key);
+            return { success: true };
           }
-          rows.set(this.values[0], {
-            key: this.values[0],
-            value: this.values[1],
-            updated_at: this.values[2],
-          });
-          return { success: true };
+          if (/^DELETE FROM corehub_state_rows$/.test(sql)) {
+            for (const key of [...rows.keys()].filter((key) => key.startsWith("corehub_state_rows:"))) rows.delete(key);
+            return { success: true };
+          }
+          if (/^INSERT INTO corehub_state_meta/.test(sql)) {
+            rows.set(`corehub_state_meta:${this.values[0]}`, {
+              key: this.values[0],
+              value: this.values[1],
+              updated_at: this.values[2],
+            });
+            return { success: true };
+          }
+          if (/^INSERT INTO corehub_state_rows/.test(sql)) {
+            rows.set(`corehub_state_rows:${this.values[0]}:${this.values[1]}`, {
+              collection: this.values[0],
+              id: this.values[1],
+              position: this.values[2],
+              value: this.values[3],
+              updated_at: this.values[4],
+            });
+            return { success: true };
+          }
+          if (/^INSERT INTO corehub_state_indexes/.test(sql)) {
+            rows.set(`corehub_state_indexes:${this.values[0]}:${this.values[1]}:${this.values[2]}:${this.values[3]}`, {
+              collection: this.values[0],
+              index_name: this.values[1],
+              index_key: this.values[2],
+              row_id: this.values[3],
+              updated_at: this.values[4],
+            });
+            return { success: true };
+          }
+          if (/^INSERT INTO corehub_state/.test(sql)) {
+            rows.set(`corehub_state:${this.values[0]}`, {
+              key: this.values[0],
+              value: this.values[1],
+              updated_at: this.values[2],
+            });
+            rows.set(this.values[0], {
+              key: this.values[0],
+              value: this.values[1],
+              updated_at: this.values[2],
+            });
+            return { success: true };
+          }
+          throw new Error(`Unexpected mock D1 mutation: ${sql}`);
         },
       };
     },

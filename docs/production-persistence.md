@@ -12,18 +12,18 @@ Current state store:
 | --- | --- |
 | `CoreHubLocalJsonStateStore` | Local JSON persistence for development, smoke tests, and single-node bootstrap deployments. |
 | `CoreHubSnapshotStateStore` | Generic production-style full-snapshot adapter for mocked DB, KV, or future managed stores. |
-| `CoreHubD1StateStore` | Cloudflare D1-style snapshot adapter skeleton for future Worker deployments. |
+| `CoreHubD1StateStore` | Cloudflare D1 normalized table/index adapter for Worker deployments, with legacy snapshot fallback. |
 
 The state store contract is intentionally small:
 
 | Method | Contract |
 | --- | --- |
 | `load()` | Return a `corehub.local-state.v1` snapshot or `null` when no state exists. |
-| `save(snapshot)` | Persist the full write-side snapshot and return it. |
+| `save(snapshot)` | Persist the logical write-side snapshot and return it. Local JSON stores it as a file; D1 stores it as normalized rows plus indexes. |
 
 ## Production Direction
 
-Production DB, D1, or Postgres adapters should implement the same `load()` and `save(snapshot)` boundary first. Later phases can replace full-snapshot persistence with table-level writes without changing the API or CLI flow.
+Production DB, D1, or Postgres adapters implement the same `load()` and `save(snapshot)` boundary so the API and CLI remain stable while the storage backend evolves.
 
 Required behavior for any production store:
 
@@ -83,17 +83,43 @@ npm run persistence:snapshot -- migrate --input .corehub-local/write-side-state.
 
 The current baseline migration is `2026-05-22-corehub-local-state-v1`, which establishes `corehub.persistence.v1` over `corehub.local-state.v1`. It is reported as `already_applied` for existing v1 snapshots, but still requires a valid backup before apply.
 
-## D1 Skeleton
+## D1 Normalized Store
 
-`CoreHubD1StateStore` stores the current full snapshot under a single key while the API contract is still stabilizing. This is deliberately conservative: it gives production-like persistence without changing upload, submit, approve, audit, or projection behavior.
+`CoreHubD1StateStore` writes CoreHub state into table rows and lookup indexes while preserving the logical `corehub.local-state.v1` snapshot contract at the adapter boundary. This mirrors the ClawHub product model more closely, where packages, releases, reports, appeals, scanner jobs, trusted publishers, tokens, telemetry, and audit records are queryable entities instead of one opaque state blob.
 
-Migration skeleton:
+The adapter still creates the legacy `corehub_state` table and can read an existing `write-side-state` snapshot row when normalized tables have not been populated yet. New writes use:
+
+Migration tables:
 
 ```sql
 CREATE TABLE IF NOT EXISTS corehub_state (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS corehub_state_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS corehub_state_rows (
+  collection TEXT NOT NULL,
+  id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (collection, id)
+);
+
+CREATE TABLE IF NOT EXISTS corehub_state_indexes (
+  collection TEXT NOT NULL,
+  index_name TEXT NOT NULL,
+  index_key TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (collection, index_name, index_key, row_id)
 );
 ```
 
@@ -107,7 +133,7 @@ npm run persistence:d1 -- apply --config ops/cloudflare/wrangler.corehub-api.pro
 
 The helper is fail-closed: `apply` is dry-run unless `--apply` is present, and production apply refuses placeholder D1 database ids. The deploy workflow runs the dry run during production checks and applies the migration immediately before `wrangler deploy`.
 
-Future phases can split this snapshot into normalized tables for artifact uploads, submissions, reviews, package versions, audit events, and audit checkpoints.
+The row store currently normalizes CoreHub collections for auth sessions, publisher claims/accounts/members, upload slots, submissions, reviews, package versions, reports, appeals, scan jobs, trusted publishers, publish tokens, ownership transfers, install events, audit events, and audit checkpoints. The index table records CoreHub-native lookup keys such as package/version, status, publisher, scan result, audit sequence, target, and repository.
 
 ## Bootstrap Selection
 
@@ -145,7 +171,7 @@ npm run smoke:persistence-migration
 npm run smoke:worker-local
 ```
 
-`smoke:persistence-migration` applies the D1 schema to a mock D1 binding and verifies a save/load round trip for the `write-side-state` snapshot. `smoke:worker-local` invokes `src/worker.mjs` through the Fetch API with mock D1 and a local managed object-store test double, uploads and verifies an artifact, approves the review, checks the projected v1 registry response, and reads the artifact back through a signed download URL. The committed Worker template uses `external-url` mode for production deployment.
+`smoke:persistence-migration` applies the D1 schema to a mock D1 binding and verifies a save/load round trip through normalized row/index tables. `smoke:worker-local` invokes `src/worker.mjs` through the Fetch API with mock D1 and a local managed object-store test double, uploads and verifies an artifact, approves the review, checks the projected v1 registry response, and reads the artifact back through a signed download URL. The committed Worker template uses `external-url` mode for production deployment.
 
 Then run the deploy readiness gate before `wrangler deploy`:
 
@@ -497,8 +523,8 @@ The production environment template is in `ops/corehub-api.production.env.exampl
 | --- | --- | --- |
 | `COREHUB_STATE_STORE` | `local-json` | Selects `local-json` or `d1`. |
 | `COREHUB_STATE_PATH` | `.corehub-local/write-side-state.json` | Local JSON snapshot path. |
-| `COREHUB_D1_STATE_KEY` | `write-side-state` | D1 row key for the full snapshot. |
-| `COREHUB_D1_STATE_TABLE` | `corehub_state` | D1 table used by `CoreHubD1StateStore`. |
+| `COREHUB_D1_STATE_KEY` | `write-side-state` | Legacy D1 snapshot key used only for fallback reads and backup compatibility. |
+| `COREHUB_D1_STATE_TABLE` | `corehub_state` | D1 table prefix used by `CoreHubD1StateStore` for legacy, meta, rows, and index tables. |
 | `COREHUB_OBJECT_STORE` | `external-url` in Worker template | Uses external artifact URL references for production. |
 | `COREHUB_SIGNING_SECRET` | none in Worker | Required HMAC secret for signed artifact read URLs. |
 | `COREHUB_SIGNING_KEY_ID` | `primary` in Worker | Current signing key id included in signed read URLs for rotation. |

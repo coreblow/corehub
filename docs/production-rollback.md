@@ -9,7 +9,7 @@ Use rollback when a deploy causes any of these:
 - `smoke:post-deploy` fails after a successful previous deploy.
 - `GET /corehub/api/v2/admin/status` reports readiness other than `ready`.
 - Audit verification reports `valid: false`.
-- D1 state cannot load or save the `write-side-state` row.
+- D1 state cannot load or save normalized meta/row/index state, or cannot fall back to the legacy `write-side-state` snapshot row during migration.
 - Signed artifact download metadata or read verification regresses.
 
 ## Before Rollback

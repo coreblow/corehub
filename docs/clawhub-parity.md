@@ -77,7 +77,7 @@ Still pending or deferred for full ClawHub product parity:
 
 - real browser OAuth and fuller user/org account management
 - deep hosted scanner integrations beyond the CoreHub static scan job boundary
-- normalized package persistence/search digest tables for scale
+- dedicated search digest tables for scale beyond the normalized D1 row/index store
 - richer moderator CLI operations
 - full hosted skill lifecycle and community surfaces
 

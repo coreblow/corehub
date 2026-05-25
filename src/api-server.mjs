@@ -66,39 +66,236 @@ export class CoreHubSnapshotStateStore {
 export class CoreHubD1StateStore extends CoreHubSnapshotStateStore {
   constructor({ database, key = "write-side-state", table = "corehub_state" } = {}) {
     if (!database) throw new Error("CoreHubD1StateStore requires database");
-    const tableName = normalizeSqlIdentifier(table, "table");
+    const tablePrefix = normalizeSqlIdentifier(table, "table");
+    const metaTable = `${tablePrefix}_meta`;
+    const rowsTable = `${tablePrefix}_rows`;
+    const indexesTable = `${tablePrefix}_indexes`;
     super({
-      kind: "d1-snapshot",
+      kind: "d1-normalized",
       loadSnapshot: async () => {
+        const manifest = await database
+          .prepare(`SELECT value FROM ${metaTable} WHERE key = ?1`)
+          .bind("manifest")
+          .first();
+        if (manifest?.value) {
+          const snapshot = JSON.parse(manifest.value);
+          for (const collection of normalizedD1Collections) snapshot[collection] = [];
+          const result = await database
+            .prepare(`SELECT collection, value FROM ${rowsTable} ORDER BY collection ASC, position ASC, id ASC`)
+            .all();
+          for (const row of result?.results ?? []) {
+            if (!Array.isArray(snapshot[row.collection])) snapshot[row.collection] = [];
+            snapshot[row.collection].push(JSON.parse(row.value));
+          }
+          return snapshot;
+        }
         const row = await database
-          .prepare(`SELECT value FROM ${tableName} WHERE key = ?1`)
+          .prepare(`SELECT value FROM ${tablePrefix} WHERE key = ?1`)
           .bind(key)
           .first();
         return row?.value ? JSON.parse(row.value) : null;
       },
       saveSnapshot: async (snapshot) => {
+        const savedAt = snapshot.savedAt ?? new Date().toISOString();
+        const normalized = normalizeCoreHubD1Snapshot(snapshot, savedAt);
+        await database.prepare(`DELETE FROM ${indexesTable}`).run();
+        await database.prepare(`DELETE FROM ${rowsTable}`).run();
         await database
           .prepare(
-            `INSERT INTO ${tableName} (key, value, updated_at) VALUES (?1, ?2, ?3) ` +
+            `INSERT INTO ${metaTable} (key, value, updated_at) VALUES (?1, ?2, ?3) ` +
               `ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
           )
-          .bind(key, JSON.stringify(snapshot), snapshot.savedAt ?? new Date().toISOString())
+          .bind("manifest", JSON.stringify(normalized.manifest), savedAt)
+          .run();
+        for (const row of normalized.rows) {
+          await database
+            .prepare(
+              `INSERT INTO ${rowsTable} (collection, id, position, value, updated_at) VALUES (?1, ?2, ?3, ?4, ?5) ` +
+                `ON CONFLICT(collection, id) DO UPDATE SET position = excluded.position, value = excluded.value, updated_at = excluded.updated_at`,
+            )
+            .bind(row.collection, row.id, row.position, JSON.stringify(row.value), savedAt)
+            .run();
+        }
+        for (const index of normalized.indexes) {
+          await database
+            .prepare(
+              `INSERT INTO ${indexesTable} (collection, index_name, index_key, row_id, updated_at) VALUES (?1, ?2, ?3, ?4, ?5) ` +
+                `ON CONFLICT(collection, index_name, index_key, row_id) DO UPDATE SET updated_at = excluded.updated_at`,
+            )
+            .bind(index.collection, index.indexName, index.indexKey, index.rowId, savedAt)
+            .run();
+        }
+        await database
+          .prepare(
+            `INSERT INTO ${tablePrefix} (key, value, updated_at) VALUES (?1, ?2, ?3) ` +
+              `ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          )
+          .bind(`${key}:legacy-backup`, JSON.stringify(snapshot), savedAt)
           .run();
       },
     });
     this.database = database;
     this.key = key;
-    this.table = tableName;
+    this.table = tablePrefix;
+    this.metaTable = metaTable;
+    this.rowsTable = rowsTable;
+    this.indexesTable = indexesTable;
   }
 
   static migrationSql({ table = "corehub_state" } = {}) {
-    const tableName = normalizeSqlIdentifier(table, "table");
-    return `CREATE TABLE IF NOT EXISTS ${tableName} (
+    const tablePrefix = normalizeSqlIdentifier(table, "table");
+    const metaTable = `${tablePrefix}_meta`;
+    const rowsTable = `${tablePrefix}_rows`;
+    const indexesTable = `${tablePrefix}_indexes`;
+    return `CREATE TABLE IF NOT EXISTS ${tablePrefix} (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
-);`;
+);
+
+CREATE TABLE IF NOT EXISTS ${metaTable} (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ${rowsTable} (
+  collection TEXT NOT NULL,
+  id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (collection, id)
+);
+
+CREATE INDEX IF NOT EXISTS ${rowsTable}_collection_position
+  ON ${rowsTable} (collection, position);
+
+CREATE TABLE IF NOT EXISTS ${indexesTable} (
+  collection TEXT NOT NULL,
+  index_name TEXT NOT NULL,
+  index_key TEXT NOT NULL,
+  row_id TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (collection, index_name, index_key, row_id)
+);
+
+CREATE INDEX IF NOT EXISTS ${indexesTable}_lookup
+  ON ${indexesTable} (collection, index_name, index_key);`;
   }
+}
+
+const normalizedD1Collections = [
+  "authSessions",
+  "publisherClaims",
+  "publisherAccounts",
+  "publisherMembers",
+  "slots",
+  "submissions",
+  "reviews",
+  "packageVersions",
+  "packageReports",
+  "packageAppeals",
+  "packageScanJobs",
+  "trustedPublishers",
+  "publishTokens",
+  "ownershipTransfers",
+  "installEvents",
+  "auditEvents",
+  "auditCheckpoints",
+];
+
+function normalizeCoreHubD1Snapshot(snapshot, savedAt) {
+  const manifest = {
+    schemaVersion: snapshot.schemaVersion,
+    savedAt,
+    ...(snapshot.publicBaseUrl ? { publicBaseUrl: snapshot.publicBaseUrl } : {}),
+  };
+  const rows = [];
+  const indexes = [];
+  for (const collection of normalizedD1Collections) {
+    const items = Array.isArray(snapshot[collection]) ? snapshot[collection] : [];
+    items.forEach((item, position) => {
+      const id = normalizedD1RowId(collection, item, position);
+      rows.push({ collection, id, position, value: item });
+      indexes.push(...normalizedD1Indexes(collection, item, id, position));
+    });
+  }
+  return { manifest, rows, indexes };
+}
+
+function normalizedD1RowId(collection, item, position) {
+  if (collection === "submissions") return item?.submission?.id ?? `submission-${position}`;
+  return item?.id ?? `${collection}-${position}`;
+}
+
+function normalizedD1Indexes(collection, item, rowId, position) {
+  const indexes = [{ collection, indexName: "by_position", indexKey: String(position).padStart(10, "0"), rowId }];
+  const push = (indexName, value) => {
+    if (value === undefined || value === null || value === "") return;
+    indexes.push({ collection, indexName, indexKey: String(value), rowId });
+  };
+
+  if (collection === "publisherAccounts") {
+    push("by_handle", item.handle);
+    push("by_status", item.status);
+  } else if (collection === "publisherMembers") {
+    push("by_publisher", item.publisherHandle);
+    push("by_user", item.userId);
+    push("by_publisher_user", item.publisherHandle && item.userId ? `${item.publisherHandle}\u0000${item.userId}` : null);
+  } else if (collection === "slots") {
+    push("by_package_version", item.packageId && item.version ? `${item.packageId}\u0000${item.version}` : null);
+    push("by_publisher", item.publisherHandle);
+    push("by_status", item.artifactUpload?.status ?? item.upload?.status);
+  } else if (collection === "submissions") {
+    push("by_package", item.submission?.packageId);
+    push("by_publisher", item.submission?.publisherHandle);
+    push("by_status", item.submission?.status);
+  } else if (collection === "reviews") {
+    push("by_status", item.status);
+    push("by_target", item.targetType && item.targetId ? `${item.targetType}\u0000${item.targetId}` : null);
+  } else if (collection === "packageVersions") {
+    push("by_package", item.packageId);
+    push("by_package_version", item.packageId && item.version ? `${item.packageId}\u0000${item.version}` : null);
+    push("by_publisher", item.publisherHandle);
+    push("by_status", item.status);
+    push("by_channel", item.channel);
+  } else if (collection === "packageReports") {
+    push("by_package", item.packageId);
+    push("by_status", item.status);
+    push("by_package_version", item.packageId && item.version ? `${item.packageId}\u0000${item.version}` : null);
+  } else if (collection === "packageAppeals") {
+    push("by_package", item.packageId);
+    push("by_status", item.status);
+    push("by_package_version", item.packageId && item.version ? `${item.packageId}\u0000${item.version}` : null);
+  } else if (collection === "packageScanJobs") {
+    push("by_package", item.packageId);
+    push("by_package_version", item.packageId && item.version ? `${item.packageId}\u0000${item.version}` : null);
+    push("by_status", item.status);
+    push("by_scan_status", item.scanStatus);
+  } else if (collection === "trustedPublishers") {
+    push("by_package", item.packageId);
+    push("by_repository", item.repository);
+  } else if (collection === "publishTokens") {
+    push("by_package", item.packageId);
+    push("by_status", item.status);
+    push("by_token_hash", item.tokenHash);
+  } else if (collection === "ownershipTransfers") {
+    push("by_package", item.packageId);
+    push("by_status", item.status);
+    push("by_from_publisher", item.fromPublisherHandle);
+    push("by_to_publisher", item.toPublisherHandle);
+  } else if (collection === "installEvents") {
+    push("by_package", item.packageId);
+    push("by_package_version", item.packageId && item.version ? `${item.packageId}\u0000${item.version}` : null);
+    push("by_day", item.day);
+    push("by_event", item.event);
+  } else if (collection === "auditEvents") {
+    push("by_sequence", item.sequence === undefined ? null : String(item.sequence).padStart(10, "0"));
+    push("by_action", item.action);
+    push("by_target", item.targetType && item.targetId ? `${item.targetType}\u0000${item.targetId}` : null);
+  }
+  return indexes;
 }
 
 export class CoreHubLocalObjectStore {

@@ -147,14 +147,23 @@ assert.equal(signedReadResponse.headers.get("x-corehub-artifact-sha256"), artifa
 assert.deepEqual(Buffer.from(await signedReadResponse.arrayBuffer()), artifactBytes);
 logStep("signed artifact read returned verified bytes from mock managed object storage");
 
-const snapshot = JSON.parse(d1Rows.get("write-side-state").value);
-assert.equal(snapshot.packageVersions.length, 1);
-assert.equal(snapshot.auditEvents.some((event) => event.action === "artifact.download.sign"), true);
-assert.equal(snapshot.auditEvents.some((event) => event.action === "artifact.download.read"), true);
-assert.equal(snapshot.auditEvents.some((event) => event.action === "review.approve"), true);
-logStep(`D1 snapshot persisted with ${snapshot.auditEvents.length} audit events`);
+const packageVersions = normalizedMockRows(d1Rows, "packageVersions");
+const auditEvents = normalizedMockRows(d1Rows, "auditEvents");
+assert.equal(packageVersions.length, 1);
+assert.equal(auditEvents.some((event) => event.action === "artifact.download.sign"), true);
+assert.equal(auditEvents.some((event) => event.action === "artifact.download.read"), true);
+assert.equal(auditEvents.some((event) => event.action === "review.approve"), true);
+logStep(`D1 normalized rows persisted with ${auditEvents.length} audit events`);
 
 console.log("CoreHub Worker local smoke passed.");
+
+function normalizedMockRows(rows, collection) {
+  return [...rows.entries()]
+    .filter(([key]) => key.startsWith(`corehub_state_rows:${collection}:`))
+    .map(([, row]) => row)
+    .sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))
+    .map((row) => JSON.parse(row.value));
+}
 
 function createMockD1Database(rows) {
   return {
@@ -165,21 +174,76 @@ function createMockD1Database(rows) {
           return { ...this, values };
         },
         async first() {
-          if (!/^SELECT value FROM corehub_state WHERE key = \?1$/.test(sql)) {
+          if (/^SELECT value FROM corehub_state_meta WHERE key = \?1$/.test(sql)) {
+            return rows.get(`corehub_state_meta:${this.values[0]}`) ?? null;
+          }
+          if (/^SELECT value FROM corehub_state WHERE key = \?1$/.test(sql)) {
+            return rows.get(`corehub_state:${this.values[0]}`) ?? rows.get(this.values[0]) ?? null;
+          }
+          throw new Error(`Unexpected mock D1 query: ${sql}`);
+        },
+        async all() {
+          if (!/^SELECT collection, value FROM corehub_state_rows ORDER BY collection ASC, position ASC, id ASC$/.test(sql)) {
             throw new Error(`Unexpected mock D1 query: ${sql}`);
           }
-          return rows.get(this.values[0]) ?? null;
+          return {
+            results: [...rows.entries()]
+              .filter(([key]) => key.startsWith("corehub_state_rows:"))
+              .map(([, row]) => row)
+              .sort((left, right) => left.collection.localeCompare(right.collection) || left.position - right.position || left.id.localeCompare(right.id)),
+          };
         },
         async run() {
-          if (!sql.startsWith("INSERT INTO corehub_state")) {
-            throw new Error(`Unexpected mock D1 mutation: ${sql}`);
+          if (/^DELETE FROM corehub_state_indexes$/.test(sql)) {
+            for (const key of [...rows.keys()].filter((key) => key.startsWith("corehub_state_indexes:"))) rows.delete(key);
+            return { success: true };
           }
-          rows.set(this.values[0], {
-            key: this.values[0],
-            value: this.values[1],
-            updated_at: this.values[2],
-          });
-          return { success: true };
+          if (/^DELETE FROM corehub_state_rows$/.test(sql)) {
+            for (const key of [...rows.keys()].filter((key) => key.startsWith("corehub_state_rows:"))) rows.delete(key);
+            return { success: true };
+          }
+          if (/^INSERT INTO corehub_state_meta/.test(sql)) {
+            rows.set(`corehub_state_meta:${this.values[0]}`, {
+              key: this.values[0],
+              value: this.values[1],
+              updated_at: this.values[2],
+            });
+            return { success: true };
+          }
+          if (/^INSERT INTO corehub_state_rows/.test(sql)) {
+            rows.set(`corehub_state_rows:${this.values[0]}:${this.values[1]}`, {
+              collection: this.values[0],
+              id: this.values[1],
+              position: this.values[2],
+              value: this.values[3],
+              updated_at: this.values[4],
+            });
+            return { success: true };
+          }
+          if (/^INSERT INTO corehub_state_indexes/.test(sql)) {
+            rows.set(`corehub_state_indexes:${this.values[0]}:${this.values[1]}:${this.values[2]}:${this.values[3]}`, {
+              collection: this.values[0],
+              index_name: this.values[1],
+              index_key: this.values[2],
+              row_id: this.values[3],
+              updated_at: this.values[4],
+            });
+            return { success: true };
+          }
+          if (/^INSERT INTO corehub_state/.test(sql)) {
+            rows.set(`corehub_state:${this.values[0]}`, {
+              key: this.values[0],
+              value: this.values[1],
+              updated_at: this.values[2],
+            });
+            rows.set(this.values[0], {
+              key: this.values[0],
+              value: this.values[1],
+              updated_at: this.values[2],
+            });
+            return { success: true };
+          }
+          throw new Error(`Unexpected mock D1 mutation: ${sql}`);
         },
       };
     },
