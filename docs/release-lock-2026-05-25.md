@@ -133,4 +133,5 @@ Completed release-lock procedure result:
 ## Deferred
 
 - npm live publication remains deferred until explicit operator approval runs the protected npm release workflow.
+- npm preflight for `v0.1.0` passed in run `26389641795`; live publish is still not executed.
 - Browser OAuth polish remains a later UI hardening item, not a blocker for this production lock.

@@ -42,6 +42,20 @@ release_approved: false
 
 The preflight checks the release tag, runs the release gates, runs the safe npm publish dry run, packs the prepared tarball, and uploads the preflight artifact.
 
+Latest approved npm preflight:
+
+| Evidence | Result |
+| --- | --- |
+| Workflow | CoreHub CLI NPM Release |
+| Run id | `26389641795` |
+| Result | success |
+| Mode | `preflight_only=true` |
+| Tag | `v0.1.0` |
+| Head SHA | `10703b6561be1f8e262df1720a05c5fcdd14030e` |
+| Started | `2026-05-25T07:48:15Z` |
+| Finished | `2026-05-25T07:48:43Z` |
+| Run URL | `https://github.com/coreblow/corehub/actions/runs/26389641795` |
+
 ## Live Publish Approval
 
 Real publication requires all of these conditions:
