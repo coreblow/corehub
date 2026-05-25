@@ -24,7 +24,7 @@ The schema follows the ClawHub pattern where publishing is owner-scoped:
 | `publisherMembers` | Role bindings for organization-owned publishers. |
 | `packageSubmissions` | Authenticated publish attempts before they become public versions. |
 | `packageVersions` | Immutable package version records after review. |
-| `artifactUploads` | Managed upload metadata, storage locator, size, and checksum. |
+| `artifactUploads` | Managed upload metadata, storage locator, size, checksum, file manifest, and npm artifact metadata. |
 | `moderationReviews` | Human or automated review decisions. |
 | `ownershipTransfers` | Explicit publisher ownership moves with audit history. |
 | `trustedPublishers` | GitHub Actions trusted publisher policy per package. |
@@ -180,7 +180,7 @@ corehub package upload request ./plugin-lab.coreblow-plugin.tgz --registry https
 corehub package upload verify ./plugin-lab.coreblow-plugin.tgz --upload-slot upload-plugin-lab-0-1-0 --registry https://coreblow.com/corehub --dry-run
 ```
 
-`artifactUploads[].upload` records the signed upload contract used for a managed object. The public catalog should only expose verified artifact locators and checksums, not write-side upload signatures.
+`artifactUploads[].upload` records the signed upload contract used for a managed object. `artifactUploads[].files` and `artifactUploads[].npm` preserve the file manifest, integrity, shasum, tarball name, unpacked size, and file count that are projected into public package versions. The public catalog should only expose verified artifact locators, checksums, manifests, and npm metadata, not write-side upload signatures.
 
 When `--registry` is provided, the CLI uses the API v2 upload boundary. Without `--registry`, it keeps the local dry-run fallback so publishers can inspect the planned payload before the hosted write API is available.
 
@@ -253,7 +253,7 @@ Phase 18 adds the server-side shape for artifact references. The API handler acc
 
 | Route | Behavior |
 | --- | --- |
-| `POST /corehub/api/v2/artifacts/uploads` | Validates publisher, package, artifact metadata, expected size, expected SHA-256, storage provider, max byte limit, and optional artifact URL, then returns an upload slot. External URL providers are marked verified by reference. |
+| `POST /corehub/api/v2/artifacts/uploads` | Validates publisher, package, artifact metadata, optional file manifest, optional npm metadata, expected size, expected SHA-256, storage provider, max byte limit, and optional artifact URL, then returns an upload slot. External URL providers are marked verified by reference. |
 | `PUT /corehub/api/v2/artifacts/uploads/:id` | Accepts artifact bytes for managed storage slots and writes them through the configured storage adapter. |
 | `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Reads the managed stored object, recomputes size and SHA-256, and returns a verified or rejected artifact upload record. |
 | `POST /corehub/api/v2/submissions` | Accepts a verified artifact upload id and creates a pending-review package submission. |

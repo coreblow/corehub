@@ -185,7 +185,27 @@
           "mediaType": "application/vnd.coreblow.plugin-archive+gzip",
           "size": 736,
           "sha256": "4de3b0826298645b080a471904b5bfb7731aaed67a6b6da2bad26402e91a6c90",
+          "kind": "npm-pack",
+          "artifactKind": "npm-pack",
+          "artifactSha256": "4de3b0826298645b080a471904b5bfb7731aaed67a6b6da2bad26402e91a6c90",
+          "format": "tgz",
+          "packageName": "plugin-lab",
+          "version": "0.1.0",
           "downloadEnabled": true,
+          "npm": {
+            "integrity": "sha512-86GAbUwzaG5U7IscaczYhN8ICmfn9qatYKUYOjrViW7hPoaDv7c0mgciYocB1xQn7K2Hmuls4SJ+d9Tg5fIGFw==",
+            "shasum": "92aaddee3857612f80e227060f2fda0b40219794",
+            "tarballName": "plugin-lab-0.1.0.coreblow-plugin.tgz",
+            "unpackedSize": 1267,
+            "fileCount": 5
+          },
+          "npmIntegrity": "sha512-86GAbUwzaG5U7IscaczYhN8ICmfn9qatYKUYOjrViW7hPoaDv7c0mgciYocB1xQn7K2Hmuls4SJ+d9Tg5fIGFw==",
+          "npmShasum": "92aaddee3857612f80e227060f2fda0b40219794",
+          "npmTarballName": "plugin-lab-0.1.0.coreblow-plugin.tgz",
+          "npmUnpackedSize": 1267,
+          "npmFileCount": 5,
+          "unpackedSize": 1267,
+          "fileCount": 5,
           "storage": {
             "provider": "github-raw",
             "key": "artifacts/plugin-lab-0.1.0.coreblow-plugin.tgz",
@@ -194,6 +214,25 @@
           "provenance": {
             "source": "https://github.com/coreblow/plugin-lab",
             "reviewState": "verified"
+          },
+          "capabilities": {
+            "executesCode": true,
+            "runtimeId": "coreblow",
+            "pluginKind": "coreblow-plugin",
+            "hostTargets": [
+              "linux",
+              "macos",
+              "windows"
+            ],
+            "capabilityTags": [
+              "plugin",
+              "published",
+              "executes-code",
+              "host:linux",
+              "host:macos",
+              "host:windows",
+              "artifact-manifest"
+            ]
           },
           "files": [
             {

@@ -201,7 +201,7 @@ Download endpoints support storage-backed signed redirects. The default response
 
 Package file reads are limited to files listed in the artifact manifest, or files derived from a managed `.tgz` artifact when the manifest is not stored yet. File reads reject absolute or parent-relative paths, return only UTF-8 text files, and enforce a 200KB public read limit. External artifact URL mode can list manifest files, but raw file reads require managed artifact bytes.
 
-The npm mirror is intentionally minimal. It lists only available `.tgz` package versions and emits npm-compatible `dist.tarball`, `dist.integrity`, and `dist.shasum` fields. When a SHA-1 npm shasum is not available in package metadata, `dist.shasum` is `null` and clients should verify with `dist.integrity` plus CoreHub's `dist.corehubSha256`.
+The npm mirror lists only available `.tgz` package versions and emits npm-compatible `dist.tarball`, `dist.integrity`, `dist.shasum`, `dist.fileCount`, and `dist.unpackedSize` fields when the artifact metadata is known. Package versions also expose CoreHub-native artifact richness: `artifact.kind`, `artifact.artifactKind`, `artifact.format`, `artifact.npm`, npm shorthand fields, file manifests, capability summaries, compatibility summaries, verification summaries, and scanner trust state. When a SHA-1 npm shasum is not available in package metadata, `dist.shasum` is `null` and clients should verify with `dist.integrity` plus CoreHub's `dist.corehubSha256`.
 
 The CLI can perform a verified artifact fetch with `corehub package download <id> --output <path>`. Verified downloads write the artifact only after checking byte size and SHA-256 against the artifact manifest.
 

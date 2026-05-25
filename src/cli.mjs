@@ -2413,6 +2413,7 @@ async function createPackagePublishDryRun(source, values, registry) {
       mediaType: inspected.artifact.mediaType,
       size: inspected.artifact.size,
       sha256: inspected.artifact.sha256,
+      ...artifactSchemaFields(inspected.artifact),
       storage,
     },
     uploadPlan: {
@@ -2512,6 +2513,7 @@ async function createPackageSubmissionDryRun(source, values) {
     mediaType: inspected.artifact.mediaType,
     size: inspected.artifact.size,
     sha256: inspected.artifact.sha256,
+    ...artifactSchemaFields(inspected.artifact),
     uploadedBy: auth.actor,
     createdAt: now,
     verifiedAt: now,
@@ -2660,6 +2662,7 @@ async function createArtifactUploadRequestDryRun(source, values) {
     mediaType: inspected.artifact.mediaType,
     size: inspected.artifact.size,
     sha256: inspected.artifact.sha256,
+    ...artifactSchemaFields(inspected.artifact),
     uploadedBy: auth.actor,
     createdAt: now,
     ...(isExternalPackageStorageProvider(provider) ? { verifiedAt: now } : {}),
@@ -2725,6 +2728,7 @@ async function createArtifactUploadRequestViaRegistry(source, values, registry) 
         mediaType: inspected.artifact.mediaType,
         size: inspected.artifact.size,
         sha256: inspected.artifact.sha256,
+        ...artifactSchemaFields(inspected.artifact),
         ...(artifactUrl ? { url: artifactUrl } : {}),
       },
     },
@@ -2824,6 +2828,7 @@ async function createArtifactUploadVerificationDryRun(source, values) {
       mediaType: inspected.artifact.mediaType,
       size: inspected.artifact.size,
       sha256: inspected.artifact.sha256,
+      ...artifactSchemaFields(inspected.artifact),
       uploadedBy: auth.actor,
       createdAt: now,
       verifiedAt: now,
@@ -2955,6 +2960,7 @@ async function executePackagePublish(source, values, registry) {
           mediaType: inspected.artifact.mediaType,
           size: inspected.artifact.size,
           sha256: inspected.artifact.sha256,
+          ...artifactSchemaFields(inspected.artifact),
           ...(artifactUrl ? { url: artifactUrl } : {}),
         },
       },
@@ -3052,6 +3058,7 @@ async function inspectPackageSubmitFolder(path) {
       mediaType: "application/vnd.coreblow.plugin-folder",
       size,
       sha256: hash.digest("hex"),
+      files,
     },
     storageKey: path,
   });
@@ -3071,15 +3078,19 @@ async function inspectPackageSubmitManifest(path) {
 async function inspectPackageSubmitArchive(path) {
   const bytes = await readFile(path);
   const manifest = await readArchiveCoreHubManifest(path);
+  const files = await collectArchiveFiles(path);
+  const name = path.split(/[\\/]/).at(-1);
   return normalizeSubmitManifest({
     type: "archive",
     sourcePath: path,
     manifest,
     artifact: {
-      name: path.split(/[\\/]/).at(-1),
+      name,
       mediaType: "application/vnd.coreblow.plugin-archive+gzip",
       size: bytes.byteLength,
       sha256: createHash("sha256").update(bytes).digest("hex"),
+      files,
+      npm: createNpmArtifactMetadata(bytes, name, files),
     },
     storageKey: path,
   });
@@ -3100,6 +3111,38 @@ async function readArchiveCoreHubManifest(path) {
   throw new Error("package submit archive must contain corehub.artifact.json");
 }
 
+async function collectArchiveFiles(path) {
+  const { stdout } = await execFileAsync("tar", ["-tzf", path], { encoding: "utf8" });
+  const names = stdout
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => !item.endsWith("/"));
+  const files = [];
+  for (const name of names) {
+    const bytes = await readArchiveFile(path, name);
+    if (!bytes) continue;
+    files.push({
+      path: name.replace(/^package\//, ""),
+      size: bytes.byteLength,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    });
+  }
+  return files.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function readArchiveFile(path, name) {
+  try {
+    const { stdout } = await execFileAsync("tar", ["-xOzf", path, name], {
+      encoding: "buffer",
+      maxBuffer: 100 * 1024 * 1024,
+    });
+    return Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeSubmitManifest({ type, sourcePath, manifest, artifact, storageKey }) {
   const pkg = manifest.package;
   if (!pkg?.id || !pkg?.version || !pkg?.kind) {
@@ -3114,7 +3157,58 @@ function normalizeSubmitManifest({ type, sourcePath, manifest, artifact, storage
     package: pkg,
     publisher: manifest.publisher ?? null,
     source: manifest.source,
-    artifact,
+    artifact: normalizeSubmitArtifact(artifact),
+  };
+}
+
+function normalizeSubmitArtifact(artifact) {
+  return {
+    ...artifact,
+    files: normalizeSubmitArtifactFiles(artifact.files),
+    ...artifactSchemaFields(artifact),
+  };
+}
+
+function artifactSchemaFields(artifact) {
+  const files = normalizeSubmitArtifactFiles(artifact.files);
+  const npm = normalizeSubmitNpmArtifact(artifact.npm);
+  return {
+    ...(files.length > 0 ? { files } : {}),
+    ...(npm ? { npm } : {}),
+  };
+}
+
+function normalizeSubmitArtifactFiles(files) {
+  if (!Array.isArray(files)) return [];
+  return files
+    .filter((file) => file && typeof file === "object")
+    .map((file) => ({
+      path: String(file.path ?? "").replaceAll("\\", "/").replace(/^package\//, ""),
+      size: Number.isSafeInteger(file.size) && file.size >= 0 ? file.size : 0,
+      sha256: String(file.sha256 ?? "").toLowerCase(),
+    }))
+    .filter((file) => file.path && /^[a-f0-9]{64}$/.test(file.sha256));
+}
+
+function normalizeSubmitNpmArtifact(npm) {
+  if (!npm || typeof npm !== "object" || Array.isArray(npm)) return null;
+  return {
+    ...(typeof npm.integrity === "string" && npm.integrity.trim() ? { integrity: npm.integrity.trim() } : {}),
+    ...(typeof npm.shasum === "string" && /^[a-f0-9]{40}$/i.test(npm.shasum.trim()) ? { shasum: npm.shasum.trim().toLowerCase() } : {}),
+    ...(typeof npm.tarballName === "string" && npm.tarballName.trim() ? { tarballName: npm.tarballName.trim() } : {}),
+    ...(Number.isSafeInteger(npm.unpackedSize) && npm.unpackedSize >= 0 ? { unpackedSize: npm.unpackedSize } : {}),
+    ...(Number.isSafeInteger(npm.fileCount) && npm.fileCount >= 0 ? { fileCount: npm.fileCount } : {}),
+  };
+}
+
+function createNpmArtifactMetadata(bytes, name, files) {
+  const normalizedFiles = normalizeSubmitArtifactFiles(files);
+  return {
+    integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+    shasum: createHash("sha1").update(bytes).digest("hex"),
+    tarballName: name,
+    unpackedSize: normalizedFiles.reduce((sum, file) => sum + file.size, 0),
+    fileCount: normalizedFiles.length,
   };
 }
 

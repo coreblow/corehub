@@ -572,6 +572,59 @@
         },
         "verifiedAt": {
           "$ref": "#/$defs/timestamp"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifactFile"
+          }
+        },
+        "npm": {
+          "$ref": "#/$defs/npmArtifact"
+        }
+      }
+    },
+    "artifactFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "npmArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "integrity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shasum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "tarballName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unpackedSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fileCount": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

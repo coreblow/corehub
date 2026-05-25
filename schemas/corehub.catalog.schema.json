@@ -134,8 +134,63 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$"
         },
+        "kind": {
+          "type": "string",
+          "enum": ["legacy-zip", "npm-pack"]
+        },
+        "artifactKind": {
+          "type": "string",
+          "enum": ["legacy-zip", "npm-pack"]
+        },
+        "artifactSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "format": {
+          "type": "string",
+          "minLength": 1
+        },
+        "packageName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
         "downloadEnabled": {
           "type": "boolean"
+        },
+        "npm": {
+          "$ref": "#/$defs/npmArtifact"
+        },
+        "npmIntegrity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "npmShasum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "npmTarballName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "npmUnpackedSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "npmFileCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unpackedSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fileCount": {
+          "type": "integer",
+          "minimum": 0
         },
         "storage": {
           "$ref": "#/$defs/storage"
@@ -143,10 +198,71 @@
         "provenance": {
           "$ref": "#/$defs/provenance"
         },
+        "capabilities": {
+          "$ref": "#/$defs/capabilitySummary"
+        },
         "files": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/artifactFile"
+          }
+        }
+      }
+    },
+    "npmArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "integrity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "shasum": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "tarballName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unpackedSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fileCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "capabilitySummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executesCode", "capabilityTags"],
+      "properties": {
+        "executesCode": {
+          "type": "boolean"
+        },
+        "runtimeId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pluginKind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hostTargets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "capabilityTags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
           }
         }
       }

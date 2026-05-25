@@ -146,6 +146,8 @@ async function buildSeedPlan() {
       size: artifact.size,
       sha256: artifact.sha256,
       url: artifact.storage.url,
+      ...(Array.isArray(artifact.files) ? { files: artifact.files } : {}),
+      ...(artifact.npm ? { npm: artifact.npm } : {}),
     },
   };
 }

@@ -438,7 +438,13 @@ const packageArtifact = await execFileAsync(process.execPath, [
   "artifact",
   "plugin-lab",
 ]);
-assert.equal(JSON.parse(packageArtifact.stdout).artifact.downloadEnabled, true);
+const packageArtifactPayload = JSON.parse(packageArtifact.stdout);
+assert.equal(packageArtifactPayload.artifact.downloadEnabled, true);
+assert.equal(packageArtifactPayload.artifact.kind, "npm-pack");
+assert.equal(packageArtifactPayload.artifact.npm.integrity, pluginLabEntry.versions[0].artifact.npm.integrity);
+assert.equal(packageArtifactPayload.artifact.npmShasum, pluginLabEntry.versions[0].artifact.npm.shasum);
+assert.equal(packageArtifactPayload.artifact.fileCount, 5);
+assert.equal(packageArtifactPayload.artifact.capabilities.executesCode, true);
 
 const packageFiles = await execFileAsync(process.execPath, [
   cliPath,
@@ -447,6 +453,7 @@ const packageFiles = await execFileAsync(process.execPath, [
   "plugin-lab",
 ]);
 assert.equal(JSON.parse(packageFiles.stdout).artifact.name, "plugin-lab-0.1.0.coreblow-plugin.tgz");
+assert.equal(JSON.parse(packageFiles.stdout).artifact.files.length, 5);
 
 const packageDownload = await execFileAsync(process.execPath, [
   cliPath,
@@ -580,6 +587,7 @@ try {
   assert.equal(folderSubmitPayload.submission.publisherHandle, "coreblow");
   assert.equal(folderSubmitPayload.artifactUpload.status, "verified");
   assert.equal(folderSubmitPayload.artifactUpload.mediaType, "application/vnd.coreblow.plugin-folder");
+  assert.equal(folderSubmitPayload.artifactUpload.files.length, 5);
 
   const archiveSubmit = await execFileAsync(
     process.execPath,
@@ -597,6 +605,8 @@ try {
   assert.equal(archiveSubmitPayload.submission.status, "pending_review");
   assert.equal(archiveSubmitPayload.artifactUpload.sha256, pluginLabEntry.versions[0].artifact.sha256);
   assert.equal(archiveSubmitPayload.artifactUpload.size, pluginLabEntry.versions[0].artifact.size);
+  assert.equal(archiveSubmitPayload.artifactUpload.files.length, 5);
+  assert.equal(archiveSubmitPayload.artifactUpload.npm.integrity, pluginLabEntry.versions[0].artifact.npm.integrity);
 
   const uploadRequest = await execFileAsync(
     process.execPath,
@@ -2301,7 +2311,11 @@ try {
     const projectedSecurityPayload = await projectedSecurityResponse.json();
     assert.equal(projectedSecurityPayload.data.package.name, "plugin-lab");
     assert.equal(projectedSecurityPayload.data.release.version, "0.1.0");
+    assert.equal(projectedSecurityPayload.data.release.artifactKind, "npm-pack");
     assert.equal(projectedSecurityPayload.data.release.artifactSha256, entries[2].versions[0].artifact.sha256);
+    assert.equal(projectedSecurityPayload.data.release.npmIntegrity, entries[2].versions[0].artifact.npm.integrity);
+    assert.equal(projectedSecurityPayload.data.release.npmShasum, entries[2].versions[0].artifact.npm.shasum);
+    assert.equal(projectedSecurityPayload.data.release.npmFileCount, 5);
     assert.equal(projectedSecurityPayload.data.trust.blockedFromDownload, false);
     assert.equal(projectedSecurityPayload.data.trust.scanStatus, "clean");
 
@@ -2312,9 +2326,11 @@ try {
     assert.equal(npmPackumentPayload["dist-tags"].latest, "0.1.0");
     assert.equal(
       npmPackumentPayload.versions["0.1.0"].dist.integrity,
-      `sha256-${Buffer.from(entries[2].versions[0].artifact.sha256, "hex").toString("base64")}`,
+      entries[2].versions[0].artifact.npm.integrity,
     );
-    assert.equal(npmPackumentPayload.versions["0.1.0"].dist.shasum, null);
+    assert.equal(npmPackumentPayload.versions["0.1.0"].dist.shasum, entries[2].versions[0].artifact.npm.shasum);
+    assert.equal(npmPackumentPayload.versions["0.1.0"].dist.fileCount, 5);
+    assert.equal(npmPackumentPayload.versions["0.1.0"].dist.unpackedSize, 1267);
     assert.equal(npmPackumentPayload.versions["0.1.0"].dist.corehubSha256, entries[2].versions[0].artifact.sha256);
     assert.match(
       npmPackumentPayload.versions["0.1.0"].dist.tarball,
@@ -2334,7 +2350,7 @@ try {
     assert.equal(npmTarballResponse.headers.get("x-corehub-artifact-sha256"), entries[2].versions[0].artifact.sha256);
     assert.equal(
       npmTarballResponse.headers.get("x-corehub-npm-integrity"),
-      `sha256-${Buffer.from(entries[2].versions[0].artifact.sha256, "hex").toString("base64")}`,
+      entries[2].versions[0].artifact.npm.integrity,
     );
 
     const projectedPluginListResponse = await fetch(`${apiRegistryUrl}/api/v1/plugins?category=dev-tools&executesCode=true`);
@@ -2342,6 +2358,8 @@ try {
     const projectedPluginListPayload = await projectedPluginListResponse.json();
     assert.equal(projectedPluginListPayload.data[0].id, "plugin-lab");
     assert.equal(projectedPluginListPayload.data[0].marketplace.family, "code-plugin");
+    assert.equal(projectedPluginListPayload.data[0].versions[0].artifact.kind, "npm-pack");
+    assert.equal(projectedPluginListPayload.data[0].versions[0].artifact.npm.fileCount, 5);
     assert.equal(projectedPluginListPayload.meta.total, 1);
     assert.equal(projectedPluginListPayload.meta.limit, 50);
     assert.equal(projectedPluginListPayload.meta.cursor, null);
@@ -2857,6 +2875,8 @@ try {
     assert.equal(persistedState.packageSearchDigests[0].family, "code-plugin");
     assert.equal(persistedState.packageSearchDigests[0].searchTokens.includes("plugin"), true);
     assert.equal(persistedState.packageSearchDigests[0].entry.id, "plugin-lab");
+    assert.equal(persistedState.packageSearchDigests[0].entry.versions[0].artifact.fileCount, 5);
+    assert.equal(persistedState.packageSearchDigests[0].entry.versions[0].artifact.npm.shasum, entries[2].versions[0].artifact.npm.shasum);
     assert.equal("softDeletedAt" in persistedState.packageVersions[0], false);
     assert.equal(typeof persistedState.packageVersions[0].restoredAt, "string");
     assert.equal(persistedState.packageVersions[0].manualModeration.state, "approved");

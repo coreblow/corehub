@@ -477,6 +477,8 @@ export class CoreHubLocalStorageAdapter {
       mediaType: request.artifact.mediaType,
       size: request.artifact.size,
       sha256: request.artifact.sha256,
+      files: request.artifact.files,
+      ...(request.artifact.npm ? { npm: request.artifact.npm } : {}),
       uploadedBy: actor,
       createdAt,
       ...(isExternalArtifactProvider(request.provider) ? { verifiedAt: createdAt } : {}),
@@ -585,6 +587,7 @@ export class CoreHubLocalStorageAdapter {
       status,
       uploadedBy: actor,
       verifiedAt: now.toISOString(),
+      files: status === "verified" ? await packageArtifactFiles(this, slot.artifactUpload) : slot.artifactUpload.files,
     };
     slot.artifactUpload = artifactUpload;
     this.recordAuditEvent({
@@ -2428,6 +2431,20 @@ export class CoreHubLocalStorageAdapter {
       const submission = submissionRecord.submission;
       const source = submission.source ?? `https://github.com/${version.publisherHandle}/${version.packageId}`;
       const installStats = this.installEvents.filter((event) => event.packageId === version.packageId);
+      const artifact = createProjectedArtifactMetadata({
+        artifactUpload,
+        packageId: version.packageId,
+        version: version.version,
+        kind: submission.kind,
+        source,
+        trust,
+        security: this.latestPackageScanTrust(version.packageId, version.version),
+      });
+      const capabilitySummary = createPackageCapabilitySummary({
+        kind: submission.kind,
+        artifact,
+        platforms: ["linux", "macos", "windows"],
+      });
       entries.push({
         id: version.packageId,
         kind: submission.kind,
@@ -2437,7 +2454,7 @@ export class CoreHubLocalStorageAdapter {
         homepage: source,
         version: version.version,
         tags: [submission.kind, "published"],
-        capabilities: [],
+        capabilities: capabilitySummary.capabilityTags,
         stats: {
           installs: installStats.filter((event) => event.event === "installed").length,
           downloads: installStats.filter((event) => event.event === "downloaded").length,
@@ -2449,7 +2466,7 @@ export class CoreHubLocalStorageAdapter {
           featured: false,
           executesCode: submission.kind === "plugin",
           category: "dev-tools",
-          capabilityTags: [submission.kind, "published"],
+          capabilityTags: capabilitySummary.capabilityTags,
         },
         scanner: this.latestPackageScanSummary(version.packageId, version.version),
         publisher: {
@@ -2478,21 +2495,10 @@ export class CoreHubLocalStorageAdapter {
             },
             status: "available",
             moderationState: trust.moderationState,
-            artifact: {
-              name: artifactUpload.storage.key.split("/").at(-1) ?? `${version.packageId}-${version.version}.artifact`,
-              mediaType: artifactUpload.mediaType ?? "application/octet-stream",
-              size: artifactUpload.size,
-              sha256: artifactUpload.sha256,
-              downloadEnabled: !trust.blockedFromDownload,
-              trust,
-              security: this.latestPackageScanTrust(version.packageId, version.version),
-              storage: artifactUpload.storage,
-              provenance: {
-                source,
-                reviewState: "verified",
-              },
-              files: [],
-            },
+            capabilities: capabilitySummary,
+            compatibility: createPackageCompatibilitySummary(),
+            verification: createPackageVerificationSummary({ source, scanStatus: artifact.security.scanStatus }),
+            artifact,
           },
         ],
       });
@@ -3630,6 +3636,111 @@ function packageReleaseTrust(version) {
   };
 }
 
+function createProjectedArtifactMetadata({ artifactUpload, packageId, version, kind, source, trust, security }) {
+  const name = artifactUpload.storage.key.split("/").at(-1) ?? `${packageId}-${version}.artifact`;
+  const files = Array.isArray(artifactUpload.files) ? artifactUpload.files : [];
+  const artifactKind = inferArtifactKind(name, artifactUpload.mediaType);
+  const fileCount = files.length;
+  const unpackedSize = files.reduce((sum, file) => sum + (Number.isSafeInteger(file.size) ? file.size : 0), 0);
+  const npm = {
+    ...createNpmArtifactMetadata({ name, sha256: artifactUpload.sha256, fileCount, unpackedSize }),
+    ...(artifactUpload.npm ?? {}),
+  };
+  return {
+    name,
+    mediaType: artifactUpload.mediaType ?? "application/octet-stream",
+    size: artifactUpload.size,
+    sha256: artifactUpload.sha256,
+    kind: artifactKind,
+    artifactKind,
+    artifactSha256: artifactUpload.sha256,
+    format: inferArtifactFormat(name, artifactUpload.mediaType),
+    packageName: packageId,
+    version,
+    downloadEnabled: !trust.blockedFromDownload,
+    trust,
+    security,
+    npm,
+    npmIntegrity: npm.integrity,
+    npmShasum: npm.shasum,
+    npmTarballName: npm.tarballName,
+    npmUnpackedSize: npm.unpackedSize,
+    npmFileCount: npm.fileCount,
+    unpackedSize,
+    fileCount,
+    storage: artifactUpload.storage,
+    provenance: {
+      source,
+      reviewState: "verified",
+    },
+    capabilities: createPackageCapabilitySummary({
+      kind,
+      artifact: { fileCount },
+      platforms: ["linux", "macos", "windows"],
+    }),
+    files,
+  };
+}
+
+function inferArtifactKind(name, mediaType) {
+  if (String(name ?? "").endsWith(".tgz") || String(mediaType ?? "").includes("gzip")) return "npm-pack";
+  return "legacy-zip";
+}
+
+function inferArtifactFormat(name, mediaType) {
+  if (String(name ?? "").endsWith(".tgz") || String(mediaType ?? "").includes("gzip")) return "tgz";
+  if (String(name ?? "").endsWith(".zip") || String(mediaType ?? "").includes("zip")) return "zip";
+  if (String(mediaType ?? "").includes("json")) return "json";
+  return "binary";
+}
+
+function createNpmArtifactMetadata({ name, sha256, fileCount, unpackedSize }) {
+  return {
+    integrity: sha256 ? `sha256-${Buffer.from(sha256, "hex").toString("base64")}` : null,
+    shasum: null,
+    tarballName: name,
+    unpackedSize,
+    fileCount,
+  };
+}
+
+function createPackageCapabilitySummary({ kind, artifact, platforms = [] } = {}) {
+  const executesCode = kind === "plugin";
+  const capabilityTags = [
+    kind,
+    "published",
+    executesCode ? "executes-code" : "content-only",
+    ...(platforms ?? []).map((platform) => `host:${platform}`),
+    artifact?.fileCount > 0 ? "artifact-manifest" : "artifact-reference",
+  ];
+  return {
+    executesCode,
+    runtimeId: "coreblow",
+    pluginKind: kind === "plugin" ? "coreblow-plugin" : undefined,
+    hostTargets: platforms,
+    capabilityTags,
+  };
+}
+
+function createPackageCompatibilitySummary() {
+  return {
+    pluginApiRange: ">=1.0.0",
+    pluginSdkVersion: "1.0.0",
+    minGatewayVersion: "1.0.0",
+  };
+}
+
+function createPackageVerificationSummary({ source, scanStatus }) {
+  return {
+    tier: "source-linked",
+    scope: "artifact-only",
+    summary: "Approved through CoreHub review with artifact checksum and source provenance.",
+    sourceRepo: source,
+    hasProvenance: true,
+    scanStatus,
+  };
+}
+
 function createPackageModerationStatus(entry) {
   const latest = selectLatestPackageVersion(entry);
   const reviewState = entry.review?.state ?? "unknown";
@@ -3825,6 +3936,8 @@ function createPackageSecuritySummary(entry, version) {
       npmIntegrity: version.artifact?.npm?.integrity ?? version.artifact?.integrity ?? null,
       npmShasum: version.artifact?.npm?.shasum ?? version.artifact?.shasum ?? null,
       npmTarballName: version.artifact?.npm?.tarballName ?? version.artifact?.name ?? null,
+      npmUnpackedSize: version.artifact?.npm?.unpackedSize ?? version.artifact?.unpackedSize ?? null,
+      npmFileCount: version.artifact?.npm?.fileCount ?? version.artifact?.fileCount ?? null,
       createdAt: version.publishedAt ?? version.createdAt ?? null,
     },
     trust: {
@@ -3875,8 +3988,8 @@ function createNpmVersionDocument(request, entry, version) {
       integrity: npmIntegrity(artifact),
       shasum: npmShasum(artifact),
       corehubSha256: artifact.sha256,
-      fileCount: Array.isArray(artifact.files) ? artifact.files.length : undefined,
-      unpackedSize: artifact.unpackedSize ?? undefined,
+      fileCount: artifact.npm?.fileCount ?? artifact.fileCount ?? (Array.isArray(artifact.files) ? artifact.files.length : undefined),
+      unpackedSize: artifact.npm?.unpackedSize ?? artifact.unpackedSize ?? undefined,
     },
     corehub: {
       packageId: entry.id,
@@ -4146,6 +4259,8 @@ function normalizeUploadRequest(input) {
   if (!/^[a-f0-9]{64}$/i.test(sha256)) throw httpError(400, "artifact.sha256 must be a SHA-256 hex digest");
   const size = artifact.size;
   if (!Number.isSafeInteger(size) || size < 0) throw httpError(400, "artifact.size must be a non-negative integer");
+  const files = normalizeArtifactFiles(artifact.files);
+  const npm = normalizeArtifactNpmMetadata(artifact.npm);
   const provider = input.provider ?? "managed";
   if (!["managed", "github-raw", "external-url"].includes(provider)) {
     throw httpError(400, "provider must be managed, github-raw, or external-url");
@@ -4170,8 +4285,38 @@ function normalizeUploadRequest(input) {
       mediaType,
       size,
       sha256: sha256.toLowerCase(),
+      files,
+      ...(npm ? { npm } : {}),
       ...(url ? { url } : {}),
     },
+  };
+}
+
+function normalizeArtifactFiles(files) {
+  if (files === undefined) return [];
+  if (!Array.isArray(files)) throw httpError(400, "artifact.files must be an array");
+  return files.map((file, index) => {
+    if (!file || typeof file !== "object") throw httpError(400, `artifact.files[${index}] must be an object`);
+    const path = normalizePackageFilePath(file.path);
+    const size = file.size;
+    if (!Number.isSafeInteger(size) || size < 0) throw httpError(400, `artifact.files[${index}].size must be a non-negative integer`);
+    const sha256 = normalizeRequiredString(file.sha256, `artifact.files[${index}].sha256`).toLowerCase();
+    if (!/^[a-f0-9]{64}$/.test(sha256)) throw httpError(400, `artifact.files[${index}].sha256 must be a SHA-256 hex digest`);
+    return { path, size, sha256 };
+  });
+}
+
+function normalizeArtifactNpmMetadata(npm) {
+  if (npm === undefined) return null;
+  if (!npm || typeof npm !== "object" || Array.isArray(npm)) throw httpError(400, "artifact.npm must be an object");
+  const shasum = typeof npm.shasum === "string" && npm.shasum.trim() ? npm.shasum.trim().toLowerCase() : null;
+  if (shasum && !/^[a-f0-9]{40}$/.test(shasum)) throw httpError(400, "artifact.npm.shasum must be a SHA-1 hex digest");
+  return {
+    ...(typeof npm.integrity === "string" && npm.integrity.trim() ? { integrity: npm.integrity.trim() } : {}),
+    ...(shasum ? { shasum } : {}),
+    ...(typeof npm.tarballName === "string" && npm.tarballName.trim() ? { tarballName: npm.tarballName.trim() } : {}),
+    ...(Number.isSafeInteger(npm.unpackedSize) && npm.unpackedSize >= 0 ? { unpackedSize: npm.unpackedSize } : {}),
+    ...(Number.isSafeInteger(npm.fileCount) && npm.fileCount >= 0 ? { fileCount: npm.fileCount } : {}),
   };
 }
 
