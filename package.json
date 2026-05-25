@@ -31,7 +31,7 @@
     "smoke:persistence-migration": "node scripts/smoke-persistence-migration.mjs",
     "smoke:post-deploy": "node scripts/smoke-worker-post-deploy.mjs",
     "smoke:worker-local": "node scripts/smoke-worker-local.mjs",
-    "test": "node test/catalog.test.mjs",
+    "test": "node test/run-tests.mjs",
     "validate:alert-schema": "node scripts/validate-audit-alert-schema.mjs",
     "validate:deploy": "node scripts/validate-worker-deploy-readiness.mjs --production",
     "validate:deploy-template": "node scripts/validate-worker-deploy-readiness.mjs --template",

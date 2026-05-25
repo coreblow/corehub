@@ -119,6 +119,14 @@ After the final acceptance pass, CoreHub added API-level community signals for f
 - Public publisher profiles.
 - Package and hosted skill leaderboards.
 
+CoreHub also split the ClawHub parity test surface into focused route and CLI coverage:
+
+- Public API compatibility: cursor pagination, exact security endpoint shape, v1 text errors, v2 error envelopes, and rate-limit headers.
+- npm and artifact route parity: packument, tarball redirect, file manifest, raw file read, and path validation.
+- Scanner route parity: static backfill, hosted scan enqueue/result, and security trust enforcement.
+- Community and skill route parity: hosted skill read/security plus stars, comments, reports, deletion, and leaderboard scoring.
+- Moderator CLI surface: scanner enqueue, completion, and list flow through the CoreHub registry client.
+
 ## Final Gate
 
 Before changing acceptance status, run:
