@@ -4,7 +4,7 @@ This document locks the CoreHub post-v1 production baseline after the accepted m
 
 ## Release Scope
 
-Status: production release lock in progress.
+Status: locked.
 
 Accepted baseline tag:
 
@@ -84,26 +84,36 @@ Rollback rehearsal result:
 
 ## Production Drill Evidence
 
-Protected Production Drill workflow evidence will be locked here after the workflow completes for this release baseline.
+Protected Production Drill workflow:
 
-Required workflow inputs:
+| Evidence | Result |
+| --- | --- |
+| Workflow | Production Drill |
+| Run id | `26389174159` |
+| Result | success |
+| Started | `2026-05-25T07:35:50Z` |
+| Finished | `2026-05-25T07:36:39Z` |
+| Head SHA | `977e99a3f3ef3888230e5874d48ec82d17bcd3d4` |
+| Run URL | `https://github.com/coreblow/corehub/actions/runs/26389174159` |
+
+Workflow inputs:
 
 - `registry`: `https://coreblow.com/corehub`
 - `package`: `plugin-lab`
-- `rollback_version_id`: last known-good Worker rollback version
+- `rollback_version_id`: `8406bea7-bfa7-4ad4-af11-d36870dd329d`
 - `verify_read`: `true`
 
-Acceptance condition:
+Acceptance result:
 
-- current revision live smoke passes
-- D1 SQL export is non-empty
-- D1 state snapshot export is valid
-- restore dry run passes
-- approved no-op D1 restore passes
-- restored snapshot validation passes
-- Worker rollback smoke passes
-- current Worker revision restore passes
-- final live smoke passes
+- current revision live smoke passed
+- D1 SQL export was non-empty
+- D1 state snapshot export was valid
+- restore dry run passed
+- approved no-op D1 restore passed
+- restored snapshot validation passed
+- Worker rollback smoke passed
+- current Worker revision restore passed
+- final live smoke passed
 
 ## Release Lock Procedure
 
@@ -112,6 +122,13 @@ Acceptance condition:
 3. Update this document with the Production Drill run id and result.
 4. Tag the accepted baseline with `corehub-v1-accepted-2026-05-25`.
 5. Push the commit and tag.
+
+Completed release-lock procedure result:
+
+- release lock document committed
+- protected Production Drill workflow passed
+- release lock evidence updated
+- accepted baseline tag created and pushed
 
 ## Deferred
 
