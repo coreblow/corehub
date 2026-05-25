@@ -254,6 +254,8 @@ Phase 18 adds the server-side shape for artifact references. The API handler acc
 | Route | Behavior |
 | --- | --- |
 | `POST /corehub/api/v2/artifacts/uploads` | Validates publisher, package, artifact metadata, optional file manifest, optional npm metadata, expected size, expected SHA-256, storage provider, max byte limit, and optional artifact URL, then returns an upload slot. External URL providers are marked verified by reference. |
+| `POST /corehub/api/v2/package-scans/enqueue` | Queues a hosted CoreHub ClawScan or VirusTotal package scan with artifact metadata, package context, and audit evidence. |
+| `POST /corehub/api/v2/package-scans/:id/result` | Records hosted scanner callback results, provider analysis snapshots, reason codes, risk level, evidence, and the resolved public scan trust state. |
 | `PUT /corehub/api/v2/artifacts/uploads/:id` | Accepts artifact bytes for managed storage slots and writes them through the configured storage adapter. |
 | `POST /corehub/api/v2/artifacts/uploads/:id/verify` | Reads the managed stored object, recomputes size and SHA-256, and returns a verified or rejected artifact upload record. |
 | `POST /corehub/api/v2/submissions` | Accepts a verified artifact upload id and creates a pending-review package submission. |

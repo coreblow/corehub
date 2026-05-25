@@ -26,6 +26,8 @@ npm run corehub -- package moderate plugin-lab --version 0.1.0 --state approved 
 npm run corehub -- package moderation-queue --status open --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package scans list --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package scans rescan plugin-lab --version 0.1.0 --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package scans enqueue plugin-lab --version 0.1.0 --scanner corehub-clawscan --registry http://127.0.0.1:8787/corehub
+npm run corehub -- package scans complete scan-plugin-lab-0-1-0-000001 --scan-status clean --summary "Hosted scan completed." --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package scans backfill --package plugin-lab --registry http://127.0.0.1:8787/corehub
 npm run corehub -- package install plugin-lab
 npm run corehub -- package install plugin-lab --output plugin-lab.coreblow-plugin.tgz

@@ -1636,6 +1636,12 @@ function readOption(values, name) {
   return values[index + 1];
 }
 
+function readCsvOption(values, name) {
+  const value = readOption(values, name);
+  if (!value) return undefined;
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
 function readQueueListOptions(values) {
   return {
     status: readOption(values, "--status"),
@@ -2186,7 +2192,44 @@ async function runPackageScansCommand(values, registry) {
     if (!id) throw new Error("package scans rescan requires an entry id");
     const version = readOption(args, "--version");
     if (!version) throw new Error("package scans rescan requires --version <version>");
-    const result = await client.rescanPackage(id, { version, reason: readOption(args, "--reason") }, { auth });
+    const result = await client.rescanPackage(id, {
+      version,
+      reason: readOption(args, "--reason"),
+      scanner: readOption(args, "--scanner"),
+      mode: hasFlag(args, "--hosted") ? "hosted" : undefined,
+    }, { auth });
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  if (subcommand === "enqueue") {
+    const id = positionalArgs(args)[0];
+    if (!id) throw new Error("package scans enqueue requires an entry id");
+    const version = readOption(args, "--version");
+    if (!version) throw new Error("package scans enqueue requires --version <version>");
+    const result = await client.enqueuePackageScan({
+      packageId: id,
+      version,
+      scanner: readOption(args, "--scanner") ?? "corehub-clawscan",
+      source: readOption(args, "--source") ?? "hosted",
+      reason: readOption(args, "--reason"),
+    }, { auth });
+    console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
+    return;
+  }
+
+  if (subcommand === "complete" || subcommand === "result") {
+    const scanId = positionalArgs(args)[0];
+    if (!scanId) throw new Error("package scans complete requires a scan id");
+    const scanStatus = readOption(args, "--scan-status") ?? readOption(args, "--status") ?? "clean";
+    const summary = readOption(args, "--summary") ?? `Hosted scanner completed with ${scanStatus}.`;
+    const result = await client.completePackageScan(scanId, {
+      status: "completed",
+      scanStatus,
+      summary,
+      riskLevel: readOption(args, "--risk-level"),
+      reasonCodes: readCsvOption(args, "--reason-codes"),
+    }, { auth });
     console.log(JSON.stringify({ registry: normalizeRegistry(registry), ...result }, null, 2));
     return;
   }
@@ -3745,6 +3788,26 @@ class CoreHubRegistryClient {
     });
   }
 
+  async enqueuePackageScan(payload, options = {}) {
+    return this.writeData(this.apiV2Url("/package-scans/enqueue"), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
+  async completePackageScan(scanId, payload, options = {}) {
+    return this.writeData(this.apiV2Url(`/package-scans/${encodeURIComponent(scanId)}/result`), {
+      auth: options.auth,
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      expectedVersion: "v2",
+    });
+  }
+
   async backfillPackageScans(payload, options = {}) {
     return this.writeData(this.apiV2Url("/package-scans/backfill"), {
       auth: options.auth,
@@ -4074,7 +4137,9 @@ Usage:
   corehub package moderate <entry-id> --version version --state approved|quarantined|revoked --reason text --registry https://coreblow.com/corehub
   corehub package moderation-queue [--status open|blocked|manual|all] --registry https://coreblow.com/corehub
   corehub package scans list [--status all|completed|queued|failed] [--package entry-id] [--version version] --registry https://coreblow.com/corehub
-  corehub package scans rescan <entry-id> --version version [--reason text] --registry https://coreblow.com/corehub
+  corehub package scans rescan <entry-id> --version version [--hosted] [--scanner corehub-clawscan|virustotal] [--reason text] --registry https://coreblow.com/corehub
+  corehub package scans enqueue <entry-id> --version version [--scanner corehub-clawscan|virustotal] --registry https://coreblow.com/corehub
+  corehub package scans complete <scan-id> --scan-status clean|suspicious|malicious [--summary text] --registry https://coreblow.com/corehub
   corehub package scans backfill [--package entry-id] [--include-existing] [--reason text] --registry https://coreblow.com/corehub
   corehub package appeal <entry-id> --version version --message text --registry https://coreblow.com/corehub
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub
@@ -4118,7 +4183,9 @@ Usage:
   corehub package moderate <entry-id> --version version --state approved|quarantined|revoked --reason text --registry https://coreblow.com/corehub
   corehub package moderation-queue [--status open|blocked|manual|all] --registry https://coreblow.com/corehub
   corehub package scans list [--status all|completed|queued|failed] [--package entry-id] [--version version] --registry https://coreblow.com/corehub
-  corehub package scans rescan <entry-id> --version version [--reason text] --registry https://coreblow.com/corehub
+  corehub package scans rescan <entry-id> --version version [--hosted] [--scanner corehub-clawscan|virustotal] [--reason text] --registry https://coreblow.com/corehub
+  corehub package scans enqueue <entry-id> --version version [--scanner corehub-clawscan|virustotal] --registry https://coreblow.com/corehub
+  corehub package scans complete <scan-id> --scan-status clean|suspicious|malicious [--summary text] --registry https://coreblow.com/corehub
   corehub package scans backfill [--package entry-id] [--include-existing] [--reason text] --registry https://coreblow.com/corehub
   corehub package appeal <entry-id> --version version --message text --registry https://coreblow.com/corehub
   corehub package appeals list [--status open|accepted|rejected|all] [--package entry-id] --registry https://coreblow.com/corehub

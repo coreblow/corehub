@@ -2382,6 +2382,64 @@ try {
     const projectedPackageFilterPayload = await projectedPackageFilterResponse.json();
     assert.equal(projectedPackageFilterPayload.data[0].id, "plugin-lab");
 
+    const hostedScanQueueResponse = await fetch(`${apiBaseUrl}/package-scans/enqueue`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-corehub-user": "github:coreblow-admin" },
+      body: JSON.stringify({
+        packageId: "plugin-lab",
+        version: "0.1.0",
+        scanner: "corehub-clawscan",
+        source: "hosted",
+        reason: "Hosted scanner queue fixture.",
+      }),
+    });
+    assert.equal(hostedScanQueueResponse.status, 200);
+    const hostedScanQueuePayload = await hostedScanQueueResponse.json();
+    assert.equal(hostedScanQueuePayload.data.job.status, "queued");
+    assert.equal(hostedScanQueuePayload.data.job.scanStatus, "pending");
+    assert.equal(hostedScanQueuePayload.data.job.inputs.fileCount, 5);
+
+    const hostedScanResultResponse = await fetch(`${apiBaseUrl}/package-scans/${hostedScanQueuePayload.data.job.id}/result`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-corehub-user": "github:coreblow-admin" },
+      body: JSON.stringify({
+        status: "completed",
+        llmAnalysis: {
+          status: "completed",
+          verdict: "malicious",
+          summary: "ClawScan detected a blocked fixture payload.",
+        },
+        vtAnalysis: {
+          status: "clean",
+          engineStats: { malicious: 0, suspicious: 0, harmless: 10, undetected: 50 },
+        },
+        staticScan: { status: "suspicious", summary: "Static scanner found risky shell execution." },
+        summary: "Hosted scanner marked the release malicious.",
+        riskLevel: "high",
+        reasonCodes: ["scan:malicious", "clawscan:malicious"],
+        evidence: [
+          {
+            type: "hosted_scan_finding",
+            severity: "critical",
+            summary: "Fixture malicious scanner finding.",
+            metadata: { code: "malicious.fixture" },
+          },
+        ],
+      }),
+    });
+    assert.equal(hostedScanResultResponse.status, 200);
+    const hostedScanResultPayload = await hostedScanResultResponse.json();
+    assert.equal(hostedScanResultPayload.data.job.status, "completed");
+    assert.equal(hostedScanResultPayload.data.job.scanStatus, "malicious");
+    assert.equal(hostedScanResultPayload.data.job.llmAnalysis.verdict, "malicious");
+
+    const hostedSecurityResponse = await fetch(`${apiRegistryUrl}/api/v1/packages/plugin-lab/versions/0.1.0/security`);
+    assert.equal(hostedSecurityResponse.status, 200);
+    const hostedSecurityPayload = await hostedSecurityResponse.json();
+    assert.equal(hostedSecurityPayload.data.trust.blockedFromDownload, true);
+    assert.equal(hostedSecurityPayload.data.trust.scanStatus, "malicious");
+    assert.equal(hostedSecurityPayload.data.trust.reasons.includes("scan:malicious"), true);
+
     const packageDelete = await execFileAsync(
       process.execPath,
       [
@@ -2827,14 +2885,14 @@ try {
     assert.equal(adminStatusPayload.counts.activePublishTokens, 0);
     assert.equal(adminStatusPayload.counts.packageReports, 1);
     assert.equal(adminStatusPayload.counts.packageAppeals, 1);
-    assert.equal(adminStatusPayload.counts.packageScanJobs, 4);
+    assert.equal(adminStatusPayload.counts.packageScanJobs, 5);
     assert.equal(adminStatusPayload.queues.reviews.approved, 1);
     assert.equal(adminStatusPayload.queues.packageLifecycle.active, 1);
     assert.equal(adminStatusPayload.queues.packageReleaseModeration.approved, 1);
     assert.equal(adminStatusPayload.queues.publishTokens.revoked, 1);
     assert.equal(adminStatusPayload.queues.packageReports.confirmed, 1);
     assert.equal(adminStatusPayload.queues.packageAppeals.accepted, 1);
-    assert.equal(adminStatusPayload.queues.packageScans.completed, 4);
+    assert.equal(adminStatusPayload.queues.packageScans.completed, 5);
     assert.equal(adminStatusPayload.queues.packageScanResults.clean, 4);
     assert.equal(adminStatusPayload.queues.ownershipTransfers.completed, 1);
     assert.equal(adminStatusPayload.analytics.uniqueClients, 1);
@@ -2862,7 +2920,7 @@ try {
     assert.equal(supportBundle.recent.publishTokens[0].revokedBy.id, "github:coreblow-admin");
     assert.equal(supportBundle.recent.packageReports[0].status, "confirmed");
     assert.equal(supportBundle.recent.packageAppeals[0].status, "accepted");
-    assert.equal(supportBundle.recent.packageScanJobs[0].scanStatus, "clean");
+    assert.equal(supportBundle.recent.packageScanJobs.some((job) => job.scanStatus === "malicious"), true);
     assert.equal(supportBundle.recent.auditEvents.length <= 5, true);
 
     const persistedState = JSON.parse(await readFile(apiStatePath, "utf8"));
@@ -2885,7 +2943,8 @@ try {
     assert.equal(persistedState.installEvents.length, 2);
     assert.equal(persistedState.packageReports[0].status, "confirmed");
     assert.equal(persistedState.packageAppeals[0].status, "accepted");
-    assert.equal(persistedState.packageScanJobs.length, 4);
+    assert.equal(persistedState.packageScanJobs.length, 5);
+    assert.equal(persistedState.packageScanJobs.some((job) => job.llmAnalysis?.verdict === "malicious"), true);
     assert.equal(persistedState.packageScanJobs[0].evidence.some((event) => event.type === "artifact_metadata"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "submission.create"), true);
     assert.equal(persistedState.auditEvents.some((event) => event.action === "package.scan.complete"), true);

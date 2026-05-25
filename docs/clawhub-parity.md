@@ -77,7 +77,6 @@ Implemented ClawHub-style public API compatibility starters:
 Still pending or deferred for full ClawHub product parity:
 
 - real browser OAuth and fuller user/org account management
-- deep hosted scanner integrations beyond the CoreHub static scan job boundary
 - ClawHub-specific migration repair tooling, if CoreHub later needs package rename or migration operations
 - full hosted skill lifecycle and community surfaces
 

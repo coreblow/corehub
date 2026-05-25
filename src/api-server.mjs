@@ -1861,6 +1861,17 @@ export class CoreHubLocalStorageAdapter {
     this.requireAdminPermission(actor, "package.scan.rescan");
     const version = this.projectedVersionForPackage(packageId, input.version ?? "latest");
     if (!version) throw httpError(404, "Package version not found for scan");
+    if (input.mode === "hosted" || input.scanner === "corehub-clawscan" || input.scanner === "virustotal") {
+      const job = this.enqueueHostedPackageScan(version, {
+        actor,
+        now,
+        scanner: input.scanner ?? "corehub-clawscan",
+        source: normalizePackageScanSource(input.source ?? "rescan"),
+        reason: input.reason ?? "Operator requested hosted package rescan.",
+      });
+      await this.persistState();
+      return { status: job.status, job };
+    }
     const job = this.runStaticPackageScan(version, {
       actor,
       now,
@@ -1869,6 +1880,112 @@ export class CoreHubLocalStorageAdapter {
     });
     await this.persistState();
     return { status: job.status, job };
+  }
+
+  async enqueueHostedScan(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "package.scan.enqueue");
+    const packageId = normalizeRequiredString(input.packageId, "packageId");
+    const version = this.projectedVersionForPackage(packageId, input.version ?? "latest");
+    if (!version) throw httpError(404, "Package version not found for scan");
+    const job = this.enqueueHostedPackageScan(version, {
+      actor,
+      now,
+      scanner: input.scanner ?? "corehub-clawscan",
+      source: normalizePackageScanSource(input.source ?? "manual"),
+      reason: input.reason ?? "Hosted CoreHub scanner queued.",
+    });
+    await this.persistState();
+    return { status: job.status, job };
+  }
+
+  async recordHostedScanResult(scanId, input = {}, { actor = defaultActor(), now = new Date() } = {}) {
+    this.requireAdminPermission(actor, "package.scan.result");
+    const job = this.packageScanJobs.find((item) => item.id === scanId);
+    if (!job) throw httpError(404, "Package scan job not found");
+    const version = this.packageVersions.get(job.packageVersionId);
+    if (!version) throw httpError(404, "Package version not found for scan result");
+    const completedAt = now.toISOString();
+    const result = normalizeHostedPackageScanResult(input, { job, actor, createdAt: completedAt });
+    Object.assign(job, {
+      status: result.status,
+      scanStatus: result.scanStatus,
+      startedAt: job.startedAt ?? job.requestedAt,
+      completedAt,
+      evidence: result.evidence,
+      ...(result.summary ? { summary: result.summary } : {}),
+      ...(result.riskLevel ? { riskLevel: result.riskLevel } : {}),
+      ...(result.reasonCodes.length > 0 ? { reasonCodes: result.reasonCodes } : {}),
+      ...(result.vtAnalysis ? { vtAnalysis: result.vtAnalysis } : {}),
+      ...(result.llmAnalysis ? { llmAnalysis: result.llmAnalysis } : {}),
+      ...(result.staticScan ? { staticScan: result.staticScan } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    });
+    if (result.vtAnalysis) version.vtAnalysis = result.vtAnalysis;
+    if (result.llmAnalysis) version.llmAnalysis = result.llmAnalysis;
+    if (result.staticScan) version.staticScan = result.staticScan;
+    version.verification = {
+      ...(version.verification ?? {}),
+      scanStatus: result.scanStatus,
+      scanner: job.scanner,
+      scannedAt: completedAt,
+    };
+    version.scanStatus = result.scanStatus;
+    version.latestScanJobId = job.id;
+    version.scannedAt = completedAt;
+    this.recordAuditEvent({
+      actor,
+      action: "package.scan.result",
+      targetType: "packageScanJob",
+      targetId: job.id,
+      metadata: {
+        packageId: job.packageId,
+        version: job.version,
+        scanner: job.scanner,
+        scanStatus: job.scanStatus,
+        evidenceCount: job.evidence.length,
+      },
+      createdAt: completedAt,
+    });
+    await this.persistState();
+    return { status: job.status, job };
+  }
+
+  enqueueHostedPackageScan(version, { actor, now, scanner, source, reason }) {
+    const requestedAt = now.toISOString();
+    const artifactUpload = this.findArtifactUpload(version.artifactUploadId);
+    const job = {
+      id: `scan-${slugId(version.packageId)}-${slugVersion(version.version)}-${String(this.packageScanJobs.length + 1).padStart(6, "0")}`,
+      packageId: version.packageId,
+      version: version.version,
+      packageVersionId: version.id,
+      artifactUploadId: version.artifactUploadId,
+      scanner: normalizeHostedPackageScanner(scanner),
+      source,
+      status: "queued",
+      scanStatus: "pending",
+      reason,
+      requestedBy: actor,
+      requestedAt,
+      evidence: createHostedScanQueueEvidence({ version, artifactUpload, actor, createdAt: requestedAt }),
+      inputs: createHostedScanInputs({ version, artifactUpload }),
+    };
+    this.packageScanJobs.push(job);
+    version.scanStatus = "pending";
+    version.latestScanJobId = job.id;
+    this.recordAuditEvent({
+      actor,
+      action: "package.scan.enqueue",
+      targetType: "packageScanJob",
+      targetId: job.id,
+      metadata: {
+        packageId: job.packageId,
+        version: job.version,
+        scanner: job.scanner,
+        source: job.source,
+      },
+      createdAt: requestedAt,
+    });
+    return job;
   }
 
   async backfillPackageScans(input = {}, { actor = defaultActor(), now = new Date() } = {}) {
@@ -2359,10 +2476,9 @@ export class CoreHubLocalStorageAdapter {
   }
 
   latestPackageScanJob(packageId, version) {
-    return this.packageScanJobs
-      .filter((job) => job.packageId === packageId && job.version === version)
-      .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt))
-      .at(0) ?? null;
+    return [...this.packageScanJobs]
+      .reverse()
+      .find((job) => job.packageId === packageId && job.version === version) ?? null;
   }
 
   latestPackageScanSummary(packageId, version) {
@@ -2375,6 +2491,12 @@ export class CoreHubLocalStorageAdapter {
           jobId: job.id,
           completedAt: job.completedAt ?? null,
           evidenceCount: job.evidence?.length ?? 0,
+          summary: job.summary ?? null,
+          riskLevel: job.riskLevel ?? null,
+          reasonCodes: job.reasonCodes ?? [],
+          vtAnalysis: job.vtAnalysis ?? null,
+          llmAnalysis: job.llmAnalysis ?? null,
+          staticScan: job.staticScan ?? null,
         }
       : {
           scanner: "corehub-static",
@@ -2383,6 +2505,12 @@ export class CoreHubLocalStorageAdapter {
           jobId: null,
           completedAt: null,
           evidenceCount: 0,
+          summary: null,
+          riskLevel: null,
+          reasonCodes: [],
+          vtAnalysis: null,
+          llmAnalysis: null,
+          staticScan: null,
         };
   }
 
@@ -3137,6 +3265,20 @@ export function createCoreHubApiHandler({
         const body = await readJsonBody(request);
         const actor = actorFromRequest(request, storage);
         const result = await storage.backfillPackageScans(body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "package-scans" && segments[1] === "enqueue" && segments.length === 2) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.enqueueHostedScan(body, { actor, now: now() });
+        return json(response, 200, { apiVersion: "v2", data: result });
+      }
+
+      if (request.method === "POST" && segments[0] === "package-scans" && segments[2] === "result" && segments.length === 3) {
+        const body = await readJsonBody(request);
+        const actor = actorFromRequest(request, storage);
+        const result = await storage.recordHostedScanResult(decodeURIComponent(segments[1]), body, { actor, now: now() });
         return json(response, 200, { apiVersion: "v2", data: result });
       }
 
@@ -4689,6 +4831,177 @@ function createStaticScanEvidence({ version, artifactUpload, actor, createdAt })
   return evidence;
 }
 
+function createHostedScanQueueEvidence({ version, artifactUpload, actor, createdAt }) {
+  return [
+    {
+      id: `scan-evidence-${slugId(version.packageId)}-${slugVersion(version.version)}-hosted-queue`,
+      type: "hosted_scan_queue",
+      severity: "info",
+      summary: "Hosted scanner job queued with artifact metadata and package release context.",
+      metadata: createHostedScanInputs({ version, artifactUpload }),
+      createdBy: actor,
+      createdAt,
+    },
+  ];
+}
+
+function createHostedScanInputs({ version, artifactUpload }) {
+  return {
+    packageId: version.packageId,
+    version: version.version,
+    artifactUploadId: version.artifactUploadId,
+    artifactSha256: artifactUpload?.sha256 ?? null,
+    artifactSize: artifactUpload?.size ?? null,
+    artifactMediaType: artifactUpload?.mediaType ?? null,
+    artifactStorageProvider: artifactUpload?.storage?.provider ?? null,
+    fileCount: Array.isArray(artifactUpload?.files) ? artifactUpload.files.length : null,
+    npmIntegrity: artifactUpload?.npm?.integrity ?? null,
+    publisherHandle: version.publisherHandle,
+    channel: version.channel ?? version.tag ?? null,
+  };
+}
+
+function normalizeHostedPackageScanResult(input, { job, actor, createdAt }) {
+  const status = normalizePackageScanJobStatus(input.status ?? "completed");
+  const vtAnalysis = normalizeScanAnalysis(input.vtAnalysis, "virustotal");
+  const llmAnalysis = normalizeScanAnalysis(input.llmAnalysis, "clawscan");
+  const staticScan = normalizeScanAnalysis(input.staticScan, "static");
+  const explicitScanStatus = input.scanStatus ? normalizePackageScanStatus(input.scanStatus) : null;
+  const scanStatus =
+    status === "failed"
+      ? "failed"
+      : explicitScanStatus ?? resolveHostedPackageScanStatus({ vtAnalysis, llmAnalysis, staticScan, fallback: job.scanStatus });
+  const evidence = [
+    ...(Array.isArray(job.evidence) ? job.evidence : []),
+    ...normalizeScanEvidenceList(input.evidence, { job, actor, createdAt }),
+  ];
+  if (input.summary) {
+    evidence.push({
+      id: `scan-evidence-${slugId(job.id)}-summary`,
+      type: "hosted_scan_summary",
+      severity: scanStatus === "malicious" ? "critical" : scanStatus === "suspicious" ? "medium" : "info",
+      summary: String(input.summary).trim(),
+      metadata: {
+        scanner: job.scanner,
+        scanStatus,
+      },
+      createdBy: actor,
+      createdAt,
+    });
+  }
+  return {
+    status,
+    scanStatus,
+    evidence,
+    vtAnalysis,
+    llmAnalysis,
+    staticScan,
+    summary: typeof input.summary === "string" && input.summary.trim() ? input.summary.trim() : null,
+    riskLevel: normalizeRiskLevel(input.riskLevel),
+    reasonCodes: normalizeReasonCodes(input.reasonCodes),
+    error: status === "failed" && input.error ? String(input.error).slice(0, 500) : null,
+  };
+}
+
+function resolveHostedPackageScanStatus({ vtAnalysis, llmAnalysis, staticScan, fallback }) {
+  const llmStatus = normalizePackageScanStatus(llmAnalysis?.verdict ?? llmAnalysis?.status);
+  if (llmStatus === "malicious") return "malicious";
+  if (llmStatus === "suspicious") return "suspicious";
+  if (llmStatus === "clean") return "clean";
+
+  const staticStatus = normalizePackageScanStatus(staticScan?.status ?? staticScan?.verdict);
+  if (staticStatus === "malicious") return "malicious";
+
+  const vtStatus = normalizePackageScanStatus(vtAnalysis?.status ?? vtAnalysis?.verdict);
+  const engineStats = vtAnalysis?.engineStats && typeof vtAnalysis.engineStats === "object" ? vtAnalysis.engineStats : {};
+  const hasEngineHit = (engineStats.malicious ?? 0) > 0 || (engineStats.suspicious ?? 0) > 0;
+  if (hasEngineHit && vtStatus === "malicious") return "suspicious";
+  if (staticStatus === "suspicious" || (hasEngineHit && vtStatus === "suspicious")) return "suspicious";
+
+  const fallbackStatus = normalizePackageScanStatus(fallback);
+  if (fallbackStatus && fallbackStatus !== "pending") return fallbackStatus;
+  return vtAnalysis || llmAnalysis || staticScan ? "clean" : "pending";
+}
+
+function normalizeScanAnalysis(input, scanner) {
+  if (input === undefined || input === null) return null;
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw httpError(400, `${scanner} analysis must be an object`);
+  const status = typeof input.status === "string" && input.status.trim() ? input.status.trim().toLowerCase() : undefined;
+  const verdict = input.verdict ? normalizePackageScanStatus(input.verdict) : undefined;
+  return {
+    scanner,
+    ...(status ? { status } : {}),
+    ...(verdict ? { verdict } : {}),
+    ...(typeof input.summary === "string" && input.summary.trim() ? { summary: input.summary.trim() } : {}),
+    ...(input.engineStats && typeof input.engineStats === "object" && !Array.isArray(input.engineStats) ? { engineStats: input.engineStats } : {}),
+    ...(Array.isArray(input.findings) ? { findings: input.findings.slice(0, 25) } : {}),
+    checkedAt: typeof input.checkedAt === "string" && input.checkedAt.trim() ? input.checkedAt.trim() : new Date().toISOString(),
+  };
+}
+
+function normalizeScanEvidenceList(evidence, { job, actor, createdAt }) {
+  if (evidence === undefined) return [];
+  if (!Array.isArray(evidence)) throw httpError(400, "evidence must be an array");
+  return evidence.slice(0, 50).map((item, index) => {
+    if (!item || typeof item !== "object") throw httpError(400, `evidence[${index}] must be an object`);
+    const severity = normalizeScanEvidenceSeverity(item.severity ?? "info");
+    const summary = normalizeRequiredString(item.summary, `evidence[${index}].summary`);
+    const type = typeof item.type === "string" && item.type.trim() ? item.type.trim() : "hosted_scan_finding";
+    if (!/^[a-z][a-z0-9_.-]*$/.test(type)) throw httpError(400, `evidence[${index}].type must be a lowercase identifier`);
+    return {
+      id: typeof item.id === "string" && item.id.trim() ? item.id.trim() : `scan-evidence-${slugId(job.id)}-${String(index + 1).padStart(3, "0")}`,
+      type,
+      severity,
+      summary,
+      metadata: item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata) ? item.metadata : {},
+      createdBy: actor,
+      createdAt,
+    };
+  });
+}
+
+function normalizeHostedPackageScanner(scanner) {
+  const value = normalizeRequiredString(scanner, "scanner").toLowerCase();
+  if (!["corehub-static", "corehub-clawscan", "virustotal"].includes(value)) {
+    throw httpError(400, "scanner must be corehub-static, corehub-clawscan, or virustotal");
+  }
+  return value;
+}
+
+function normalizePackageScanJobStatus(status) {
+  const value = normalizeRequiredString(status, "status").toLowerCase();
+  if (!["queued", "running", "completed", "failed"].includes(value)) throw httpError(400, "status must be queued, running, completed, or failed");
+  return value;
+}
+
+function normalizePackageScanStatus(status) {
+  const value = normalizeRequiredString(status, "scanStatus").toLowerCase();
+  if (value === "benign") return "clean";
+  if (!["pending", "clean", "suspicious", "malicious", "failed", "not-run"].includes(value)) {
+    throw httpError(400, "scanStatus must be pending, clean, suspicious, malicious, failed, or not-run");
+  }
+  return value === "not-run" ? "pending" : value;
+}
+
+function normalizeScanEvidenceSeverity(severity) {
+  const value = normalizeRequiredString(severity, "severity").toLowerCase();
+  if (!["info", "low", "medium", "high", "critical"].includes(value)) throw httpError(400, "severity must be info, low, medium, high, or critical");
+  return value;
+}
+
+function normalizeRiskLevel(riskLevel) {
+  if (riskLevel === undefined || riskLevel === null || riskLevel === "") return null;
+  const value = String(riskLevel).trim().toLowerCase();
+  if (!["low", "medium", "high"].includes(value)) throw httpError(400, "riskLevel must be low, medium, or high");
+  return value;
+}
+
+function normalizeReasonCodes(reasonCodes) {
+  if (reasonCodes === undefined) return [];
+  if (!Array.isArray(reasonCodes)) throw httpError(400, "reasonCodes must be an array");
+  return [...new Set(reasonCodes.map((item) => String(item).trim()).filter(Boolean))].slice(0, 25);
+}
+
 function normalizeReviewEvidence(input, { id, actor, createdAt }) {
   const type = normalizeRequiredString(input?.type ?? "manual_note", "type");
   if (!/^[a-z][a-z0-9_.-]*$/.test(type)) throw httpError(400, "evidence type must be a lowercase identifier");
@@ -4705,9 +5018,9 @@ function normalizeReviewEvidence(input, { id, actor, createdAt }) {
 }
 
 function normalizePackageScanSource(value) {
-  const source = normalizeRequiredString(value, "source");
-  if (!["manual", "backfill", "submission", "rescan"].includes(source)) {
-    throw httpError(400, "source must be manual, backfill, submission, or rescan");
+  const source = normalizeRequiredString(value, "source").toLowerCase();
+  if (!["manual", "backfill", "submission", "rescan", "hosted", "callback"].includes(source)) {
+    throw httpError(400, "source must be manual, backfill, submission, rescan, hosted, or callback");
   }
   return source;
 }

@@ -812,11 +812,11 @@
         },
         "scanner": {
           "type": "string",
-          "enum": ["corehub-static"]
+          "enum": ["corehub-static", "corehub-clawscan", "virustotal"]
         },
         "source": {
           "type": "string",
-          "enum": ["manual", "backfill", "submission", "rescan"]
+          "enum": ["manual", "backfill", "submission", "rescan", "hosted", "callback"]
         },
         "status": {
           "type": "string",
@@ -841,6 +841,35 @@
         },
         "completedAt": {
           "$ref": "#/$defs/timestamp"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "riskLevel": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "reasonCodes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "vtAnalysis": {
+          "type": "object"
+        },
+        "llmAnalysis": {
+          "type": "object"
+        },
+        "staticScan": {
+          "type": "object"
+        },
+        "error": {
+          "type": "string"
         },
         "evidence": {
           "type": "array",
