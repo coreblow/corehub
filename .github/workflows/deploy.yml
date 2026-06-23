@@ -121,7 +121,7 @@ jobs:
           echo "Package: $COREHUB_SMOKE_PACKAGE"
           echo "Actor: $COREHUB_USER"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
