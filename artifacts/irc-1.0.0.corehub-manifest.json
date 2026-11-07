@@ -1,0 +1,280 @@
+{
+  "schemaVersion": "corehub.artifact.v1",
+  "package": {
+    "id": "@coreblow/irc",
+    "version": "1.0.0",
+    "kind": "channel"
+  },
+  "publisher": {
+    "handle": "coreblow"
+  },
+  "source": "https://github.com/coreblow/coreblow",
+  "artifact": {
+    "name": "irc-1.0.0.coreblow-plugin.tgz",
+    "mediaType": "application/vnd.coreblow.plugin-archive+gzip",
+    "size": 28183,
+    "sha256": "e44a7aecfa6879b5672439bfeea62b5069a5745e135beac70a6e8ce33a708c79",
+    "files": [
+      {
+        "path": "api.ts",
+        "size": 75,
+        "sha256": "58b5e0d662428315945db579966b4607ec376a0fec4805ac8ae640bb34f50ec4"
+      },
+      {
+        "path": "channel-config-api.ts",
+        "size": 65,
+        "sha256": "4f265299b9bade138a9398f0461fbe5850ecf6fc1be568113505bf07f752818b"
+      },
+      {
+        "path": "channel-plugin-api.ts",
+        "size": 200,
+        "sha256": "76616b7439d71339fbccbeeb2115a17aba12baae88972d2466502456a0c44738"
+      },
+      {
+        "path": "configured-state.ts",
+        "size": 287,
+        "sha256": "1653cc2ff849107b9c985f58edd72d099f6fe58c69f7d35e40f7735ddee9726c"
+      },
+      {
+        "path": "contract-api.ts",
+        "size": 110,
+        "sha256": "3b94b2c1322f3d3ca7ab4c5a5530a05ea9153225e1a0f954f0b4adff6f1ecd94"
+      },
+      {
+        "path": "coreblow.plugin.json",
+        "size": 152,
+        "sha256": "994b140a77344f9e027671722b84fa4d33e8e8a2ff2fe74ad82fc43f8c9640a8"
+      },
+      {
+        "path": "corehub.artifact.json",
+        "size": 572,
+        "sha256": "dc1d44336f446fe3915a9cc14cdcba4f72b794a4a15b99903a7d775df1ba71f7"
+      },
+      {
+        "path": "extension.ts",
+        "size": 102,
+        "sha256": "685431c55775a2e99e66ba36e5dab624a3863b2d8b98270fa714a4c95a945875"
+      },
+      {
+        "path": "index.ts",
+        "size": 519,
+        "sha256": "7f28d8085057b86bc003ee44f771e42edcb40f3512f136484eb907fb9044f352"
+      },
+      {
+        "path": "package.json",
+        "size": 849,
+        "sha256": "b40ecbe9237a267c4337c1eaae1c3f266a24fe2ff2ac824a41e8aa09d99e599e"
+      },
+      {
+        "path": "README.md",
+        "size": 198,
+        "sha256": "9a7d900cbd705666c2226934a1f15ba0efd752c2d5ee03651117c0a1ed45158f"
+      },
+      {
+        "path": "runtime-api.ts",
+        "size": 196,
+        "sha256": "40eba0a11a7799f87c93de7f43ded20fde97dfdf6bde22541cd9fd2ebe6d25b8"
+      },
+      {
+        "path": "secret-contract-api.ts",
+        "size": 128,
+        "sha256": "c381e9461fc33c8b3f797fc2541fc4e91960ae02623fcfaf834ed0d56d6b9f02"
+      },
+      {
+        "path": "setup-entry.ts",
+        "size": 164,
+        "sha256": "06f67e570c09c74829f576ceb56a8164fd6e28ab24f22b934fdc4cdafe40289e"
+      },
+      {
+        "path": "src/accounts.ts",
+        "size": 7003,
+        "sha256": "43766c3fa3ce123d5b7d44912889432de50ede0d7a49a0186bc662aab9316a26"
+      },
+      {
+        "path": "src/adapter.ts",
+        "size": 491,
+        "sha256": "1d38546c7348dddcd8181248063c4a743b35864c6d173d3f760e13132ffc8d7c"
+      },
+      {
+        "path": "src/channel-api.ts",
+        "size": 458,
+        "sha256": "1add75dd31d5c52daf7753d090fe10ec78a4bb8436dea5aff9f754f766211022"
+      },
+      {
+        "path": "src/channel-runtime.ts",
+        "size": 229,
+        "sha256": "bb4ca7ad071f94239f4ba72b4209b07c8572c1c0792929b56844671660a417c8"
+      },
+      {
+        "path": "src/channel.ts",
+        "size": 12270,
+        "sha256": "07dfdf76bf72bd677a3f5bb5731d1e04927b1bb4216a6392e536668f743751f5"
+      },
+      {
+        "path": "src/client.ts",
+        "size": 12022,
+        "sha256": "10d8dfe0e47bff0716132d0b33a4b5e71667def9944f7e23b72f30653941d552"
+      },
+      {
+        "path": "src/config-schema.ts",
+        "size": 3299,
+        "sha256": "622f132971b73f3a57ab23ed69c52ee750d022d42e06c32be5bf8ec0c83cda37"
+      },
+      {
+        "path": "src/config-ui-hints.ts",
+        "size": 1590,
+        "sha256": "debaa422f1c0a58a5356215bd00bd9b633a10cdb5206b9e10e31699867061513"
+      },
+      {
+        "path": "src/config.ts",
+        "size": 661,
+        "sha256": "2ee7e6638df0683375b7e4e11986f06172df91cc90a4bdd017ad0e6c09d2d074"
+      },
+      {
+        "path": "src/connect-options.ts",
+        "size": 906,
+        "sha256": "27b4e72d3cc31c250f4ce67b2c4dc72df52fe0ccb99dac636daddcd0384630b1"
+      },
+      {
+        "path": "src/control-chars.ts",
+        "size": 502,
+        "sha256": "80e654aab41ecc022d6be9087db61b6b23d8ae2ad74a4002095fa780e3dc93d8"
+      },
+      {
+        "path": "src/doctor.ts",
+        "size": 81,
+        "sha256": "74f57e92d35d701fb545120e7409adf43db4bb5feb2820c941a61128c51e4c42"
+      },
+      {
+        "path": "src/extension.ts",
+        "size": 425,
+        "sha256": "db0406d7c3b025559457c4cece403a4bd5f89e821087dca1a8d112c016905526"
+      },
+      {
+        "path": "src/formatter.ts",
+        "size": 828,
+        "sha256": "60accbffcf9d9eb322843ab9c10a002c60081cbf0b4e5459aed438b4a3754ac9"
+      },
+      {
+        "path": "src/gateway.ts",
+        "size": 1721,
+        "sha256": "4eca9601b6649697d5559312cb4fca1c6f8003cead309906e176938bafae7ba2"
+      },
+      {
+        "path": "src/handler.ts",
+        "size": 409,
+        "sha256": "eead832a7a8ac7e36ef22500e43dcbb8bb8eb9d225db16195b708d6812cd2147"
+      },
+      {
+        "path": "src/inbound.ts",
+        "size": 11960,
+        "sha256": "414b7297f5ea4e7acc343ac4c83993bfd8500ce0119835d81691850b53963c4c"
+      },
+      {
+        "path": "src/index.ts",
+        "size": 203,
+        "sha256": "d18c913bde45c450cd5a754b67e1477333e7a5a4e6c4ef20f532af262f7094bd"
+      },
+      {
+        "path": "src/media.ts",
+        "size": 890,
+        "sha256": "0d1bbdc3eaf830b2a4a390e434c95304e54ef1cc2b5a7e5729c8d03445a530fe"
+      },
+      {
+        "path": "src/message-adapter.ts",
+        "size": 900,
+        "sha256": "ef254b9d2103495ad14f3026ca98a5fd17c2f0c66119c1624130e2e223ff1b00"
+      },
+      {
+        "path": "src/monitor.ts",
+        "size": 4479,
+        "sha256": "65b9e81ba80bd2b26dee768cabbf0a60384a2891f27200bb6d4391f60335dd6a"
+      },
+      {
+        "path": "src/normalize.ts",
+        "size": 3436,
+        "sha256": "5df2dbcf3d0cbdfc34edef4c0518fc266c5a688a3444da9a1e091f89350ca52a"
+      },
+      {
+        "path": "src/outbound-base.ts",
+        "size": 401,
+        "sha256": "1422f687e3b0edda11b985e09421019bfbced73afe836ad6b716314d0b049045"
+      },
+      {
+        "path": "src/policy.ts",
+        "size": 5025,
+        "sha256": "882eefac7811774f646ab8996aab7aece339b940eb61cc7d1a1275f4d38c4f1c"
+      },
+      {
+        "path": "src/probe.ts",
+        "size": 1260,
+        "sha256": "0d46b46ef73316868f4072ceb2547c8bdf65662ca3a79faf50f5d88a2f3e07fe"
+      },
+      {
+        "path": "src/protocol.ts",
+        "size": 4224,
+        "sha256": "6ff60935c4d1b770a3ab0d92dd32f89b977113f5efaec9a959fde083c06b5ea7"
+      },
+      {
+        "path": "src/rate-limiter.ts",
+        "size": 855,
+        "sha256": "e5182f0cc3c392ef7d3654231ed319956e02affd111d8464647539ee9cc09921"
+      },
+      {
+        "path": "src/resolve-target.ts",
+        "size": 828,
+        "sha256": "e40f4a6090c3bfe30628ba892730f8a3f8e57d184bfe99037988ec6431b5b910"
+      },
+      {
+        "path": "src/runtime-api.ts",
+        "size": 1036,
+        "sha256": "f355714b56e1bb864ee31fd7454e4749edaa5a75524a9bbeff3453d18836ea83"
+      },
+      {
+        "path": "src/runtime.ts",
+        "size": 1339,
+        "sha256": "957bd0d8f2732bbbdb3b9cabcbacb27c5b3e7285bbdd6cf3f34c0c8f4f7d4138"
+      },
+      {
+        "path": "src/secret-contract.ts",
+        "size": 220,
+        "sha256": "2e37f1138a284c53ce87605af8740f67efa24dcd8a5740b42ed75f7333f4ad0a"
+      },
+      {
+        "path": "src/send.ts",
+        "size": 2744,
+        "sha256": "d956f8fbdd1b1dd44a8788048e06e4282e948d7de37d36724b22aff12da2f3ac"
+      },
+      {
+        "path": "src/setup-core.ts",
+        "size": 4178,
+        "sha256": "9cd525c90a4136049a7996a9d37195c7fa1dfb479be0c45d796d04572bbb2dcb"
+      },
+      {
+        "path": "src/setup-surface.ts",
+        "size": 16214,
+        "sha256": "9c62872169bd5eb44671975267c06e36cdac2e2d1734b5e44ae93c8193c1aa5e"
+      },
+      {
+        "path": "src/subagent-hooks.ts",
+        "size": 1017,
+        "sha256": "1deb35d531232bba5c286a64ec560905a3a70eac116f27873bae9c613cbcc197"
+      },
+      {
+        "path": "src/types.ts",
+        "size": 2414,
+        "sha256": "e9b298c717c30756e110d33ce9a5c5103a1371b50c4441abd5c9dd6518ed1249"
+      },
+      {
+        "path": "src/webhook.ts",
+        "size": 1152,
+        "sha256": "56a3d3c1fd0af5a1e6a370614e7ff622a20cef9dfd5a59e2be259f085d2b94de"
+      },
+      {
+        "path": "tsconfig.json",
+        "size": 145,
+        "sha256": "aef5fb743c40ef6047af77fcf1a185640f84704d1382d6a62a0d3d0e4960f60b"
+      }
+    ]
+  }
+}

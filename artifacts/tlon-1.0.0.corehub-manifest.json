@@ -1,0 +1,330 @@
+{
+  "schemaVersion": "corehub.artifact.v1",
+  "package": {
+    "id": "@coreblow/tlon",
+    "version": "1.0.0",
+    "kind": "channel"
+  },
+  "publisher": {
+    "handle": "coreblow"
+  },
+  "source": "https://github.com/coreblow/coreblow",
+  "artifact": {
+    "name": "tlon-1.0.0.coreblow-plugin.tgz",
+    "mediaType": "application/vnd.coreblow.plugin-archive+gzip",
+    "size": 55306,
+    "sha256": "02140ff953e1e8fd43b6173a18ce49fac53ca569b9669d1849909e5cde9f186a",
+    "files": [
+      {
+        "path": "api.ts",
+        "size": 34,
+        "sha256": "301dccbe59e1a79720c8c52b6a96ebd0267b860494a3f617511e93065d462c50"
+      },
+      {
+        "path": "channel-plugin-api.ts",
+        "size": 47,
+        "sha256": "eabc31c46fc891f7f5e309195dd4b057e922f2246aacef7d22fee78dcc8cbc8d"
+      },
+      {
+        "path": "coreblow.plugin.json",
+        "size": 213,
+        "sha256": "e4176cb58ccdb83ad73fa31e8a1fa0e245b3528500aa18f94037c29836440749"
+      },
+      {
+        "path": "corehub.artifact.json",
+        "size": 574,
+        "sha256": "3049386a6ae9d8577eeebdf8c9f95aa44e8f8d82ab1fe1e38e14a91a6c663c47"
+      },
+      {
+        "path": "doctor-contract-api.ts",
+        "size": 92,
+        "sha256": "ed08fea6a1d291a636d63a141e4b87d50b40a1a151747d7518820d5d9b946d83"
+      },
+      {
+        "path": "extension.ts",
+        "size": 102,
+        "sha256": "685431c55775a2e99e66ba36e5dab624a3863b2d8b98270fa714a4c95a945875"
+      },
+      {
+        "path": "index.ts",
+        "size": 4608,
+        "sha256": "b56d30a086a3fc64c0a1ca30b79bb31ae923fe0b7724b1de278b174203000da8"
+      },
+      {
+        "path": "package.json",
+        "size": 979,
+        "sha256": "900cbc7f522351aec0027c9e46c1eb871756f156c3f24103043c60268883c1d6"
+      },
+      {
+        "path": "README.md",
+        "size": 176,
+        "sha256": "1af5412cb6468cb6090dd919bc928bc9cb7a4805d201ad4436d0aa7822fed1d5"
+      },
+      {
+        "path": "runtime-api.ts",
+        "size": 172,
+        "sha256": "860a0d4eb08f916cca6cfc4ad7a812ca1431e1c5710e1a9874e0d8315117f6d4"
+      },
+      {
+        "path": "setup-api.ts",
+        "size": 114,
+        "sha256": "f23c18d691ab625874f39e79b3218965c0fbbc93dbfc218aa9847fa7ec3c1477"
+      },
+      {
+        "path": "setup-entry.ts",
+        "size": 166,
+        "sha256": "d3b3fc24c12377a45162c13c5dc66c59fa6824377d3b3b85e08ef2442af4e754"
+      },
+      {
+        "path": "src/account-fields.ts",
+        "size": 937,
+        "sha256": "8cc326c0ec33e4b443c1f932299989547d2a737806134e32ff9687066f5b8429"
+      },
+      {
+        "path": "src/adapter.ts",
+        "size": 493,
+        "sha256": "fc67d13d539d9c320f6004db8f2961db04a3905183f7df53d7395af0ed239505"
+      },
+      {
+        "path": "src/channel.runtime.ts",
+        "size": 7336,
+        "sha256": "e609e5dbc7336fb5e2c28dfb452c3048843f6b8690764b4e612de98f469e90aa"
+      },
+      {
+        "path": "src/channel.ts",
+        "size": 6248,
+        "sha256": "50d1d12ab3a320a1694ac5514a71ce19087de3962633d51234235063e99ea726"
+      },
+      {
+        "path": "src/config-schema.ts",
+        "size": 1729,
+        "sha256": "59c0200432dfd3018d7e09f5b0c000c9a6c28ba335642094a47ad1254b338d25"
+      },
+      {
+        "path": "src/config.ts",
+        "size": 667,
+        "sha256": "89800ee12e088da32ba041745722a41154519f2ce9781324f87181a1316e656c"
+      },
+      {
+        "path": "src/doctor-contract.ts",
+        "size": 1723,
+        "sha256": "1ca8a71483562ea873bad668a82a9507568b48d81a8dc89db595b6e8e0734dbf"
+      },
+      {
+        "path": "src/doctor.ts",
+        "size": 302,
+        "sha256": "06d63892c4591bff09307766c61eaa467a3a8ad413dfaf79fba59b85ef92410f"
+      },
+      {
+        "path": "src/extension.ts",
+        "size": 428,
+        "sha256": "92177393cb09f9a693201f18cd93fcd048188a9dad57785747c7326a7caee2ce"
+      },
+      {
+        "path": "src/formatter.ts",
+        "size": 830,
+        "sha256": "53c9718b5b9acffa8d153828a5ef08cd141958d6adb986619f0d3d9476e4cee4"
+      },
+      {
+        "path": "src/handler.ts",
+        "size": 413,
+        "sha256": "2480a8353ba0bedc36410679a0c11b7a31aa40a9bb3541961fd894f0bc487cfc"
+      },
+      {
+        "path": "src/index.ts",
+        "size": 180,
+        "sha256": "b49dc6c97c06964ddc966fa15d983ea1ee6d1c54ce8d6f1f17967682090b7fd8"
+      },
+      {
+        "path": "src/logger-runtime.ts",
+        "size": 73,
+        "sha256": "c1a4ed44f2c83e0c7fddf81b9b4b828f15f825a769cd36cd17672f7458f4a250"
+      },
+      {
+        "path": "src/media.ts",
+        "size": 892,
+        "sha256": "ae6fc6bc87dab0b2ca58c7f444af6a3972e274b2b0946d0440dc240cda0d874d"
+      },
+      {
+        "path": "src/monitor/approval-runtime.ts",
+        "size": 12045,
+        "sha256": "4b5e2a086083419032db8ee7d14345c287230eab2320ae2cd44bfa062d6d59a6"
+      },
+      {
+        "path": "src/monitor/approval.ts",
+        "size": 8137,
+        "sha256": "94db620e77f794bf5600b82c294f0cde14402f75d082dfeda2026a6229949daf"
+      },
+      {
+        "path": "src/monitor/authorization.ts",
+        "size": 990,
+        "sha256": "9f5e36b5916ef00ec2dd69fead25511c4e33859da97bee6e74f959852a59ff27"
+      },
+      {
+        "path": "src/monitor/cites.ts",
+        "size": 1486,
+        "sha256": "6af5c440ae54a66d12dd1b1ec52a00a3864cdbf32174cb4aa10605cdd86bb801"
+      },
+      {
+        "path": "src/monitor/discovery.ts",
+        "size": 2744,
+        "sha256": "38f255219dc4b8d9caf008e59ef2b075d7fb6da767febb0fab719f360e2be55d"
+      },
+      {
+        "path": "src/monitor/history.ts",
+        "size": 6286,
+        "sha256": "404746911c4cb3ff8dbabc7dc81f7feb3db87604a89909c85307b088d72b15e1"
+      },
+      {
+        "path": "src/monitor/index.ts",
+        "size": 51488,
+        "sha256": "dae62881d109d4d832bf27d00c3741a46abcd2e5ffca871d87dfd6d39f94644b"
+      },
+      {
+        "path": "src/monitor/media.ts",
+        "size": 4625,
+        "sha256": "5a1243cf89d7b34e0a807e31935198bdeef0a17872f2c1e6d523041d7c0d4e46"
+      },
+      {
+        "path": "src/monitor/processed-messages.ts",
+        "size": 2177,
+        "sha256": "e148ece90458d333157e6fcf4025b3788cd10b0d99c8d8ae36c00478360910af"
+      },
+      {
+        "path": "src/monitor/settings-helpers.ts",
+        "size": 5757,
+        "sha256": "302e526c4af6496b0bd054fc0f2db962ab8ddcaf839c3574b43ffe5786491d84"
+      },
+      {
+        "path": "src/monitor/utils.ts",
+        "size": 11615,
+        "sha256": "2ba70a23b0655ad6d5e86a3a7f92669ac3a7a9b592a6d62b6cbcc59d05294626"
+      },
+      {
+        "path": "src/rate-limiter.ts",
+        "size": 857,
+        "sha256": "ac0e66e14e032adeaf0e42f4ed1e03d1d0bfe4379d23391cf751615861322aa8"
+      },
+      {
+        "path": "src/resolve-target.ts",
+        "size": 829,
+        "sha256": "fa2c7246a0db1490dd7b83c31e5e9ea44218e038afcb57e5c23481b742f00469"
+      },
+      {
+        "path": "src/runtime.ts",
+        "size": 1296,
+        "sha256": "079beb25591f56c9218abd985e12d514069041fd54acd912fe1586b041e98b33"
+      },
+      {
+        "path": "src/session-route.ts",
+        "size": 1032,
+        "sha256": "97cef74c5d0e2ac2a6aeeb7a572516b3d71a472387b4fc080013da96d91f03b8"
+      },
+      {
+        "path": "src/settings.ts",
+        "size": 11435,
+        "sha256": "461aae57d5b497f714bf64b889033859d3d6f942682bb0d357620f5a75f0ca36"
+      },
+      {
+        "path": "src/setup-core.ts",
+        "size": 6658,
+        "sha256": "6bf7bbaee3dd0a0eb170900574cf3b3d726b919ff9864d693513cdb83c718c9a"
+      },
+      {
+        "path": "src/setup-surface.ts",
+        "size": 3593,
+        "sha256": "9c1fa07ba02d9b1ffbc8926b80ce1c542c8958e1d44645e67b5b0ed504a3cb3b"
+      },
+      {
+        "path": "src/subagent-hooks.ts",
+        "size": 1024,
+        "sha256": "89dce49fcb6e3edf9f0349f6d1793a293d1591918e9fe7e68200393c5a7ea1eb"
+      },
+      {
+        "path": "src/targets.ts",
+        "size": 2803,
+        "sha256": "014e191f1e5d87f87e85c35d57069cbfab4d186d848189708d9ea07a66602e65"
+      },
+      {
+        "path": "src/tlon-api.ts",
+        "size": 8537,
+        "sha256": "a4b47a3fe9d5022c3873ee612a33b2c276b067e94fa43d33b1bcfda12f1cbaf2"
+      },
+      {
+        "path": "src/types.ts",
+        "size": 4802,
+        "sha256": "eaad2344a482071a4f1ae925fe2b1d210c69166876a2101b2f86884d0b072e82"
+      },
+      {
+        "path": "src/urbit/auth.ts",
+        "size": 1453,
+        "sha256": "b35448caa579649a83325ce59b1249eb699bfcf5975768510518ac5d4350f72a"
+      },
+      {
+        "path": "src/urbit/base-url.ts",
+        "size": 1853,
+        "sha256": "67670407aa6dcdc3670cbed1b08263e382afd7c6813c9bdc6c011f1585a20937"
+      },
+      {
+        "path": "src/urbit/channel-ops.ts",
+        "size": 3785,
+        "sha256": "86a1db83602c050ba95c45792f4594d76bb702551b21c9fa6f513af48574ae49"
+      },
+      {
+        "path": "src/urbit/context.ts",
+        "size": 1515,
+        "sha256": "9f44f304d09efee6311cdda00994016ca20abfbd034980c34a751914c970db0b"
+      },
+      {
+        "path": "src/urbit/errors.ts",
+        "size": 1388,
+        "sha256": "4743bffb4af5ceac7f037d27df38c6538235b33218983a83654fca9d27fbf1e3"
+      },
+      {
+        "path": "src/urbit/fetch.ts",
+        "size": 1131,
+        "sha256": "431adfc4c73f8fbef84031acc03f961be58566849c21d2e93771959db2cabad6"
+      },
+      {
+        "path": "src/urbit/foreigns.ts",
+        "size": 1144,
+        "sha256": "00e5508881a63eddb1c871be304d9ebc58e5a54a5f18e8b3e6e2ab2761f04f00"
+      },
+      {
+        "path": "src/urbit/send.ts",
+        "size": 4503,
+        "sha256": "aab625570aa3b62c8950d8db47f5c723dcef68de4ff025461cc73632d7f7db4c"
+      },
+      {
+        "path": "src/urbit/sse-client.ts",
+        "size": 14012,
+        "sha256": "a04eb46f6e148a8c41062385dcde5ed16e93ee4f7709b4ad91983c5627af3583"
+      },
+      {
+        "path": "src/urbit/story.ts",
+        "size": 9787,
+        "sha256": "bc6be9c94a9049a8a7f7dc1fdffb7a515e2123aa0b11f9c270f9e85b6098f7a5"
+      },
+      {
+        "path": "src/urbit/upload.ts",
+        "size": 1885,
+        "sha256": "b684d7cbf2e94ebed874ae23e81326b5d00df7e217d215b3c2d8231e2857888a"
+      },
+      {
+        "path": "src/webhook.ts",
+        "size": 1154,
+        "sha256": "8ae01ce61adb01722d10ee5b920348fcdbfec331b0fb62fe8083fdf3e21a949d"
+      },
+      {
+        "path": "test-api.ts",
+        "size": 47,
+        "sha256": "eabc31c46fc891f7f5e309195dd4b057e922f2246aacef7d22fee78dcc8cbc8d"
+      },
+      {
+        "path": "tsconfig.json",
+        "size": 145,
+        "sha256": "aef5fb743c40ef6047af77fcf1a185640f84704d1382d6a62a0d3d0e4960f60b"
+      }
+    ]
+  }
+}

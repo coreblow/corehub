@@ -1,0 +1,265 @@
+{
+  "schemaVersion": "corehub.artifact.v1",
+  "package": {
+    "id": "@coreblow/nostr",
+    "version": "1.0.0",
+    "kind": "channel"
+  },
+  "publisher": {
+    "handle": "coreblow"
+  },
+  "source": "https://github.com/coreblow/coreblow",
+  "artifact": {
+    "name": "nostr-1.0.0.coreblow-plugin.tgz",
+    "mediaType": "application/vnd.coreblow.plugin-archive+gzip",
+    "size": 34527,
+    "sha256": "ad1254f3a1eec21b7bc1b251d345d05d719a62e7e5222d04708d2bd085f51a20",
+    "files": [
+      {
+        "path": "api.ts",
+        "size": 342,
+        "sha256": "ca2d24f72f558e9067b1b744ea03c7bdf6cbeb15995a44717593ad8871036414"
+      },
+      {
+        "path": "channel-plugin-api.ts",
+        "size": 48,
+        "sha256": "e7f0d67209bf0bcc06da0dee85dcb1ea8b44ee2e2a07f51f2286a18ddca4458f"
+      },
+      {
+        "path": "coreblow.plugin.json",
+        "size": 156,
+        "sha256": "6d52df3d1bf8cb6ba4b60c471760809d092bf0e09dec507a9a90c325e5651cfa"
+      },
+      {
+        "path": "corehub.artifact.json",
+        "size": 576,
+        "sha256": "f003e0bbb1ba4ebb126d91d2d2db3ec537b16feeae6f463cdf12e2a06e9c1eb0"
+      },
+      {
+        "path": "extension.ts",
+        "size": 102,
+        "sha256": "685431c55775a2e99e66ba36e5dab624a3863b2d8b98270fa714a4c95a945875"
+      },
+      {
+        "path": "index.ts",
+        "size": 2151,
+        "sha256": "e93bbb2ef57b48d5b8c5eaa85762ae00631f3fd6f50daf0de24166250e875fd2"
+      },
+      {
+        "path": "package.json",
+        "size": 999,
+        "sha256": "0ccee1a9d1aeb5360034d68afa44b5db1e9250caea6df62e0fe4cefc0d312144"
+      },
+      {
+        "path": "README.md",
+        "size": 209,
+        "sha256": "ce9b57004afc6ee516baeda7dd95cc0bdcd9036562690bb08c0bb63260131f23"
+      },
+      {
+        "path": "runtime-api.ts",
+        "size": 174,
+        "sha256": "210843533a5db9c6b401a84611b7c8061106dc3f963aa5aaa0cf8d99e603e939"
+      },
+      {
+        "path": "setup-api.ts",
+        "size": 78,
+        "sha256": "1b959ae26155738f17fe6da132077cd04db0819511d483aa0e6c04b26f6dd01a"
+      },
+      {
+        "path": "setup-entry.ts",
+        "size": 183,
+        "sha256": "d2f0411aba608918ab9b4a6f5ce8c8fcebfb1a60741fe183402629a9a6bea8b0"
+      },
+      {
+        "path": "setup-plugin-api.ts",
+        "size": 59,
+        "sha256": "a49a112965be0d947b2b5f9df828dc764d3157c5578876966b57135103951b35"
+      },
+      {
+        "path": "src/adapter.ts",
+        "size": 495,
+        "sha256": "1a51b9e85fc66ea0c961366d9c350409d20d374628473be58bd8ab5953b11f26"
+      },
+      {
+        "path": "src/channel-api.ts",
+        "size": 296,
+        "sha256": "97631db8368cad65df424fb67a939f64ddd62b922ca763cbc2af731fe06cb2d2"
+      },
+      {
+        "path": "src/channel.setup.ts",
+        "size": 1672,
+        "sha256": "1f68083b0ba223293fcc0e1b1d0b6cd3186b65c38c2fa9ad68abc98b80dd3bcb"
+      },
+      {
+        "path": "src/channel.ts",
+        "size": 17666,
+        "sha256": "5bc09260556fd3550b7ae749ecc7e337cbf4994ca4083a6d498219ccb2caf6c7"
+      },
+      {
+        "path": "src/config-schema.ts",
+        "size": 2585,
+        "sha256": "8cd0c36eedb6d5646c51d27dbe09f550e5b309307daceb3645a1a12265790f10"
+      },
+      {
+        "path": "src/config.ts",
+        "size": 673,
+        "sha256": "91134fb74a340f2db4868a4c0affd524d496ce657c8786223d2d66dd02374126"
+      },
+      {
+        "path": "src/default-relays.ts",
+        "size": 73,
+        "sha256": "68261e435304c91b45d767e36ed4794e4d24de966afb480d033b9b6a292991c2"
+      },
+      {
+        "path": "src/extension.ts",
+        "size": 431,
+        "sha256": "d6ffc92efde937eab40820af9b07bf6a07c4eec1fbbd5a75e28c2fef091ef21b"
+      },
+      {
+        "path": "src/formatter.ts",
+        "size": 832,
+        "sha256": "23e73c895f788de1f11a5c1569dd7973ab70fd2c1eb7b6cb8165c6059ac9a895"
+      },
+      {
+        "path": "src/gateway.ts",
+        "size": 241,
+        "sha256": "233cb20a1bd8661e98292c0230226d022412e8868f3784de396a7fe4868b5b94"
+      },
+      {
+        "path": "src/handler.ts",
+        "size": 417,
+        "sha256": "53337eea62e3164dc12107b313760d874be708130dd16333f1dcd6d9dabe268f"
+      },
+      {
+        "path": "src/inbound-direct-dm-runtime.ts",
+        "size": 72,
+        "sha256": "01d04d76231bcaec64bd20f15578c43357c56d7761580849feefeb173be0786d"
+      },
+      {
+        "path": "src/index.ts",
+        "size": 212,
+        "sha256": "c2fd1f6bd9ea84fc4a9b4e1cfbca752cd102965c706229283345c0f2aeec5f2c"
+      },
+      {
+        "path": "src/media.ts",
+        "size": 894,
+        "sha256": "6e9c189442c2f63bedbe8b3c9e3dbf3ecfacda0127a7e33f72fc2cf2ef894f6f"
+      },
+      {
+        "path": "src/metrics.ts",
+        "size": 12024,
+        "sha256": "1d63670fd977ec33e24590f27f5dfda5cec81375ccfd479184ce289225233dbc"
+      },
+      {
+        "path": "src/nostr-bus.ts",
+        "size": 25763,
+        "sha256": "7d8cb2d2334cfbca64cbeaec91e19cbc6ac7d8e9ade32ce8120c93db584361a1"
+      },
+      {
+        "path": "src/nostr-key-utils.ts",
+        "size": 135,
+        "sha256": "a494c03eb8782d15b1641196612786c74c47bf4a1f6834b64e5abf3216ce146e"
+      },
+      {
+        "path": "src/nostr-profile-core.ts",
+        "size": 149,
+        "sha256": "80a09f75490e3d8f383cbd8c459e51fbe174832ffa9712f13b4c3867b5885e6b"
+      },
+      {
+        "path": "src/nostr-profile-http-runtime.ts",
+        "size": 151,
+        "sha256": "2154911e71448ba9a4b21518c4c6f10fb5a5abdbbef7ce7d00b9f928b01192f8"
+      },
+      {
+        "path": "src/nostr-profile-http.ts",
+        "size": 17907,
+        "sha256": "d9aafa434f2481e658b622932d311eeb97fa510fdd03c376d55ff4993ee2bbe2"
+      },
+      {
+        "path": "src/nostr-profile-import.ts",
+        "size": 7044,
+        "sha256": "b1104cc6ada165bbb7f267d5beb49e5aedceacee9987fd42a1640136d43d0f45"
+      },
+      {
+        "path": "src/nostr-profile-url-safety.ts",
+        "size": 561,
+        "sha256": "4716013ef6979724f1c4f6fc354c0532fe10c3ea0695b72ee00cd9e690103983"
+      },
+      {
+        "path": "src/nostr-profile.ts",
+        "size": 8003,
+        "sha256": "9cd62e5d2dd86cf6f6a56d96e13597a992a6155297501ae2ad7dcb27da1418dd"
+      },
+      {
+        "path": "src/nostr-state-store.ts",
+        "size": 7147,
+        "sha256": "9b14da2f38f0a85c25f21cb551b244fe9844fda5bcc240554c37d363d1047612"
+      },
+      {
+        "path": "src/rate-limiter.ts",
+        "size": 859,
+        "sha256": "3a3e97c4758888498ea6e8405a20e42270abf9db53b4c85263feaf95f4c5728d"
+      },
+      {
+        "path": "src/resolve-target.ts",
+        "size": 830,
+        "sha256": "80c8699c0724d2829108db1c3ff0a460dcaccc85eb88ff43de7adf7169e05d62"
+      },
+      {
+        "path": "src/runtime.ts",
+        "size": 1310,
+        "sha256": "e8cd00f6f78dacccc46769b2924cf0caa9548c5c0163f9b023133381572e8b53"
+      },
+      {
+        "path": "src/seen-tracker.ts",
+        "size": 6214,
+        "sha256": "e00bbe04d6e4ab676ae133d0f514e882b52337a404b759d96c6b70c58135b1c6"
+      },
+      {
+        "path": "src/session-route.ts",
+        "size": 646,
+        "sha256": "db600bb9ec658a5f961f0ae22963ec8dddfd8630d2bea5ba545396baf9ac8739"
+      },
+      {
+        "path": "src/setup-surface.ts",
+        "size": 8649,
+        "sha256": "d069b97961f98242eda6ec072b61bf727bff1da1b6f6808e13c125179d313204"
+      },
+      {
+        "path": "src/subagent-hooks.ts",
+        "size": 1031,
+        "sha256": "937ff1c454b6239a3e72dc30be6b564709ada1eab345c88a1d17da92140ac83f"
+      },
+      {
+        "path": "src/test-fixtures.ts",
+        "size": 1374,
+        "sha256": "1d0a8a13fd13b9cba96c77fc82e47f0c88746dd700cdd530e7bda14d3603a0e6"
+      },
+      {
+        "path": "src/types.ts",
+        "size": 3251,
+        "sha256": "fe66ab6c93c1c7934eb0fda7c828cb8b24a30247749c560b594d0b338340dc00"
+      },
+      {
+        "path": "src/webhook.ts",
+        "size": 1156,
+        "sha256": "0d9621708cd3a94db196b2fb5dc2fd9f588e5a7f8f5154451eff54f9359fcd90"
+      },
+      {
+        "path": "test-api.ts",
+        "size": 48,
+        "sha256": "e7f0d67209bf0bcc06da0dee85dcb1ea8b44ee2e2a07f51f2286a18ddca4458f"
+      },
+      {
+        "path": "test/setup.ts",
+        "size": 175,
+        "sha256": "5cc6d9626fd90a07152f84b7e16b579bc9902401e7f23a4c0a5b8b4d928a6028"
+      },
+      {
+        "path": "tsconfig.json",
+        "size": 145,
+        "sha256": "aef5fb743c40ef6047af77fcf1a185640f84704d1382d6a62a0d3d0e4960f60b"
+      }
+    ]
+  }
+}

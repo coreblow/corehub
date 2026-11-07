@@ -1,0 +1,240 @@
+{
+  "schemaVersion": "corehub.artifact.v1",
+  "package": {
+    "id": "@coreblow/twitch",
+    "version": "1.0.0",
+    "kind": "channel"
+  },
+  "publisher": {
+    "handle": "coreblow"
+  },
+  "source": "https://github.com/coreblow/coreblow",
+  "artifact": {
+    "name": "twitch-1.0.0.coreblow-plugin.tgz",
+    "mediaType": "application/vnd.coreblow.plugin-archive+gzip",
+    "size": 27844,
+    "sha256": "30e290d9fdd9a4954b4d8316933fe6c1b5683e587c0de2fc35f2a9c451be6785",
+    "files": [
+      {
+        "path": "api.ts",
+        "size": 34,
+        "sha256": "301dccbe59e1a79720c8c52b6a96ebd0267b860494a3f617511e93065d462c50"
+      },
+      {
+        "path": "channel-plugin-api.ts",
+        "size": 48,
+        "sha256": "af840e4e03da69837c9f7cff4fa46c028d03733a26893436b9aaf2f61505a8ec"
+      },
+      {
+        "path": "coreblow.plugin.json",
+        "size": 158,
+        "sha256": "f192c2222e0cf52b2d65c68f1e1190d15f515cb7490a0ea0befa72e386a87f54"
+      },
+      {
+        "path": "corehub.artifact.json",
+        "size": 578,
+        "sha256": "62edfd3346dd6775b16985e7aa7d352ac0a6afef4716d772e5f5dd847b83dee5"
+      },
+      {
+        "path": "extension.ts",
+        "size": 102,
+        "sha256": "685431c55775a2e99e66ba36e5dab624a3863b2d8b98270fa714a4c95a945875"
+      },
+      {
+        "path": "index.ts",
+        "size": 426,
+        "sha256": "a95c8e2400fd6f0559c099542a47977bae2d0a03b8aeadd48d879ab5fc7093b7"
+      },
+      {
+        "path": "package.json",
+        "size": 835,
+        "sha256": "8c37d859337a40f112481ef6b5fe43f2c771329db0b10ee2672a8e16d67357d7"
+      },
+      {
+        "path": "README.md",
+        "size": 208,
+        "sha256": "3dcc72a7deeb535c94c6f56907aa53dac5fb779b56163577cd49d08a28540bbc"
+      },
+      {
+        "path": "runtime-api.ts",
+        "size": 176,
+        "sha256": "e1f6b9429fe61894ce5f64167772cccc359c3fe5f18476c15b22638172ec3788"
+      },
+      {
+        "path": "setup-entry.ts",
+        "size": 154,
+        "sha256": "0b1d7895abf8f92c38d317c6968126282af779c9b5822ddab4fea5b96d8e68c4"
+      },
+      {
+        "path": "setup-plugin-api.ts",
+        "size": 82,
+        "sha256": "ba86f241616b5a240d0ece4d1896ecbf965ba703cbf8451fba62780a933aa03e"
+      },
+      {
+        "path": "src/access-control.ts",
+        "size": 4255,
+        "sha256": "ebe23100b85cacd6f6e25265f543327b113bd44f76a27e286ae4bfecc9d8a445"
+      },
+      {
+        "path": "src/actions.ts",
+        "size": 4991,
+        "sha256": "4778ad840e8ed68972a9876e52736559d7f6b06de6b6d8d70076005e55231191"
+      },
+      {
+        "path": "src/adapter.ts",
+        "size": 497,
+        "sha256": "51ce041f497ed53a98a9d7f68621bb3ceaa600d064d365128c0fceac256c2ea2"
+      },
+      {
+        "path": "src/channel.ts",
+        "size": 1458,
+        "sha256": "fd16c5e55568b7c7223a8cbd261a07cc29ace4701a5a088c470da77b3f015a67"
+      },
+      {
+        "path": "src/client-manager-registry.ts",
+        "size": 2943,
+        "sha256": "c9e2dc9695ae7598bfbd0fba5f10850c00fe4ccebb25974b57c91da2e7d19f0b"
+      },
+      {
+        "path": "src/config-schema.ts",
+        "size": 3144,
+        "sha256": "6e2535796d38301f17e7c97dd311910e1b435a2432743e9a73d5e71167c8fd67"
+      },
+      {
+        "path": "src/config.ts",
+        "size": 5862,
+        "sha256": "e99721095bc408d27c5969f76d8e1848f792d09320e69dd76f30d6b7036036b0"
+      },
+      {
+        "path": "src/extension.ts",
+        "size": 434,
+        "sha256": "4f2f3525aa9416271d528fae0ffdf9c7512fc3488470f86775f9d5dce1177a52"
+      },
+      {
+        "path": "src/formatter.ts",
+        "size": 834,
+        "sha256": "af5d800f02270242d316d1b5d90c30fda7bf31a77ea82fa3384a0eb435fecdb5"
+      },
+      {
+        "path": "src/handler.ts",
+        "size": 421,
+        "sha256": "4f30f65272d88197e4e5a8018c8208b499a4337f8a2bf88258485b27a4c6b733"
+      },
+      {
+        "path": "src/index.ts",
+        "size": 225,
+        "sha256": "5c2880839038f6eacdce58e3f4a8e195dde9cd6797fb9c197117171515c4cb11"
+      },
+      {
+        "path": "src/media.ts",
+        "size": 896,
+        "sha256": "6ae23c8a91b6b097f12de313de577c2fee440d4b77cacaf7177597ebb8d685d9"
+      },
+      {
+        "path": "src/monitor.ts",
+        "size": 7516,
+        "sha256": "0e54f099dfd8eae02e7952cb563c2340d8c92237b8da080958d7fbf2ed129961"
+      },
+      {
+        "path": "src/outbound.ts",
+        "size": 5613,
+        "sha256": "9b4df8cc99108f6b6beaad94f3fb1f1dd5cb247d5db4655a00bc6c2061ee97a1"
+      },
+      {
+        "path": "src/plugin.ts",
+        "size": 7330,
+        "sha256": "249bf5af95657675fe4cbfcc59198234ae8eb5730fedb3005a9f8728e4107918"
+      },
+      {
+        "path": "src/probe.ts",
+        "size": 3309,
+        "sha256": "53f2b2c0d6837ce6be624b307c37252b2bbb4aa46f8a391a98da4fddc702c36a"
+      },
+      {
+        "path": "src/rate-limiter.ts",
+        "size": 861,
+        "sha256": "7e985eed8f10cfadeca8830d16cb7951ad99bd9ad202012af8bffde76015892f"
+      },
+      {
+        "path": "src/resolve-target.ts",
+        "size": 831,
+        "sha256": "3353c905f07e38f5984d204807d0b944a2641278364c04bb15ebfc3095378996"
+      },
+      {
+        "path": "src/resolver.ts",
+        "size": 4043,
+        "sha256": "327a0f844843959749ff64d44b35ba1874dc964362df6c2e647e750a907eeb7a"
+      },
+      {
+        "path": "src/runtime.ts",
+        "size": 1326,
+        "sha256": "19949a9f7c0b759cd298354fb3ad9a5317b971f68baa55b362badaaae66b3bd1"
+      },
+      {
+        "path": "src/send.ts",
+        "size": 3783,
+        "sha256": "e30650b382e40faa23d090a6cc30fc1a4752cd37f5d3596d653e3394f487e3b8"
+      },
+      {
+        "path": "src/setup-surface.ts",
+        "size": 12383,
+        "sha256": "7b12bf75aa9ba33ebd59ca5e8390ed0882401d84b13218d642e810a0210a338f"
+      },
+      {
+        "path": "src/status.ts",
+        "size": 5745,
+        "sha256": "505f4dace05ed5c7443e6be81cab97d4fac454d1d282d12e9bc94680b9b67ed5"
+      },
+      {
+        "path": "src/subagent-hooks.ts",
+        "size": 1038,
+        "sha256": "308f89f900c0190142a74dc8957905cf27ff51e5ec6781ff838fe3ef0fb96676"
+      },
+      {
+        "path": "src/test-fixtures.ts",
+        "size": 629,
+        "sha256": "c097dd18b82cfd8a210954d6cbce6bbe5465654ba90c0d77c0f10c7b5f9e818f"
+      },
+      {
+        "path": "src/token.ts",
+        "size": 3150,
+        "sha256": "afe2145789699290a2f60efca996e937537ffd27e515c20e0796008a2b578ad2"
+      },
+      {
+        "path": "src/twitch-client.ts",
+        "size": 8492,
+        "sha256": "87e903d5961ff48187e90c06054b12b9418812820ceffeccae443d5bf8580707"
+      },
+      {
+        "path": "src/types.ts",
+        "size": 3920,
+        "sha256": "17c7bce99159813bc389ea83b55f96768ea2e6d4eec2373ec1e471f25a81c4a9"
+      },
+      {
+        "path": "src/utils/markdown.ts",
+        "size": 2943,
+        "sha256": "5f1dac27aa005e02cc8792029070063f56449001a3428c7bb4e9c3a7a21709c6"
+      },
+      {
+        "path": "src/utils/twitch.ts",
+        "size": 2370,
+        "sha256": "d2dac7d077b560387a33e688b7f349e4c5bcf9d83d0b2546a686f30b0ed49e46"
+      },
+      {
+        "path": "src/webhook.ts",
+        "size": 1158,
+        "sha256": "fd0e2caf30e2908d5463e238060c97037ac2203abf761c42e8851727d31ce123"
+      },
+      {
+        "path": "test/setup.ts",
+        "size": 154,
+        "sha256": "a24b3cea301d2437f92806f4a8e162d7ec828a7bb9d3636c8e86885d30b15291"
+      },
+      {
+        "path": "tsconfig.json",
+        "size": 145,
+        "sha256": "aef5fb743c40ef6047af77fcf1a185640f84704d1382d6a62a0d3d0e4960f60b"
+      }
+    ]
+  }
+}
