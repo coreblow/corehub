@@ -23,7 +23,7 @@ Plugin source code may live in `coreblow/coreblow` under `extensions/*` or in an
 - `tags`
 - `capabilities`
 - `review`
-- `coreblow.minCoreblowVersion`
+- `coreblow.minCoreblowVersion` (compatible with CoreBlow Agent-OS host versions `1.0.0` through `2.1.2`)
 - `coreblow.platforms`
 - `coreblow.requiresEnv`
 - `coreblow.requiresBins`
@@ -40,7 +40,7 @@ Plugin source code may live in `coreblow/coreblow` under `extensions/*` or in an
 
 Installable plugin archives should include:
 
-- `package.json` with `coreblow.extensions` and `coreblow.install.minHostVersion`.
+- `package.json` with `coreblow.extensions` and `coreblow.install.minHostVersion` (e.g. `>=1.0.0` or `>=2.1.2`).
 - `coreblow.plugin.json` with `id`, `name`, `version`, `entry`, and `configSchema`.
 - The declared entry file, for example `index.js`.
 - `corehub.artifact.json` with package, publisher, and install locator metadata.
