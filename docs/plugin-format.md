@@ -23,7 +23,7 @@ Plugin source code may live in `coreblow/coreblow` under `extensions/*` or in an
 - `tags`
 - `capabilities`
 - `review`
-- `coreblow.minCoreblowVersion` (compatible with CoreBlow Agent-OS host versions `1.0.0` through `2.1.3`)
+- `coreblow.minCoreblowVersion` (compatible with CoreBlow Agent-OS host versions `1.0.0` through `2.1.4`)
 - `coreblow.platforms`
 - `coreblow.requiresEnv`
 - `coreblow.requiresBins`
