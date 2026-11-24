@@ -43,9 +43,9 @@ jobs:
       COREHUB_USER: ${{ vars.COREHUB_USER || 'github:coreblow-admin' }}
       VERIFY_READ: ${{ inputs.verify_read || false }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fadc5fa # v4.1.0
         with:
           node-version: 22
 
@@ -82,7 +82,7 @@ jobs:
 
       - name: Upload operator smoke artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.0
         with:
           name: corehub-operator-smoke-${{ github.run_id }}
           path: |

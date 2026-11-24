@@ -102,11 +102,11 @@ jobs:
     env:
       COREHUB_SOURCE_PATH: corehub-source
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.sha }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fadc5fa # v4.1.0
         with:
           node-version: ${{ inputs.node_version }}
 
@@ -164,7 +164,7 @@ jobs:
               fh.write(f"ref={workflow_sha}\n")
           PY
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: ${{ steps.corehub_source.outputs.repository }}
           ref: ${{ steps.corehub_source.outputs.ref }}
@@ -320,7 +320,7 @@ jobs:
 
       - name: Upload package publish dry-run artifact
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.0
         with:
           name: corehub-package-publish-${{ github.run_id }}
           path: ${{ runner.temp }}/corehub-package-submit.json
