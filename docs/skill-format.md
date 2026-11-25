@@ -46,7 +46,7 @@ Use `metadata.coreblow` for runtime requirements.
 | `requires.config` | `string[]` | Config files the skill expects. |
 | `primaryEnv` | `string` | Main credential or token variable. |
 | `platforms` | `string[]` | Supported platforms such as `linux`, `macos`, or `windows`. |
-| `minCoreblowVersion` | `string` | Minimum compatible CoreBlow version (e.g. `1.0.0`, verified compatible through `2.1.5`). |
+| `minCoreblowVersion` | `string` | Minimum compatible CoreBlow version (e.g. `1.0.0`, verified compatible through `2.2.0`). |
 
 ## `corehub.skill.json`
 
