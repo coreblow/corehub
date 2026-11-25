@@ -34,7 +34,7 @@ npm run corehub -- registry info --registry https://coreblow.com/corehub
 
 ## Scope
 
-- Browse skills and plugins with CoreBlow compatibility metadata (verified compatible with CoreBlow Agent-OS host versions `1.0.0` through `2.1.4`).
+- Browse skills and plugins with CoreBlow compatibility metadata (verified compatible with CoreBlow Agent-OS host versions `1.0.0` through `2.1.5`).
 - Publish and version skill entries with changelogs and latest tags.
 - Publish code-plugin and bundle-plugin packages through registry APIs.
 - Search skills and packages through CLI-friendly and web-friendly APIs.
