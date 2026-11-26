@@ -1665,10 +1665,28 @@ function readCatalogPackageVersion(catalog, id, requested) {
   return version;
 }
 
+function createLocalProvenanceSummary(record) {
+  if (!record || typeof record !== "object") return null;
+  if (record.provenance) return record.provenance;
+  const latest = record.versions?.find((item) => item.tag === "latest") ?? record.versions?.[0] ?? null;
+  const artifactSha256 = latest?.artifact?.sha256 ?? null;
+  const reviewState = latest?.artifact?.provenance?.reviewState ?? record.review?.state ?? "unknown";
+  const hasSha256 = Boolean(artifactSha256);
+  return {
+    verificationMethod: hasSha256 ? "review+sha256" : "review",
+    verified: reviewState === "verified" && hasSha256,
+    publisher: record.publisher?.handle ?? latest?.publisher?.handle ?? null,
+    artifactSha256,
+    minCoreblowVersion: record.coreblow?.minCoreblowVersion ?? "1.0.0",
+    source: latest?.artifact?.provenance?.source ?? record.source ?? null,
+  };
+}
+
 function printCatalogRecord(catalog, id) {
   const record = catalog.findById(id);
   if (!record) throw new Error(`CoreHub entry not found: ${id}`);
-  console.log(JSON.stringify(record, null, 2));
+  const provenance = createLocalProvenanceSummary(record);
+  console.log(JSON.stringify(provenance && !record.provenance ? { ...record, provenance } : record, null, 2));
 }
 
 async function isDirectory(path) {
@@ -2046,6 +2064,9 @@ function printVersions(versions) {
     );
     if (version.publisher?.handle) console.log(`  publisher=${version.publisher.handle}`);
     if (version.artifact?.name) console.log(`  artifact=${version.artifact.name}`);
+    if (version.provenance?.verificationMethod) {
+      console.log(`  provenance=${version.provenance.verificationMethod} verified=${Boolean(version.provenance.verified)}`);
+    }
     if (version.source) console.log(`  ${version.source}`);
   }
 }
@@ -2557,6 +2578,7 @@ async function createPackageVerifyResult(source, values, registry) {
   const expectedSha256 = readOption(values, "--sha256");
   const packageId = readOption(values, "--package");
   const expected = {};
+  let remoteProvenance = null;
   if (expectedSha256) expected.sha256 = expectedSha256;
   if (packageId) {
     if (!registry) throw new Error("package verify --package requires --registry or COREHUB_REGISTRY");
@@ -2565,6 +2587,7 @@ async function createPackageVerifyResult(source, values, registry) {
     expected.sha256 = artifact.artifact.sha256;
     expected.size = artifact.artifact.size;
     expected.name = artifact.artifact.name;
+    remoteProvenance = artifact.provenance ?? null;
   }
   if (!expected.sha256) {
     throw new Error("package verify requires --sha256 or --package with --registry");
@@ -2572,8 +2595,23 @@ async function createPackageVerifyResult(source, values, registry) {
   const checksumMatches = actual.sha256.toLowerCase() === String(expected.sha256).toLowerCase();
   const sizeMatches = expected.size === undefined || expected.size === actual.size;
   const nameMatches = expected.name === undefined || expected.name === actual.name;
+  const ok = checksumMatches && sizeMatches && nameMatches;
+  const provenance = remoteProvenance
+    ? {
+        ...remoteProvenance,
+        artifactSha256: actual.sha256,
+        verified: ok && Boolean(remoteProvenance.verified),
+      }
+    : {
+        verificationMethod: "sha256",
+        verified: ok,
+        publisher: null,
+        artifactSha256: actual.sha256,
+        minCoreblowVersion: null,
+        source: null,
+      };
   return {
-    status: checksumMatches && sizeMatches && nameMatches ? "verified" : "failed",
+    status: ok ? "verified" : "failed",
     artifact: actual,
     expected,
     verification: {
@@ -2581,6 +2619,7 @@ async function createPackageVerifyResult(source, values, registry) {
       sizeMatches,
       nameMatches,
     },
+    provenance,
   };
 }
 

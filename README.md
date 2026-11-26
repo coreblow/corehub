@@ -172,6 +172,10 @@ Review states:
 - `verified`
 - `deprecated`
 
+### Provenance & Verification
+
+CoreHub verifies package releases using GitHub Actions OIDC trusted publisher verification and SHA-256 artifact integrity (`github-oidc+sha256` when minted via OIDC, or `review+sha256` / `sha256` for review-approved or local checksum verification).
+
 See [Skill Format](docs/skill-format.md), [Plugin Format](docs/plugin-format.md), [Directory API](docs/directory-api.md), [Publisher Identity](docs/publisher-identity.md), [Write-Side Schema](docs/write-side-schema.md), [Production Persistence](docs/production-persistence.md), [Production Audit Monitoring](docs/production-audit-monitoring.md), and [ClawHub Parity](docs/clawhub-parity.md).
 
 ## Public Web Surface

@@ -3592,6 +3592,8 @@ export class CoreHubLocalStorageAdapter {
       if (!artifactUpload || artifactUpload.status !== "verified") continue;
       const trust = packageReleaseTrust(version);
       const submission = submissionRecord.submission;
+      const publishToken = submission.publishTokenId ? this.publishTokens.get(submission.publishTokenId) ?? null : null;
+      const trustedPublisher = this.trustedPublishers.get(version.packageId) ?? null;
       const source = submission.source ?? `https://github.com/${version.publisherHandle}/${version.packageId}`;
       const installStats = this.installEvents.filter((event) => event.packageId === version.packageId);
       const communityStats = this.communityStatsForTarget({ targetType: "package", targetId: version.packageId });
@@ -3619,6 +3621,16 @@ export class CoreHubLocalStorageAdapter {
         version: version.version,
         tags: [submission.kind, "published"],
         capabilities: capabilitySummary.capabilityTags,
+        provenance: createPackageProvenanceSummary({
+          publisherHandle: version.publisherHandle,
+          artifactSha256: artifact.sha256,
+          minCoreblowVersion: "1.0.0",
+          source,
+          publishToken,
+          trustedPublisher,
+          reviewState: "verified",
+          blockedFromDownload: trust.blockedFromDownload,
+        }),
         stats: {
           installs: installStats.filter((event) => event.event === "installed").length,
           downloads: installStats.filter((event) => event.event === "downloaded").length,
@@ -3665,6 +3677,16 @@ export class CoreHubLocalStorageAdapter {
             capabilities: capabilitySummary,
             compatibility: createPackageCompatibilitySummary(),
             verification: createPackageVerificationSummary({ source, scanStatus: artifact.security.scanStatus }),
+            provenance: createPackageProvenanceSummary({
+              publisherHandle: version.publisherHandle,
+              artifactSha256: artifact.sha256,
+              minCoreblowVersion: "1.0.0",
+              source,
+              publishToken,
+              trustedPublisher,
+              reviewState: "verified",
+              blockedFromDownload: trust.blockedFromDownload,
+            }),
             artifact,
           },
         ],
@@ -4924,6 +4946,7 @@ async function handleProjectedRegistryV1(storage, request, url, segments, { acto
         package: { id: entry.id, kind: entry.kind, name: entry.name },
         version: version.version,
         publisher: entry.publisher,
+        provenance: version.provenance ?? entry.provenance ?? null,
         artifact: version.artifact,
         files: version.artifact.files,
         download,
@@ -4994,6 +5017,7 @@ async function projectedDownloadResponse(storage, request, url, entry, { actor, 
     package: { id: entry.id, kind: entry.kind, name: entry.name },
     version: version.version,
     publisher: entry.publisher,
+    provenance: version.provenance ?? entry.provenance ?? null,
     artifact: version.artifact,
     download,
   });
@@ -5421,6 +5445,61 @@ function createPackageCompatibilitySummary() {
   };
 }
 
+function createPackageProvenanceSummary({
+  publisherHandle,
+  artifactSha256,
+  minCoreblowVersion = "1.0.0",
+  source = null,
+  publishToken = null,
+  trustedPublisher = null,
+  reviewState = "verified",
+  blockedFromDownload = false,
+} = {}) {
+  const oidc = publishToken?.oidc ?? null;
+  const hasOidc = Boolean(oidc && publishToken?.provider === "github-actions");
+  const hasSha256 = Boolean(artifactSha256);
+  const verificationMethod = hasOidc
+    ? hasSha256
+      ? "github-oidc+sha256"
+      : "github-oidc"
+    : hasSha256
+      ? "review+sha256"
+      : "review";
+  const verified = reviewState === "verified" && !blockedFromDownload && hasSha256;
+  return {
+    verificationMethod,
+    verified,
+    publisher: publisherHandle ?? null,
+    artifactSha256: artifactSha256 ?? null,
+    minCoreblowVersion: minCoreblowVersion ?? "1.0.0",
+    source: source ?? null,
+    ...(hasOidc
+      ? {
+          oidc: {
+            provider: "github-actions",
+            repository: oidc.repository ?? publishToken.repository ?? null,
+            workflowFilename: oidc.workflowFilename ?? publishToken.workflowFilename ?? null,
+            ...(oidc.environment ?? publishToken.environment
+              ? { environment: oidc.environment ?? publishToken.environment }
+              : {}),
+            ...(oidc.sha ?? publishToken.sha ? { sha: oidc.sha ?? publishToken.sha } : {}),
+            ...(oidc.ref ?? publishToken.ref ? { ref: oidc.ref ?? publishToken.ref } : {}),
+            ...(oidc.runId ?? publishToken.runId ? { runId: oidc.runId ?? publishToken.runId } : {}),
+          },
+        }
+      : trustedPublisher
+        ? {
+            trustedPublisher: {
+              provider: "github-actions",
+              repository: trustedPublisher.repository ?? null,
+              workflowFilename: trustedPublisher.workflowFilename ?? null,
+              ...(trustedPublisher.environment ? { environment: trustedPublisher.environment } : {}),
+            },
+          }
+        : {}),
+  };
+}
+
 function createPackageVerificationSummary({ source, scanStatus }) {
   return {
     tier: "source-linked",
@@ -5639,6 +5718,7 @@ function createPackageSecuritySummary(entry, version) {
       pending: Boolean(trust.pending || security.pending),
       stale: Boolean(trust.stale || security.stale),
     },
+    provenance: version.provenance ?? entry.provenance ?? null,
   };
 }
 

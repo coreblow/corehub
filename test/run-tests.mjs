@@ -8,3 +8,4 @@ await import("./oauth-account-routes.test.mjs");
 await import("./account-org-settings.test.mjs");
 await import("./publisher-portal-hardening.test.mjs");
 await import("./cli-moderator-surface.test.mjs");
+await import("./provenance-surface.test.mjs");
